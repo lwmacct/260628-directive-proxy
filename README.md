@@ -1,25 +1,27 @@
 # llm-relay-dproxy
 
-`llm-relay-dproxy` is a directive-driven data-plane proxy for LLM relay traffic.
+`llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-The service is intentionally split into two HTTP surfaces:
+项目当前只保留代理职责：解析 `Authorization: Bearer dpx1...` 中的 directive，按 directive 改写请求并转发到目标上游。usage 解析、审计、Kafka/HTTP 投递等观测能力已经迁移到前置的 `llm-relay-parse` 服务。
 
-- Control plane: Huma API under `/api/*`, currently `/api/health`, `/api/openapi.json`, and `/api/docs`.
-- Data plane: raw `net/http` reverse proxy under `/proxy/*`.
+服务分为两个 HTTP 面：
 
-Proxy traffic does not go through Huma so streaming responses, request bodies, and upstream headers stay under direct `net/http` control.
+- Control plane：基于 Huma 的 `/api/*`，当前包含 `/api/health`、`/api/openapi.json`、`/api/docs`。
+- Data plane：基于原生 `net/http` 的 `/proxy/*` 反向代理。
+
+代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
 ## Directive Token
 
-The only directive source is:
+唯一入口是：
 
 ```http
 Authorization: Bearer dpx1.<base64url-json>
 ```
 
-Bearer tokens without the `dpx1.` prefix are treated as non-directive tokens and are not decoded.
+没有 `dpx1.` 前缀的 Bearer token 会被视为非 directive token，不会尝试解码。
 
-Payload schema:
+payload schema：
 
 ```json
 {
@@ -45,19 +47,19 @@ Payload schema:
 }
 ```
 
-Use `proxydirective.Encode` to produce the complete `dpx1.` token.
+使用 `proxydirective.Encode` 可以生成完整的 `dpx1.` token。
 
-When a directive is accepted, inbound `Authorization`, `X-Client-Request-Id`, and `M-Runtime-*` headers are removed before forwarding. If upstream needs its own `Authorization`, add it through directive header ops.
+directive 被接受后，入站 `Authorization`、`X-Client-Request-Id` 和 `M-Runtime-*` header 会在转发前移除。如果上游需要自己的 `Authorization`，需要通过 directive 的 header ops 显式写入。
 
-## Run
+## 运行
 
 ```bash
 go run . server
 ```
 
-Default listen address is `:40174`.
+默认监听地址是 `:40174`。
 
-Useful endpoints:
+常用端点：
 
 ```text
 GET /api/health
@@ -66,7 +68,7 @@ GET /api/docs
 ANY /proxy/*
 ```
 
-## Verify
+## 验证
 
 ```bash
 go test ./...
