@@ -13,9 +13,6 @@ func ExampleEncode() {
 			{Op: "=", Name: "Authorization", Values: []string{"Bearer upstream-token"}},
 			{Op: "=", Name: "X-Tenant", Values: []string{"tenant-a"}},
 		}},
-		Labels: map[string]any{
-			"trace_id": "trace-123",
-		},
 	})
 	fmt.Println(len(encoded) > 0)
 	// Output:

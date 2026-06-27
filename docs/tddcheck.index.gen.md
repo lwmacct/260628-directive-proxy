@@ -18,9 +18,7 @@ No handlers found.
 
 ## Services
 
-| Service        | Scope   | File                                | Constructor       | Dependencies | Methods |
-| -------------- | ------- | ----------------------------------- | ----------------- | ------------ | ------- |
-| `ProxyService` | `proxy` | `internal/service/proxy.service.go` | `NewProxyService` |              | Handler |
+No services found.
 
 ## Stores
 

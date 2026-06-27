@@ -1,4 +1,4 @@
-package proxyplan
+package proxy
 
 import "context"
 

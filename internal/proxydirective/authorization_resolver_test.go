@@ -6,15 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
 )
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	raw, err := Encode(Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Labels: map[string]any{
-			"trace_id": "trace-123",
-		},
 		Headers: &HeaderSection{Ops: []HeaderOp{
 			{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
 			{Op: "=", Name: "X-Test", Values: []string{"a"}},
@@ -40,11 +37,8 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	if len(plan.HeaderOps) != 4 {
 		t.Fatalf("unexpected header op count: %d", len(plan.HeaderOps))
 	}
-	if plan.HeaderOps[0].Action != proxyplan.HeaderRemove || plan.HeaderOps[0].Name != "Authorization" {
+	if plan.HeaderOps[0].Action != proxy.HeaderRemove || plan.HeaderOps[0].Name != "Authorization" {
 		t.Fatalf("expected authorization strip op first: %#v", plan.HeaderOps)
-	}
-	if got := plan.Labels["trace_id"]; got != "trace-123" {
-		t.Fatalf("unexpected directive labels: %#v", plan.Labels)
 	}
 }
 
@@ -53,7 +47,7 @@ func TestResolverIgnoresNonDirectiveBearerToken(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer opaque-upstream-token")
 
 	_, err := NewResolver().Resolve(req)
-	if !errors.Is(err, proxyplan.ErrInvalidPlan) {
+	if !errors.Is(err, proxy.ErrInvalidPlan) {
 		t.Fatalf("expected invalid plan for non-directive bearer token, got %v", err)
 	}
 }
@@ -63,7 +57,7 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 	req.Header.Set("Authorization", "Bearer "+TokenPrefix+"not-valid-base64url")
 
 	_, err := NewResolver().Resolve(req)
-	if !errors.Is(err, proxyplan.ErrInvalidDirective) {
+	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}
 }
@@ -81,7 +75,7 @@ func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T
 	req.Header.Set("Authorization", "Bearer "+raw)
 
 	_, err = NewResolver().Resolve(req)
-	if !errors.Is(err, proxyplan.ErrInvalidDirective) {
+	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}
 	message := err.Error()

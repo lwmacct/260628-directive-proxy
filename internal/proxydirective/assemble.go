@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
 )
 
 type AssembleOptions struct {
@@ -14,13 +14,12 @@ type AssembleOptions struct {
 type NormalizedPayload struct {
 	Target     *url.URL
 	Proxy      *url.URL
-	HeaderMode proxyplan.HeaderMode
-	HeaderOps  []proxyplan.HeaderOp
-	Labels     map[string]any
+	HeaderMode proxy.HeaderMode
+	HeaderOps  []proxy.HeaderOp
 	JoinPath   bool
 }
 
-func ToPlan(payload Payload, opts AssembleOptions) (*proxyplan.Plan, error) {
+func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	normalized, err := NormalizePayload(payload, opts)
 	if err != nil {
 		return nil, err
@@ -49,9 +48,6 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 	if err := validateHeaderMode(headerMode); err != nil {
 		return NormalizedPayload{}, err
 	}
-	if err := validateLabels(payload.Labels); err != nil {
-		return NormalizedPayload{}, ErrInvalidPayload
-	}
 	proxyRaw := ""
 	if payload.Transport != nil {
 		proxyRaw = payload.Transport.Proxy
@@ -64,14 +60,14 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 	if err != nil {
 		return NormalizedPayload{}, err
 	}
-	ops := make([]proxyplan.HeaderOp, 0, len(opts.StripHeaders)+len(headerOps))
+	ops := make([]proxy.HeaderOp, 0, len(opts.StripHeaders)+len(headerOps))
 	for _, name := range opts.StripHeaders {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}
-		ops = append(ops, proxyplan.HeaderOp{
-			Action: proxyplan.HeaderRemove,
+		ops = append(ops, proxy.HeaderOp{
+			Action: proxy.HeaderRemove,
 			Name:   name,
 		})
 	}
@@ -88,7 +84,6 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 		Proxy:      proxyURL,
 		HeaderMode: toHeaderMode(headerMode),
 		HeaderOps:  ops,
-		Labels:     cloneLabels(payload.Labels),
 		JoinPath:   joinPath,
 	}, nil
 }
@@ -100,44 +95,43 @@ func isHTTPURL(u *url.URL) bool {
 	return strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
 }
 
-func BuildPlan(payload NormalizedPayload) *proxyplan.Plan {
-	return &proxyplan.Plan{
+func BuildPlan(payload NormalizedPayload) *proxy.Plan {
+	return &proxy.Plan{
 		Target:     payload.Target,
 		Proxy:      payload.Proxy,
 		HeaderMode: payload.HeaderMode,
-		HeaderOps:  append([]proxyplan.HeaderOp(nil), payload.HeaderOps...),
-		Labels:     cloneLabels(payload.Labels),
+		HeaderOps:  append([]proxy.HeaderOp(nil), payload.HeaderOps...),
 		JoinPath:   payload.JoinPath,
 	}
 }
 
-func parseHeaderOps(raw []HeaderOp) ([]proxyplan.HeaderOp, error) {
+func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	ops := make([]proxyplan.HeaderOp, 0, len(raw))
+	ops := make([]proxy.HeaderOp, 0, len(raw))
 	for _, rawOp := range raw {
 		actionRaw := strings.TrimSpace(rawOp.Op)
-		action := proxyplan.HeaderAction(actionRaw)
+		action := proxy.HeaderAction(actionRaw)
 		name := strings.TrimSpace(rawOp.Name)
 		if name == "" {
 			return nil, ErrInvalidPayload
 		}
 		switch action {
-		case proxyplan.HeaderAdd, proxyplan.HeaderSet:
+		case proxy.HeaderAdd, proxy.HeaderSet:
 			if len(rawOp.Values) == 0 {
 				return nil, ErrInvalidPayload
 			}
-		case proxyplan.HeaderRemove:
+		case proxy.HeaderRemove:
 		default:
 			return nil, ErrInvalidPayload
 		}
 		if strings.EqualFold(name, "Host") {
-			if action == proxyplan.HeaderAdd || len(rawOp.Values) > 1 {
+			if action == proxy.HeaderAdd || len(rawOp.Values) > 1 {
 				return nil, ErrInvalidPayload
 			}
 		}
-		ops = append(ops, proxyplan.HeaderOp{
+		ops = append(ops, proxy.HeaderOp{
 			Action: action,
 			Name:   name,
 			Values: append([]string(nil), rawOp.Values...),
@@ -146,22 +140,11 @@ func parseHeaderOps(raw []HeaderOp) ([]proxyplan.HeaderOp, error) {
 	return ops, nil
 }
 
-func toHeaderMode(raw string) proxyplan.HeaderMode {
-	switch proxyplan.HeaderMode(strings.TrimSpace(raw)) {
-	case proxyplan.HeaderModeReplace:
-		return proxyplan.HeaderModeReplace
+func toHeaderMode(raw string) proxy.HeaderMode {
+	switch proxy.HeaderMode(strings.TrimSpace(raw)) {
+	case proxy.HeaderModeReplace:
+		return proxy.HeaderModeReplace
 	default:
-		return proxyplan.HeaderModePatch
+		return proxy.HeaderModePatch
 	}
-}
-
-func cloneLabels(labels map[string]any) map[string]any {
-	if len(labels) == 0 {
-		return nil
-	}
-	cloned := make(map[string]any, len(labels))
-	for key, value := range labels {
-		cloned[key] = value
-	}
-	return cloned
 }

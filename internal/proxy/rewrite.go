@@ -1,12 +1,10 @@
-package proxyhttp
+package proxy
 
 import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
-
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
 var proxyDisclosureHeaders = []string{
@@ -33,7 +31,7 @@ var proxyDisclosureHeaders = []string{
 	"CDN-Loop",
 }
 
-func applyRewrite(r *httputil.ProxyRequest, d *proxyplan.Plan) {
+func applyRewrite(r *httputil.ProxyRequest, d *Plan) {
 	if r == nil || d == nil || d.Target == nil {
 		return
 	}
@@ -43,7 +41,7 @@ func applyRewrite(r *httputil.ProxyRequest, d *proxyplan.Plan) {
 	if r.Out.Header == nil {
 		r.Out.Header = make(http.Header)
 	}
-	replaceHeaders := d.HeaderMode == proxyplan.HeaderModeReplace
+	replaceHeaders := d.HeaderMode == HeaderModeReplace
 	if replaceHeaders {
 		r.Out.Header = make(http.Header)
 		r.Out.Host = ""
@@ -86,7 +84,7 @@ func BuildOutboundURL(target, inbound *url.URL, joinPath bool) *url.URL {
 	return out
 }
 
-func applyHeaderOps(headers http.Header, ops []proxyplan.HeaderOp) {
+func applyHeaderOps(headers http.Header, ops []HeaderOp) {
 	for _, op := range ops {
 		headerName := http.CanonicalHeaderKey(strings.TrimSpace(op.Name))
 		if headerName == "" {
@@ -97,16 +95,16 @@ func applyHeaderOps(headers http.Header, ops []proxyplan.HeaderOp) {
 			continue
 		}
 		switch op.Action {
-		case proxyplan.HeaderAdd:
+		case HeaderAdd:
 			for _, value := range op.Values {
 				headers.Add(headerName, value)
 			}
-		case proxyplan.HeaderSet:
+		case HeaderSet:
 			headers.Set(headerName, op.Values[0])
 			for _, value := range op.Values[1:] {
 				headers.Add(headerName, value)
 			}
-		case proxyplan.HeaderRemove:
+		case HeaderRemove:
 			current := headers.Values(headerName)
 			if len(current) == 0 {
 				continue
@@ -119,7 +117,7 @@ func applyHeaderOps(headers http.Header, ops []proxyplan.HeaderOp) {
 	}
 }
 
-func ApplyHeaderOps(headers http.Header, ops []proxyplan.HeaderOp) {
+func ApplyHeaderOps(headers http.Header, ops []HeaderOp) {
 	applyHeaderOps(headers, ops)
 }
 
@@ -136,7 +134,7 @@ func stripRuntimeHeaders(headers http.Header) {
 	if headers == nil {
 		return
 	}
-	headers.Del(proxyplan.ClientRequestIDHeader)
+	headers.Del(ClientRequestIDHeader)
 	for name := range headers {
 		if strings.HasPrefix(strings.ToLower(name), "m-runtime-") {
 			headers.Del(name)
@@ -144,7 +142,7 @@ func stripRuntimeHeaders(headers http.Header) {
 	}
 }
 
-func applyRequestHeaderOps(req *http.Request, ops []proxyplan.HeaderOp) {
+func applyRequestHeaderOps(req *http.Request, ops []HeaderOp) {
 	if req == nil {
 		return
 	}
@@ -153,14 +151,14 @@ func applyRequestHeaderOps(req *http.Request, ops []proxyplan.HeaderOp) {
 	}
 	for _, op := range ops {
 		if !strings.EqualFold(strings.TrimSpace(op.Name), "Host") {
-			applyHeaderOps(req.Header, []proxyplan.HeaderOp{op})
+			applyHeaderOps(req.Header, []HeaderOp{op})
 			continue
 		}
 		applyHostOp(req, op)
 	}
 }
 
-func applyHostOp(req *http.Request, op proxyplan.HeaderOp) {
+func applyHostOp(req *http.Request, op HeaderOp) {
 	if len(op.Values) == 0 {
 		req.Host = ""
 		req.Header.Del("Host")
@@ -168,9 +166,9 @@ func applyHostOp(req *http.Request, op proxyplan.HeaderOp) {
 	}
 	value := strings.TrimSpace(op.Values[0])
 	switch op.Action {
-	case proxyplan.HeaderSet, proxyplan.HeaderAdd:
+	case HeaderSet, HeaderAdd:
 		req.Host = value
-	case proxyplan.HeaderRemove:
+	case HeaderRemove:
 		if req.Host == "" || req.Host == value {
 			req.Host = ""
 		}

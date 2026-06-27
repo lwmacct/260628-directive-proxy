@@ -12,7 +12,6 @@ type Payload struct {
 	Target    TargetSection     `json:"target"`
 	Transport *TransportSection `json:"transport,omitempty"`
 	Headers   *HeaderSection    `json:"headers,omitempty"`
-	Labels    map[string]any    `json:"labels,omitempty"`
 }
 
 type TargetSection struct {

@@ -43,7 +43,11 @@ func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	})
 
 	proxyPrefix := cfg.Proxy.PathPrefix
-	proxyHandler := rt.proxy.Handler()
+	proxyHandler := rt.proxy
+	if proxyPrefix == "/" {
+		mux.Handle("/", proxyHandler)
+		return mux
+	}
 	mux.Handle(proxyPrefix+"/", http.StripPrefix(proxyPrefix, proxyHandler))
 	if proxyPrefix != "/" {
 		mux.Handle(proxyPrefix, http.RedirectHandler(proxyPrefix+"/", http.StatusTemporaryRedirect))

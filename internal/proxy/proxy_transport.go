@@ -1,4 +1,4 @@
-package proxyhttp
+package proxy
 
 import (
 	"context"
@@ -39,21 +39,16 @@ type ProxyTransportOptions struct {
 	DisableKeepAlives   bool
 }
 
-func NewProxyAwareTransport(base http.RoundTripper) http.RoundTripper {
+func NewProxyAwareTransport(base *http.Transport) *http.Transport {
 	return NewProxyAwareTransportWithOptions(base, ProxyTransportOptions{})
 }
 
-func NewProxyAwareTransportWithOptions(base http.RoundTripper, opts ProxyTransportOptions) http.RoundTripper {
+func NewProxyAwareTransportWithOptions(base *http.Transport, opts ProxyTransportOptions) *http.Transport {
 	if base == nil {
-		base = http.DefaultTransport
+		base = http.DefaultTransport.(*http.Transport)
 	}
 
-	transport, ok := base.(*http.Transport)
-	if !ok {
-		return base
-	}
-
-	cloned := transport.Clone()
+	cloned := base.Clone()
 	if opts.MaxIdleConns > 0 {
 		cloned.MaxIdleConns = opts.MaxIdleConns
 	}
@@ -68,7 +63,7 @@ func NewProxyAwareTransportWithOptions(base http.RoundTripper, opts ProxyTranspo
 	}
 	cloned.DisableKeepAlives = opts.DisableKeepAlives
 	cloned.DisableCompression = true
-	baseProxy := transport.Proxy
+	baseProxy := base.Proxy
 
 	cloned.Proxy = func(req *http.Request) (*url.URL, error) {
 		if proxyURL, ok := requestProxyFromContext(req.Context()); ok {

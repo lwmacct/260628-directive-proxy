@@ -1,4 +1,4 @@
-package proxyplan
+package proxy
 
 import "net/url"
 
@@ -7,7 +7,6 @@ type Plan struct {
 	Proxy      *url.URL
 	HeaderMode HeaderMode
 	HeaderOps  []HeaderOp
-	Labels     map[string]any
 	JoinPath   bool
 }
 

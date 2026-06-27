@@ -1,4 +1,4 @@
-package proxyhttp
+package proxy
 
 import (
 	"net/http"
@@ -6,8 +6,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"testing"
-
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
 func TestApplyHeaderOps(t *testing.T) {
@@ -15,11 +13,11 @@ func TestApplyHeaderOps(t *testing.T) {
 		"X-Test":  []string{"old", "keep"},
 		"X-Other": []string{"gone"},
 	}
-	applyHeaderOps(headers, []proxyplan.HeaderOp{
-		{Action: proxyplan.HeaderSet, Name: "X-Test", Values: []string{"new", "alt"}},
-		{Action: proxyplan.HeaderRemove, Name: "X-Test", Values: []string{"alt"}},
-		{Action: proxyplan.HeaderAdd, Name: "X-Extra", Values: []string{"one", "two"}},
-		{Action: proxyplan.HeaderRemove, Name: "X-Other", Values: []string{"gone"}},
+	applyHeaderOps(headers, []HeaderOp{
+		{Action: HeaderSet, Name: "X-Test", Values: []string{"new", "alt"}},
+		{Action: HeaderRemove, Name: "X-Test", Values: []string{"alt"}},
+		{Action: HeaderAdd, Name: "X-Extra", Values: []string{"one", "two"}},
+		{Action: HeaderRemove, Name: "X-Other", Values: []string{"gone"}},
 	})
 
 	if got := headers.Values("X-Test"); len(got) != 1 || got[0] != "new" {
@@ -39,11 +37,11 @@ func TestApplyRewrite(t *testing.T) {
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []proxyplan.HeaderOp{{
-			Action: proxyplan.HeaderSet,
+		HeaderOps: []HeaderOp{{
+			Action: HeaderSet,
 			Name:   "Authorization",
 			Values: []string{"Bearer abc"},
 		}},
@@ -63,7 +61,7 @@ func TestApplyRewriteWithoutJoinPathUsesTargetPathAsIs(t *testing.T) {
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: false,
 	})
@@ -142,12 +140,12 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:     target,
 		JoinPath:   true,
-		HeaderMode: proxyplan.HeaderModeReplace,
-		HeaderOps: []proxyplan.HeaderOp{{
-			Action: proxyplan.HeaderSet,
+		HeaderMode: HeaderModeReplace,
+		HeaderOps: []HeaderOp{{
+			Action: HeaderSet,
 			Name:   "X-Only",
 			Values: []string{"keep"},
 		}},
@@ -174,7 +172,7 @@ func TestApplyRewriteStripsProxyDisclosureHeaders(t *testing.T) {
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
 	})
@@ -192,22 +190,22 @@ func TestApplyRewriteStripsProxyDisclosureHeaders(t *testing.T) {
 func TestApplyRewriteStripsRuntimeHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
-	in.Header.Set(proxyplan.ClientRequestIDHeader, "client-req-1")
+	in.Header.Set(ClientRequestIDHeader, "client-req-1")
 	in.Header.Set("M-Runtime-Shell", "digitflow")
 	in.Header.Set("M-Runtime-Flag", "one")
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []proxyplan.HeaderOp{
-			{Action: proxyplan.HeaderSet, Name: proxyplan.ClientRequestIDHeader, Values: []string{"explicit"}},
-			{Action: proxyplan.HeaderSet, Name: "M-Runtime-Explicit", Values: []string{"drop"}},
+		HeaderOps: []HeaderOp{
+			{Action: HeaderSet, Name: ClientRequestIDHeader, Values: []string{"explicit"}},
+			{Action: HeaderSet, Name: "M-Runtime-Explicit", Values: []string{"drop"}},
 		},
 	})
 
-	if got := req.Out.Header.Get(proxyplan.ClientRequestIDHeader); got != "" {
+	if got := req.Out.Header.Get(ClientRequestIDHeader); got != "" {
 		t.Fatalf("expected client request id header to be stripped, got %q", got)
 	}
 	if got := req.Out.Header.Get("M-Runtime-Shell"); got != "" {
@@ -228,11 +226,11 @@ func TestApplyRewriteCanExplicitlySetProxyDisclosureHeader(t *testing.T) {
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []proxyplan.HeaderOp{{
-			Action: proxyplan.HeaderSet,
+		HeaderOps: []HeaderOp{{
+			Action: HeaderSet,
 			Name:   "True-Client-IP",
 			Values: []string{"explicit"},
 		}},
@@ -249,11 +247,11 @@ func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &proxyplan.Plan{
+	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []proxyplan.HeaderOp{{
-			Action: proxyplan.HeaderSet,
+		HeaderOps: []HeaderOp{{
+			Action: HeaderSet,
 			Name:   "Host",
 			Values: []string{"custom.example.com"},
 		}},

@@ -6,14 +6,13 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/requestid"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
 )
 
 type runtime struct {
 	transport http.RoundTripper
-	idGen     requestid.Generator
-	proxy     *service.ProxyService
+	idGen     proxy.Generator
+	proxy     http.Handler
 	tls       *tlsRuntime
 }
 

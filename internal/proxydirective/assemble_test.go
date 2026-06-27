@@ -10,9 +10,6 @@ func TestToPlan(t *testing.T) {
 		Transport: &TransportSection{
 			Proxy: "socks5://user:pass@127.0.0.1:1080",
 		},
-		Labels: map[string]any{
-			"trace_id": "trace-123",
-		},
 		Headers: &HeaderSection{Ops: []HeaderOp{
 			{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
 			{Op: "=", Name: "X-Test", Values: []string{"a"}},
@@ -34,9 +31,6 @@ func TestToPlan(t *testing.T) {
 	}
 	if len(plan.HeaderOps) != 3 {
 		t.Fatalf("unexpected header ops: %#v", plan.HeaderOps)
-	}
-	if got := plan.Labels["trace_id"]; got != "trace-123" {
-		t.Fatalf("unexpected directive labels: %#v", plan.Labels)
 	}
 }
 

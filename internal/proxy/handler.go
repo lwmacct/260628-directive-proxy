@@ -1,4 +1,4 @@
-package proxyhttp
+package proxy
 
 import (
 	"context"
@@ -7,30 +7,27 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
-
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/requestid"
 )
 
 type Handler struct {
-	resolver proxyplan.Resolver
+	resolver Resolver
 	proxy    *httputil.ReverseProxy
-	idGen    requestid.Generator
+	idGen    Generator
 }
 
 type HandlerOptions struct {
-	IDGenerator requestid.Generator
+	IDGenerator Generator
 }
 
-func NewHandler(resolver proxyplan.Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
+func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
 	if opts.IDGenerator == nil {
-		opts.IDGenerator = requestid.NewGenerator()
+		opts.IDGenerator = NewGenerator()
 	}
 	proxy := &httputil.ReverseProxy{
 		// Flush every write so SSE/NDJSON style responses are forwarded promptly.
 		FlushInterval: -1,
 		Rewrite: func(r *httputil.ProxyRequest) {
-			d, _ := proxyplan.PlanFromContext(r.In.Context())
+			d, _ := PlanFromContext(r.In.Context())
 			applyRewrite(r, d)
 			if d != nil && d.Proxy != nil {
 				r.Out = withRequestProxy(r.Out, d.Proxy)
@@ -76,11 +73,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	d, err := h.resolver.Resolve(r)
 	if err != nil {
-		if errors.Is(err, proxyplan.ErrInvalidDirective) {
+		if errors.Is(err, ErrInvalidDirective) {
 			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload", requestIDFromRequest(r))
 			return
 		}
-		if errors.Is(err, proxyplan.ErrInvalidPlan) {
+		if errors.Is(err, ErrInvalidPlan) {
 			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: missing directive token", requestIDFromRequest(r))
 			return
 		}
@@ -89,30 +86,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d == nil || d.Target == nil {
-		WriteHelloWorldJSON(w)
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
 		return
 	}
 
 	h.ServeHTTPWithPlan(w, r, d)
 }
 
-func (h *Handler) ServeHTTPWithPlan(w http.ResponseWriter, r *http.Request, d *proxyplan.Plan) {
+func (h *Handler) ServeHTTPWithPlan(w http.ResponseWriter, r *http.Request, d *Plan) {
 	if h == nil || h.proxy == nil {
 		http.NotFound(w, r)
 		return
 	}
 	r = h.ensureRequestID(w, r)
 	if d == nil || d.Target == nil {
-		WriteHelloWorldJSON(w)
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
 		return
 	}
-	ctx := proxyplan.ContextWithPlan(r.Context(), d)
+	ctx := ContextWithPlan(r.Context(), d)
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
 func (h *Handler) ensureRequestID(w http.ResponseWriter, r *http.Request) *http.Request {
-	ctx, requestID := requestid.Ensure(r.Context(), h.idGen)
-	w.Header().Set(proxyplan.ClientRequestIDHeader, requestID)
+	ctx, requestID := Ensure(r.Context(), h.idGen)
+	w.Header().Set(ClientRequestIDHeader, requestID)
 	if ctx == r.Context() {
 		return r
 	}
@@ -123,18 +120,10 @@ func requestIDFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	if requestID, ok := requestid.FromContext(r.Context()); ok {
+	if requestID, ok := FromContext(r.Context()); ok {
 		return requestID
 	}
 	return ""
-}
-
-func WriteHelloWorldJSON(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"message": "hello world",
-	})
 }
 
 func WriteInvalidDirectiveJSON(w http.ResponseWriter, requestID string) {

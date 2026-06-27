@@ -1,4 +1,4 @@
-package requestid
+package proxy
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func generateFallbackID() string {
 	return uuid.UUID(raw).String()
 }
 
-type contextKey struct{}
+type requestIDContextKey struct{}
 
 func ContextWith(ctx context.Context, requestID string) context.Context {
 	if ctx == nil {
@@ -51,14 +51,14 @@ func ContextWith(ctx context.Context, requestID string) context.Context {
 	if requestID == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, contextKey{}, requestID)
+	return context.WithValue(ctx, requestIDContextKey{}, requestID)
 }
 
 func FromContext(ctx context.Context) (string, bool) {
 	if ctx == nil {
 		return "", false
 	}
-	requestID, ok := ctx.Value(contextKey{}).(string)
+	requestID, ok := ctx.Value(requestIDContextKey{}).(string)
 	if !ok {
 		return "", false
 	}

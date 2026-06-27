@@ -40,9 +40,6 @@ payload schema：
       { "op": "=", "name": "Authorization", "values": ["Bearer upstream-token"] },
       { "op": "=", "name": "X-Tenant", "values": ["tenant-a"] }
     ]
-  },
-  "labels": {
-    "trace_id": "trace-123"
   }
 }
 ```

@@ -9,5 +9,5 @@
 //   - payload-level validation
 //
 // Resolvers extract directive tokens from Authorization bearer headers and
-// translate the decoded payload into a proxyplan.Plan.
+// translate the decoded payload into a proxy.Plan.
 package proxydirective

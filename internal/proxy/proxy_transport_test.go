@@ -1,4 +1,4 @@
-package proxyhttp
+package proxy
 
 import (
 	"net/http"
@@ -7,21 +7,16 @@ import (
 	"net/url"
 	"testing"
 	"time"
-
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
 type noopResolver struct{}
 
-func (noopResolver) Resolve(*http.Request) (*proxyplan.Plan, error) {
+func (noopResolver) Resolve(*http.Request) (*Plan, error) {
 	return nil, nil
 }
 
 func TestNewProxyAwareTransportUsesRequestProxy(t *testing.T) {
-	transport, ok := NewProxyAwareTransport(http.DefaultTransport).(*http.Transport)
-	if !ok {
-		t.Fatal("expected *http.Transport")
-	}
+	transport := NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))
 
 	proxyURL, err := url.Parse("socks5://user:pass@127.0.0.1:1080")
 	if err != nil {
@@ -44,16 +39,13 @@ func TestNewProxyAwareTransportUsesRequestProxy(t *testing.T) {
 }
 
 func TestNewProxyAwareTransportWithOptionsOverridesIdlePolicy(t *testing.T) {
-	transport, ok := NewProxyAwareTransportWithOptions(http.DefaultTransport, ProxyTransportOptions{
+	transport := NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), ProxyTransportOptions{
 		MaxIdleConns:        17,
 		MaxIdleConnsPerHost: 1,
 		MaxConnsPerHost:     3000,
 		IdleConnTimeout:     7 * time.Second,
 		DisableKeepAlives:   true,
-	}).(*http.Transport)
-	if !ok {
-		t.Fatal("expected *http.Transport")
-	}
+	})
 	if transport.MaxIdleConns != 17 {
 		t.Fatalf("unexpected max idle conns: %d", transport.MaxIdleConns)
 	}
@@ -77,7 +69,7 @@ func TestHandlerRewriteCarriesProxyToOutboundRequest(t *testing.T) {
 	handler := NewHandler(noopResolver{}, http.DefaultTransport, HandlerOptions{})
 
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
-	in = in.WithContext(proxyplan.ContextWithPlan(in.Context(), &proxyplan.Plan{
+	in = in.WithContext(ContextWithPlan(in.Context(), &Plan{
 		Target: target,
 		Proxy:  proxyURL,
 	}))

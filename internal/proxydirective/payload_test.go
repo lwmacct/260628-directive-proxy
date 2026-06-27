@@ -19,9 +19,6 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 				{Op: "=", Name: "X-Test", Values: []string{"a"}},
 			},
 		},
-		Labels: map[string]any{
-			"trace_id": "trace-123",
-		},
 	}
 
 	encoded, err := Encode(input)
@@ -53,9 +50,6 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		len(decoded.Headers.Ops[0].Values) != 1 ||
 		decoded.Headers.Ops[0].Values[0] != "Bearer secret" {
 		t.Fatalf("unexpected headers: %#v", decoded.Headers)
-	}
-	if got := decoded.Labels["trace_id"]; got != "trace-123" {
-		t.Fatalf("unexpected labels trace_id: %#v", got)
 	}
 }
 
@@ -154,18 +148,6 @@ func TestParseProxy(t *testing.T) {
 	}
 	if parsed.String() != "socks5://user:pass@127.0.0.1:1080" {
 		t.Fatalf("unexpected proxy: %s", parsed.String())
-	}
-}
-
-func TestValidateAcceptsLabels(t *testing.T) {
-	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Labels: map[string]any{
-			"---": "x",
-		},
-	})
-	if err != nil {
-		t.Fatalf("unexpected validation error: %v", err)
 	}
 }
 

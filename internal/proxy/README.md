@@ -1,0 +1,13 @@
+# `proxy`
+
+`proxy` 是 dproxy 的代理执行核心，负责把已解析好的 `Plan` 应用到 `httputil.ReverseProxy`。
+
+## 职责
+
+- 定义 `Plan`、`Resolver`、header 操作和代理错误。
+- 为每个请求生成 `X-Client-Request-Id`。
+- 拼接上游 URL，应用 header rewrite，剥离代理泄露 header 和运行时 header。
+- 按 directive 中的 SOCKS5 配置选择 per-request upstream proxy。
+- 保持 data plane 使用原生 `net/http`，避免影响流式响应。
+
+业务协议解析不放在这里；`internal/proxydirective` 负责把 `dpx1` payload 转成 `Plan`。

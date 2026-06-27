@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
 )
 
 var ErrInvalidPayload = errors.New("invalid proxy payload")
@@ -53,18 +53,9 @@ func ParseProxy(raw string) (*url.URL, error) {
 
 func validateHeaderMode(raw string) error {
 	switch strings.TrimSpace(raw) {
-	case "", string(proxyplan.HeaderModePatch), string(proxyplan.HeaderModeReplace):
+	case "", string(proxy.HeaderModePatch), string(proxy.HeaderModeReplace):
 		return nil
 	default:
 		return ErrInvalidPayload
 	}
-}
-
-func validateLabels(labels map[string]any) error {
-	for key := range labels {
-		if strings.TrimSpace(key) == "" {
-			return ErrInvalidPayload
-		}
-	}
-	return nil
 }

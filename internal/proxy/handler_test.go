@@ -1,4 +1,4 @@
-package proxyhttp
+package proxy
 
 import (
 	"context"
@@ -10,13 +10,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
-type resolverFunc func(*http.Request) (*proxyplan.Plan, error)
+type resolverFunc func(*http.Request) (*Plan, error)
 
-func (f resolverFunc) Resolve(req *http.Request) (*proxyplan.Plan, error) {
+func (f resolverFunc) Resolve(req *http.Request) (*Plan, error) {
 	return f(req)
 }
 
@@ -35,8 +33,8 @@ func (g fixedIDGenerator) Generate() string {
 }
 
 func TestHandlerReturnsBadRequestWhenDirectiveIsMissing(t *testing.T) {
-	handler := NewHandler(resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
-		return nil, proxyplan.ErrInvalidPlan
+	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
+		return nil, ErrInvalidPlan
 	}), http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
@@ -61,8 +59,8 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsMissing(t *testing.T) {
 }
 
 func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
-	handler := NewHandler(resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
-		return nil, proxyplan.ErrInvalidDirective
+	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
+		return nil, ErrInvalidDirective
 	}), http.DefaultTransport, HandlerOptions{IDGenerator: fixedIDGenerator{id: "server-req-1"}})
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/responses", nil)
@@ -91,9 +89,9 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	}
 }
 
-func TestHandlerReturnsHelloWorldJSONWhenDirectiveTargetMissing(t *testing.T) {
-	handler := NewHandler(resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
-		return &proxyplan.Plan{}, nil
+func TestHandlerReturnsInternalErrorWhenDirectiveTargetMissing(t *testing.T) {
+	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
+		return &Plan{}, nil
 	}), http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
@@ -101,7 +99,7 @@ func TestHandlerReturnsHelloWorldJSONWhenDirectiveTargetMissing(t *testing.T) {
 
 	handler.ServeHTTP(recorder, req)
 
-	if recorder.Code != http.StatusOK {
+	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
 
@@ -109,7 +107,7 @@ func TestHandlerReturnsHelloWorldJSONWhenDirectiveTargetMissing(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if got := body["message"]; got != "hello world" {
+	if got := body["error"]; got != "resolver: resolve proxy plan failed" {
 		t.Fatalf("unexpected response body: %#v", body)
 	}
 }
@@ -118,7 +116,7 @@ func TestHandlerDoesNotExposeResolverErrorText(t *testing.T) {
 	const rawAuthorization = "Bearer encoded-auth-secret"
 	const decodedSecret = "decoded-auth-secret"
 
-	handler := NewHandler(resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
+	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
 		return nil, errors.New("resolve failed with " + rawAuthorization + " and " + decodedSecret)
 	}), http.DefaultTransport, HandlerOptions{IDGenerator: fixedIDGenerator{id: "server-req-2"}})
 
@@ -161,8 +159,8 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 		t.Fatalf("parse target failed: %v", err)
 	}
 	handler := NewHandler(
-		resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
-			return &proxyplan.Plan{
+		resolverFunc(func(*http.Request) (*Plan, error) {
+			return &Plan{
 				Target:   target,
 				JoinPath: true,
 			}, nil
@@ -211,8 +209,8 @@ func TestHandlerPassesThroughUpstreamErrorResponse(t *testing.T) {
 		t.Fatalf("parse target failed: %v", err)
 	}
 	handler := NewHandler(
-		resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
-			return &proxyplan.Plan{
+		resolverFunc(func(*http.Request) (*Plan, error) {
+			return &Plan{
 				Target:   target,
 				JoinPath: true,
 			}, nil
