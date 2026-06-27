@@ -58,4 +58,3 @@ handler := proxy.NewHandler(staticResolver{}, http.DefaultTransport, proxy.Handl
 - `proxy` 只做代理执行，不做协议解释。
 - 上游 transport 关闭隐式 gzip，避免自动注入 `Accept-Encoding`。
 - LLM Bearer 解析、JWT 解析、租户路由等都应该放在各自的 resolver 里，并输出 `internal/proxyplan` 的通用执行计划。
-- 它可以和 `internal/plugins/capture` 组合使用，把动态代理和 capture 传输层拼起来。

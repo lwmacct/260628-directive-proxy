@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/plugins/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
@@ -33,19 +32,6 @@ type fixedIDGenerator struct {
 
 func (g fixedIDGenerator) Generate() string {
 	return g.id
-}
-
-type recordingPublisher struct {
-	events []capture.Event
-}
-
-func (p *recordingPublisher) Publish(_ context.Context, event capture.Event) error {
-	p.events = append(p.events, event)
-	return nil
-}
-
-func (p *recordingPublisher) Close(context.Context) error {
-	return nil
 }
 
 func TestHandlerReturnsBadRequestWhenDirectiveIsMissing(t *testing.T) {
@@ -102,53 +88,6 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	if body.Error != "directive: invalid proxy directive payload" ||
 		body.RequestID != "server-req-1" {
 		t.Fatalf("unexpected response body: %#v", body)
-	}
-}
-
-func TestHandlerCapturesInvalidDirectiveWhenAbnormalCaptureEnabled(t *testing.T) {
-	publisher := &recordingPublisher{}
-	handler := NewHandler(resolverFunc(func(*http.Request) (*proxyplan.Plan, error) {
-		return nil, proxyplan.ErrInvalidDirective
-	}), http.DefaultTransport, HandlerOptions{
-		IDGenerator:     fixedIDGenerator{id: "server-req-1"},
-		AbnormalCapture: true,
-		AbnormalSink:    publisher,
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/responses", strings.NewReader(`{"bad":true}`))
-	req.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-
-	handler.ServeHTTP(recorder, req)
-
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("unexpected status: %d", recorder.Code)
-	}
-	if len(publisher.events) != 4 {
-		t.Fatalf("expected request/request_body/response/response_body events, got %d", len(publisher.events))
-	}
-	requestData, ok := publisher.events[0].Data.(capture.RequestData)
-	if !ok {
-		t.Fatalf("expected request data, got %T", publisher.events[0].Data)
-	}
-	if requestData.CaptureReason != "abnormal" || requestData.AbnormalType != capture.AbnormalTypeInvalidDirective {
-		t.Fatalf("unexpected request metadata: %#v", requestData)
-	}
-	requestBodyData, ok := publisher.events[1].Data.(capture.RequestBodyData)
-	if !ok {
-		t.Fatalf("expected request body data, got %T", publisher.events[1].Data)
-	}
-	if requestBodyData.Body == nil || requestBodyData.Body.Encoding != capture.BodyEncodingJSON {
-		t.Fatalf("unexpected request body event: %#v", requestBodyData)
-	}
-	responseData, ok := publisher.events[2].Data.(capture.ResponseData)
-	if !ok {
-		t.Fatalf("expected response data, got %T", publisher.events[2].Data)
-	}
-	if responseData.StatusCode != http.StatusBadRequest ||
-		responseData.CaptureReason != "abnormal" ||
-		responseData.AbnormalType != capture.AbnormalTypeInvalidDirective {
-		t.Fatalf("unexpected response event: %#v", responseData)
 	}
 }
 

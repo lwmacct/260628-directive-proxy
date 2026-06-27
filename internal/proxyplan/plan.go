@@ -1,10 +1,6 @@
 package proxyplan
 
-import (
-	"net/url"
-
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/eventbus"
-)
+import "net/url"
 
 type Plan struct {
 	Target     *url.URL
@@ -12,8 +8,6 @@ type Plan struct {
 	HeaderMode HeaderMode
 	HeaderOps  []HeaderOp
 	Labels     map[string]any
-	Runtime    eventbus.Runtime
-	Capture    CapturePolicy
 	JoinPath   bool
 }
 

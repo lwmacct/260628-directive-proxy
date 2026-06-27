@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/eventbus"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
@@ -62,7 +61,7 @@ func (r *payloadResolver) Resolve(req *http.Request) (*proxyplan.Plan, error) {
 		if err != nil {
 			return nil, proxyplan.ErrInvalidDirective
 		}
-		return withRequestRuntime(plan, req), nil
+		return plan, nil
 	}
 	return nil, proxyplan.ErrInvalidPlan
 }
@@ -75,45 +74,4 @@ func buildPlanFromSource(source PayloadSource) (*proxyplan.Plan, error) {
 	return ToPlan(payload, AssembleOptions{
 		StripHeaders: source.StripHeaders,
 	})
-}
-
-func withRequestRuntime(plan *proxyplan.Plan, req *http.Request) *proxyplan.Plan {
-	if plan == nil {
-		return nil
-	}
-	cloned := *plan
-	cloned.Labels = cloneLabels(plan.Labels)
-	cloned.Runtime = eventbus.CloneRuntime(plan.Runtime)
-	if req == nil {
-		return &cloned
-	}
-	if remoteAddr := strings.TrimSpace(req.RemoteAddr); remoteAddr != "" {
-		cloned.Runtime.IncomingRemoteAddr = remoteAddr
-	}
-	if clientRequestID := strings.TrimSpace(req.Header.Get(proxyplan.ClientRequestIDHeader)); clientRequestID != "" {
-		cloned.Runtime.ClientRequestID = clientRequestID
-	}
-	runtimeHeaders := runtimeHeadersFromRequest(req)
-	if len(runtimeHeaders) > 0 {
-		cloned.Runtime.Headers = runtimeHeaders
-	}
-	return &cloned
-}
-
-func runtimeHeadersFromRequest(req *http.Request) map[string][]string {
-	if req == nil || len(req.Header) == 0 {
-		return nil
-	}
-	headers := make(map[string][]string)
-	for name, values := range req.Header {
-		canonicalName := http.CanonicalHeaderKey(strings.TrimSpace(name))
-		if !strings.HasPrefix(strings.ToLower(canonicalName), "m-runtime-") {
-			continue
-		}
-		headers[canonicalName] = append([]string(nil), values...)
-	}
-	if len(headers) == 0 {
-		return nil
-	}
-	return headers
 }

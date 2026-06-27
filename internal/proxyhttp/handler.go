@@ -8,28 +8,23 @@ import (
 	"net/http"
 	"net/http/httputil"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/eventbus"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/plugins/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/requestid"
 )
 
 type Handler struct {
-	resolver        proxyplan.Resolver
-	proxy           *httputil.ReverseProxy
-	idGen           eventbus.IDGenerator
-	abnormalCapture bool
-	abnormalSink    eventbus.Publisher
+	resolver proxyplan.Resolver
+	proxy    *httputil.ReverseProxy
+	idGen    requestid.Generator
 }
 
 type HandlerOptions struct {
-	IDGenerator     eventbus.IDGenerator
-	AbnormalCapture bool
-	AbnormalSink    eventbus.Publisher
+	IDGenerator requestid.Generator
 }
 
 func NewHandler(resolver proxyplan.Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
 	if opts.IDGenerator == nil {
-		opts.IDGenerator = eventbus.NewIDGenerator()
+		opts.IDGenerator = requestid.NewGenerator()
 	}
 	proxy := &httputil.ReverseProxy{
 		// Flush every write so SSE/NDJSON style responses are forwarded promptly.
@@ -45,15 +40,10 @@ func NewHandler(resolver proxyplan.Resolver, transport http.RoundTripper, opts H
 		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
 		Transport:    transport,
 	}
-	if opts.AbnormalSink == nil {
-		opts.AbnormalSink = eventbus.NopPublisher{}
-	}
 	return &Handler{
-		resolver:        resolver,
-		proxy:           proxy,
-		idGen:           opts.IDGenerator,
-		abnormalCapture: opts.AbnormalCapture,
-		abnormalSink:    opts.AbnormalSink,
+		resolver: resolver,
+		proxy:    proxy,
+		idGen:    opts.IDGenerator,
 	}
 }
 
@@ -87,7 +77,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d, err := h.resolver.Resolve(r)
 	if err != nil {
 		if errors.Is(err, proxyplan.ErrInvalidDirective) {
-			h.writeProxyErrorJSON(w, r, http.StatusBadRequest, "directive: invalid proxy directive payload", capture.AbnormalTypeInvalidDirective, nil)
+			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload", requestIDFromRequest(r))
 			return
 		}
 		if errors.Is(err, proxyplan.ErrInvalidPlan) {
@@ -95,7 +85,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
-		h.writeProxyErrorJSON(w, r, http.StatusInternalServerError, "resolver: resolve proxy plan failed", capture.AbnormalTypeResolverError, err)
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
 		return
 	}
 	if d == nil || d.Target == nil {
@@ -104,24 +94,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.ServeHTTPWithPlan(w, r, d)
-}
-
-func (h *Handler) writeProxyErrorJSON(w http.ResponseWriter, r *http.Request, status int, message string, abnormalType string, err error) {
-	requestID := requestIDFromRequest(r)
-	body := proxyErrorJSONBody(message, requestID)
-	headers := http.Header{"Content-Type": {"application/json"}}
-	if h != nil && h.abnormalCapture {
-		capture.PublishLocalAbnormalExchange(context.WithoutCancel(r.Context()), h.abnormalSink, h.idGen, capture.LocalAbnormalExchange{
-			Request:             r,
-			ResponseStatusCode:  status,
-			ResponseHeaders:     headers,
-			ResponseBody:        body,
-			ResponseContentType: "application/json",
-			AbnormalType:        abnormalType,
-			Error:               err,
-		})
-	}
-	writeProxyErrorJSONBody(w, status, body)
 }
 
 func (h *Handler) ServeHTTPWithPlan(w http.ResponseWriter, r *http.Request, d *proxyplan.Plan) {
@@ -139,7 +111,7 @@ func (h *Handler) ServeHTTPWithPlan(w http.ResponseWriter, r *http.Request, d *p
 }
 
 func (h *Handler) ensureRequestID(w http.ResponseWriter, r *http.Request) *http.Request {
-	ctx, requestID := eventbus.EnsureRequestID(r.Context(), h.idGen)
+	ctx, requestID := requestid.Ensure(r.Context(), h.idGen)
 	w.Header().Set(proxyplan.ClientRequestIDHeader, requestID)
 	if ctx == r.Context() {
 		return r
@@ -151,7 +123,7 @@ func requestIDFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	if requestID, ok := eventbus.RequestIDFromContext(r.Context()); ok {
+	if requestID, ok := requestid.FromContext(r.Context()); ok {
 		return requestID
 	}
 	return ""

@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/eventbus"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
 )
 
@@ -18,8 +17,6 @@ type NormalizedPayload struct {
 	HeaderMode proxyplan.HeaderMode
 	HeaderOps  []proxyplan.HeaderOp
 	Labels     map[string]any
-	Runtime    eventbus.Runtime
-	Capture    proxyplan.CapturePolicy
 	JoinPath   bool
 }
 
@@ -67,11 +64,6 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 	if err != nil {
 		return NormalizedPayload{}, err
 	}
-	capturePolicy, err := toCapturePolicy(payload.Capture)
-	if err != nil {
-		return NormalizedPayload{}, err
-	}
-
 	ops := make([]proxyplan.HeaderOp, 0, len(opts.StripHeaders)+len(headerOps))
 	for _, name := range opts.StripHeaders {
 		name = strings.TrimSpace(name)
@@ -97,7 +89,6 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 		HeaderMode: toHeaderMode(headerMode),
 		HeaderOps:  ops,
 		Labels:     cloneLabels(payload.Labels),
-		Capture:    capturePolicy,
 		JoinPath:   joinPath,
 	}, nil
 }
@@ -116,8 +107,6 @@ func BuildPlan(payload NormalizedPayload) *proxyplan.Plan {
 		HeaderMode: payload.HeaderMode,
 		HeaderOps:  append([]proxyplan.HeaderOp(nil), payload.HeaderOps...),
 		Labels:     cloneLabels(payload.Labels),
-		Runtime:    eventbus.CloneRuntime(payload.Runtime),
-		Capture:    payload.Capture.WithDefaults(),
 		JoinPath:   payload.JoinPath,
 	}
 }
@@ -175,53 +164,4 @@ func cloneLabels(labels map[string]any) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
-}
-
-func toCapturePolicy(raw *CapturePolicy) (proxyplan.CapturePolicy, error) {
-	if raw == nil {
-		return proxyplan.CapturePolicy{}, nil
-	}
-	policy := proxyplan.DefaultCapturePolicy()
-	var err error
-	policy.RequestHeaders, policy.RequestBody, err = parseCaptureFields(raw.Request)
-	if err != nil {
-		return proxyplan.CapturePolicy{}, err
-	}
-	policy.ResponseHeaders, policy.ResponseBody, err = parseCaptureFields(raw.Response)
-	if err != nil {
-		return proxyplan.CapturePolicy{}, err
-	}
-	if raw.Stream != nil {
-		policy.StreamEvents = raw.Stream.Events
-		if policy.StreamEvents {
-			policy.StreamEventTypes = append([]string(nil), raw.Stream.EventTypes...)
-		}
-	}
-	return policy.WithDefaults(), nil
-}
-
-func parseCaptureFields(raw []string) (headers bool, body bool, err error) {
-	seen := make(map[string]struct{}, len(raw))
-	for _, capture := range raw {
-		capture = strings.TrimSpace(capture)
-		if capture == "" {
-			continue
-		}
-		if _, ok := seen[capture]; ok {
-			continue
-		}
-		seen[capture] = struct{}{}
-		switch capture {
-		case "headers":
-			headers = true
-		case "body":
-			body = true
-		default:
-			return false, false, ErrInvalidPayload
-		}
-	}
-	if body {
-		headers = true
-	}
-	return headers, body, nil
 }

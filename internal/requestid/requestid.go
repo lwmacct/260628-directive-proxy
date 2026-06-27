@@ -1,4 +1,4 @@
-package eventbus
+package requestid
 
 import (
 	"context"
@@ -10,17 +10,17 @@ import (
 	"github.com/google/uuid"
 )
 
-type IDGenerator interface {
+type Generator interface {
 	Generate() string
 }
 
-type DefaultIDGenerator struct{}
+type DefaultGenerator struct{}
 
-func NewIDGenerator() *DefaultIDGenerator {
-	return &DefaultIDGenerator{}
+func NewGenerator() *DefaultGenerator {
+	return &DefaultGenerator{}
 }
 
-func (g *DefaultIDGenerator) Generate() string {
+func (g *DefaultGenerator) Generate() string {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return generateFallbackID()
@@ -41,9 +41,9 @@ func generateFallbackID() string {
 	return uuid.UUID(raw).String()
 }
 
-type requestIDContextKey struct{}
+type contextKey struct{}
 
-func ContextWithRequestID(ctx context.Context, requestID string) context.Context {
+func ContextWith(ctx context.Context, requestID string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -51,14 +51,14 @@ func ContextWithRequestID(ctx context.Context, requestID string) context.Context
 	if requestID == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, requestIDContextKey{}, requestID)
+	return context.WithValue(ctx, contextKey{}, requestID)
 }
 
-func RequestIDFromContext(ctx context.Context) (string, bool) {
+func FromContext(ctx context.Context) (string, bool) {
 	if ctx == nil {
 		return "", false
 	}
-	requestID, ok := ctx.Value(requestIDContextKey{}).(string)
+	requestID, ok := ctx.Value(contextKey{}).(string)
 	if !ok {
 		return "", false
 	}
@@ -66,13 +66,13 @@ func RequestIDFromContext(ctx context.Context) (string, bool) {
 	return requestID, requestID != ""
 }
 
-func EnsureRequestID(ctx context.Context, generator IDGenerator) (context.Context, string) {
-	if requestID, ok := RequestIDFromContext(ctx); ok {
+func Ensure(ctx context.Context, generator Generator) (context.Context, string) {
+	if requestID, ok := FromContext(ctx); ok {
 		return ctx, requestID
 	}
 	if generator == nil {
-		generator = NewIDGenerator()
+		generator = NewGenerator()
 	}
 	requestID := generator.Generate()
-	return ContextWithRequestID(ctx, requestID), requestID
+	return ContextWith(ctx, requestID), requestID
 }

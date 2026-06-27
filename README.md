@@ -41,14 +41,6 @@ Payload schema:
   },
   "labels": {
     "trace_id": "trace-123"
-  },
-  "capture": {
-    "request": ["body"],
-    "response": ["headers", "body"],
-    "stream": {
-      "events": true,
-      "event_types": []
-    }
   }
 }
 ```

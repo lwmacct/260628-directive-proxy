@@ -13,7 +13,6 @@ type Payload struct {
 	Transport *TransportSection `json:"transport,omitempty"`
 	Headers   *HeaderSection    `json:"headers,omitempty"`
 	Labels    map[string]any    `json:"labels,omitempty"`
-	Capture   *CapturePolicy    `json:"capture,omitempty"`
 }
 
 type TargetSection struct {
@@ -34,15 +33,4 @@ type HeaderOp struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name"`
 	Values []string `json:"values,omitempty"`
-}
-
-type CapturePolicy struct {
-	Request  []string              `json:"request,omitempty"`
-	Response []string              `json:"response,omitempty"`
-	Stream   *CaptureStreamSection `json:"stream,omitempty"`
-}
-
-type CaptureStreamSection struct {
-	Events     bool     `json:"events,omitempty"`
-	EventTypes []string `json:"event_types,omitempty"`
 }

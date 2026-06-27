@@ -48,39 +48,6 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	}
 }
 
-func TestResolverAddsRuntimeFromIncomingRequest(t *testing.T) {
-	raw, err := Encode(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-	})
-	if err != nil {
-		t.Fatalf("encode failed: %v", err)
-	}
-	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
-	req.RemoteAddr = "203.0.113.10:54321"
-	req.Header.Set("Authorization", "Bearer "+raw)
-	req.Header.Set(proxyplan.ClientRequestIDHeader, "client-req-1")
-	req.Header.Set("M-Runtime-Shell", "digitflow")
-	req.Header.Add("M-Runtime-Flag", "one")
-	req.Header.Add("M-Runtime-Flag", "two")
-
-	plan, err := NewResolver().Resolve(req)
-	if err != nil {
-		t.Fatalf("resolve failed: %v", err)
-	}
-	if got := plan.Runtime.IncomingRemoteAddr; got != "203.0.113.10:54321" {
-		t.Fatalf("unexpected incoming_remote_addr: %#v", plan.Runtime)
-	}
-	if got := plan.Runtime.ClientRequestID; got != "client-req-1" {
-		t.Fatalf("unexpected client request id: %#v", plan.Runtime)
-	}
-	if got := plan.Runtime.Headers["M-Runtime-Shell"]; len(got) != 1 || got[0] != "digitflow" {
-		t.Fatalf("unexpected runtime shell header: %#v", plan.Runtime.Headers)
-	}
-	if got := plan.Runtime.Headers["M-Runtime-Flag"]; len(got) != 2 || got[0] != "one" || got[1] != "two" {
-		t.Fatalf("unexpected runtime flag header: %#v", plan.Runtime.Headers)
-	}
-}
-
 func TestResolverIgnoresNonDirectiveBearerToken(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer opaque-upstream-token")

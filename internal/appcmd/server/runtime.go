@@ -2,22 +2,19 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/eventbus"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/requestid"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
 )
 
 type runtime struct {
-	publisher     eventbus.Publisher
-	usageDelivery eventbus.Publisher
-	transport     http.RoundTripper
-	idGen         eventbus.IDGenerator
-	proxy         *service.ProxyService
-	tls           *tlsRuntime
+	transport http.RoundTripper
+	idGen     requestid.Generator
+	proxy     *service.ProxyService
+	tls       *tlsRuntime
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
@@ -35,26 +32,13 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	return rt, nil
 }
 
-func (rt *runtime) Close(ctx context.Context) error {
+func (rt *runtime) Close(_ context.Context) error {
 	if rt == nil {
 		return nil
 	}
-	var errs []error
 	if rt.tls != nil {
 		rt.tls.Close()
 		rt.tls = nil
 	}
-	if rt.usageDelivery != nil {
-		if err := rt.usageDelivery.Close(ctx); err != nil {
-			errs = append(errs, err)
-		}
-		rt.usageDelivery = nil
-	}
-	if rt.publisher != nil {
-		if err := rt.publisher.Close(ctx); err != nil {
-			errs = append(errs, err)
-		}
-		rt.publisher = nil
-	}
-	return errors.Join(errs...)
+	return nil
 }

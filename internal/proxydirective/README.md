@@ -9,8 +9,7 @@
 - 只从 `Authorization: Bearer <token>` 提取 directive token
 - 只识别 `dpx1.` 前缀；非 `dpx1.` bearer token 不尝试解码
 - 解码 base64url JSON 并校验 v1 payload schema
-- 将 header、proxy、labels、capture policy 等 payload 字段组装成 `proxyplan.Plan`
-- 为 plan runtime 补充入口来源、入站连接信息和 `M-Runtime-*` 请求头
+- 将 target、transport proxy、headers、labels 等 payload 字段组装成 `proxyplan.Plan`
 
 ## 处理流程
 
@@ -24,9 +23,6 @@
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - payload 必须包含 `version: 1` 和 `kind: "directive-proxy.directive"`。
-- `capture` 不存在时不采集；`capture: {}` 不采集任何内容。
-- `capture` 格式不正确时会导致 directive 解析失败。
-- `capture.request` 和 `capture.response` 是 capture 列表，只接受 `headers` 和 `body`；`body` 会让对应 `headers` 生效。
 - malformed `dpx1.` token 返回 `proxyplan.ErrInvalidDirective`。
 - 未识别到 directive token 返回 `proxyplan.ErrInvalidPlan`，由 data plane 响应缺失 directive。
 

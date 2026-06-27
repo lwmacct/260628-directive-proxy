@@ -22,13 +22,6 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		Labels: map[string]any{
 			"trace_id": "trace-123",
 		},
-		Capture: &CapturePolicy{
-			Request: []string{"body"},
-			Stream: &CaptureStreamSection{
-				Events:     true,
-				EventTypes: []string{"response.delta"},
-			},
-		},
 	}
 
 	encoded, err := Encode(input)
@@ -63,9 +56,6 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 	if got := decoded.Labels["trace_id"]; got != "trace-123" {
 		t.Fatalf("unexpected labels trace_id: %#v", got)
-	}
-	if decoded.Capture == nil {
-		t.Fatal("expected capture policy")
 	}
 }
 
@@ -153,45 +143,6 @@ func TestValidateRejectsInvalidProxy(t *testing.T) {
 		Transport: &TransportSection{Proxy: "http://127.0.0.1:1080"},
 	})
 	if err == nil {
-		t.Fatal("expected validation error")
-	}
-}
-
-func TestValidateIgnoresEmptyCapturePolicy(t *testing.T) {
-	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Capture: &CapturePolicy{},
-	})
-	if err != nil {
-		t.Fatalf("unexpected validation error: %v", err)
-	}
-}
-
-func TestValidateRejectsInvalidCaptureFields(t *testing.T) {
-	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Capture: &CapturePolicy{
-			Request: []string{"headers", "cookies"},
-		},
-	})
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
-}
-
-func TestDecodeRejectsMalformedCaptureFields(t *testing.T) {
-	encoded := encodeRawToken([]byte(`{
-		"version":1,
-		"kind":"directive-proxy.directive",
-		"target":{"url":"https://api.example.com/v1"},
-		"capture":{
-			"request":{"headers":true,"body":true},
-			"response":["body"],
-			"stream":"invalid"
-		}
-	}`))
-
-	if _, err := Decode(encoded); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
