@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 type runtime struct {

@@ -44,7 +44,7 @@ payload schema：
 }
 ```
 
-使用 `proxydirective.Encode` 可以生成完整的 `dpx1.` token。
+使用 `directive.Encode` 可以生成完整的 `dpx1.` token。
 
 directive 被接受后，入站 `Authorization`、`X-Client-Request-Id` 和 `M-Runtime-*` header 会在转发前移除。如果上游需要自己的 `Authorization`，需要通过 directive 的 header ops 显式写入。
 

@@ -1,4 +1,4 @@
-package proxydirective
+package directive
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 var ErrInvalidPayload = errors.New("invalid proxy payload")

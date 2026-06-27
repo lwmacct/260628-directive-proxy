@@ -1,8 +1,8 @@
-# `proxydirective`
+# `directive`
 
-`proxydirective` 负责解析 `Authorization: Bearer dpx1.<payload>` 中的 v1 directive token，并把它转换成 `proxy.Plan`。
+`directive` 负责解析 `Authorization: Bearer dpx1.<payload>` 中的 v1 directive token，并把它转换成 `proxy.Plan`。
 
-面向使用者的 payload 示例和字段说明放在根目录 [README.md](../../README.md)；这里只保留包内部维护说明，避免两处文档重复。
+面向使用者的 payload 示例和字段说明放在根目录 [README.md](../../../README.md)；这里只保留包内部维护说明，避免两处文档重复。
 
 ## 职责
 

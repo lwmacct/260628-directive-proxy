@@ -1,4 +1,4 @@
-// Package proxydirective provides the canonical dpx1 directive token format
+// Package directive provides the canonical dpx1 directive token format
 // used by the directive proxy data plane.
 //
 // The package owns:
@@ -10,4 +10,4 @@
 //
 // Resolvers extract directive tokens from Authorization bearer headers and
 // translate the decoded payload into a proxy.Plan.
-package proxydirective
+package directive

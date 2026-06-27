@@ -10,4 +10,4 @@
 - 按 directive 中的 SOCKS5 配置选择 per-request upstream proxy。
 - 保持 data plane 使用原生 `net/http`，避免影响流式响应。
 
-业务协议解析不放在这里；`internal/proxydirective` 负责把 `dpx1` payload 转成 `Plan`。
+业务协议解析不放在这里；`internal/core/directive` 负责把 `dpx1` payload 转成 `Plan`。

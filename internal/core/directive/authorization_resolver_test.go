@@ -1,4 +1,4 @@
-package proxydirective
+package directive
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {

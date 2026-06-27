@@ -1,4 +1,4 @@
-package proxydirective
+package directive
 
 import (
 	"encoding/base64"

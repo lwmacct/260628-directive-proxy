@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxydirective"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 func newServiceRuntime(cfg *config.Config) (*runtime, error) {
@@ -18,7 +18,7 @@ func newServiceRuntime(cfg *config.Config) (*runtime, error) {
 		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
 	})
 
-	proxyHandler := proxy.NewHandler(proxydirective.NewResolver(), transport, proxy.HandlerOptions{
+	proxyHandler := proxy.NewHandler(directive.NewResolver(), transport, proxy.HandlerOptions{
 		IDGenerator: idGen,
 	})
 

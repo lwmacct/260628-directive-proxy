@@ -1,10 +1,10 @@
-package proxydirective
+package directive
 
 import (
 	"net/http"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxy"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 type Resolver struct{}

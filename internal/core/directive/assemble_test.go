@@ -1,4 +1,4 @@
-package proxydirective
+package directive
 
 import "testing"
 

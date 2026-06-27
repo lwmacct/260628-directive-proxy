@@ -1,4 +1,4 @@
-package proxydirective
+package directive
 
 const (
 	PayloadVersion = 1
