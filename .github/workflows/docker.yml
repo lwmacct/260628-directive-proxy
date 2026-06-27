@@ -1,0 +1,289 @@
+name: docker
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  VERSION_PKG: github.com/lwmacct/251207-go-pkg-version/pkg/version
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      project: ${{ steps.meta.outputs.project }}
+      app: ${{ steps.meta.outputs.app }}
+      version: ${{ steps.meta.outputs.version }}
+      commit: ${{ steps.meta.outputs.commit }}
+      build_time: ${{ steps.meta.outputs.build_time }}
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Extract metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO="${GITHUB_REPOSITORY#*/}"
+          APP="${REPO#*-}"
+          if [[ -z "${APP}" ]]; then
+            APP="${REPO}"
+          fi
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="dev-${GITHUB_SHA::12}"
+          fi
+
+          COMMIT="$(git rev-parse --short HEAD)"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+
+          {
+            echo "project=${REPO}"
+            echo "app=${APP}"
+            echo "version=${VERSION}"
+            echo "commit=${COMMIT}"
+            echo "build_time=${BUILD_TIME}"
+            echo "image=${IMAGE}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    needs: meta
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Build frontend assets
+        env:
+          APP_VERSION: ${{ needs.meta.outputs.version }}
+          VITE_APP_VERSION: ${{ needs.meta.outputs.version }}
+          GIT_COMMIT: ${{ needs.meta.outputs.commit }}
+          BUILD_TIME: ${{ needs.meta.outputs.build_time }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload frontend assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: dist
+          if-no-files-found: error
+
+  build-backend:
+    runs-on: ubuntu-latest
+    needs: meta
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Restore Go modules and build cache
+        id: go-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-${{ runner.arch }}-go-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-go-
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Build backend binary
+        env:
+          APP_PROJECT: ${{ needs.meta.outputs.project }}
+          APP_RAW_NAME: ${{ needs.meta.outputs.app }}
+          APP_VERSION: ${{ needs.meta.outputs.version }}
+          GIT_COMMIT: ${{ needs.meta.outputs.commit }}
+          BUILD_TIME: ${{ needs.meta.outputs.build_time }}
+          DEVELOPER: https://github.com/${{ github.repository_owner }}
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+          go build -trimpath -ldflags="-s -w \
+          -X ${{ env.VERSION_PKG }}.AppRawName=${APP_RAW_NAME} \
+          -X ${{ env.VERSION_PKG }}.AppProject=${APP_PROJECT} \
+          -X ${{ env.VERSION_PKG }}.AppVersion=${APP_VERSION} \
+          -X ${{ env.VERSION_PKG }}.GitCommit=${GIT_COMMIT} \
+          -X ${{ env.VERSION_PKG }}.BuildTime=${BUILD_TIME} \
+          -X ${{ env.VERSION_PKG }}.Developer=${DEVELOPER}" \
+          -o bin/app .
+
+      - name: Restore CI bin cache
+        id: ci-bin-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/ci-bin
+          key: ${{ runner.os }}-${{ runner.arch }}-ci-bin-${{ hashFiles('.github/scripts/install-ci-bin.sh') }}
+
+      - name: Install CI binaries
+        run: bash .github/scripts/install-ci-bin.sh .cache/ci-bin
+
+      - name: Compress backend binary
+        run: |
+          set -euo pipefail
+          .cache/ci-bin/upx -9 bin/app
+          bin/app version -s >/dev/null
+
+      - name: Upload backend binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-bin
+          path: bin
+          if-no-files-found: error
+
+      - name: Warm Go cache on main after non-exact cache hit
+        if: startsWith(github.ref, 'refs/tags/') && steps.go-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run warm-cache-go.yml --ref main
+
+      - name: Warm CI bin cache on main after cache miss
+        if: startsWith(github.ref, 'refs/tags/') && steps.ci-bin-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run warm-cache-bin.yml --ref main
+
+  build-image:
+    runs-on: ubuntu-latest
+    needs:
+      - meta
+      - build-frontend
+      - build-backend
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download backend binary
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-bin
+          path: .artifacts/backend
+
+      - name: Download frontend assets
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: .artifacts/frontend
+
+      - name: Prepare image inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf bin dist
+          mkdir -p bin dist
+          BACKEND_APP="$(find .artifacts/backend -type f -name app -print -quit)"
+          FRONTEND_ROOT="$(dirname "$(find .artifacts/frontend -type f -name index.html -print -quit)")"
+          test -n "${BACKEND_APP}"
+          test -n "${FRONTEND_ROOT}"
+          install -m 0755 "${BACKEND_APP}" bin/app
+          cp -a "${FRONTEND_ROOT}/." dist/
+          test -x bin/app
+          test -f dist/index.html
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build smoke test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ needs.meta.outputs.image }}:ci-smoke
+
+      - name: Smoke test container
+        run: |
+          set -euo pipefail
+          docker run --rm ${{ needs.meta.outputs.image }}:ci-smoke app version -s | tee /tmp/version.txt
+          test "$(cat /tmp/version.txt)" = "${{ needs.meta.outputs.version }}"
+
+      - name: Build and push image
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ needs.meta.outputs.image }}:${{ needs.meta.outputs.version }}
+            ${{ needs.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=${{ needs.meta.outputs.app }}
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.meta.outputs.commit }}
+            org.opencontainers.image.created=${{ needs.meta.outputs.build_time }}
+
+      - name: Print summary
+        run: |
+          {
+            echo "## Docker build summary"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Application | ${{ needs.meta.outputs.app }} |"
+            echo "| Version | ${{ needs.meta.outputs.version }} |"
+            echo "| Commit | ${{ needs.meta.outputs.commit }} |"
+            echo "| Image | \`${{ needs.meta.outputs.image }}:${{ needs.meta.outputs.version }}\` |"
+            echo "| Smoke Test | passed |"
+            echo "| Pushed | ${{ startsWith(github.ref, 'refs/tags/') }} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Execute remote SSH command
+        env:
+          DOCKER_IMAGE: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.DEPLOY_SSH_HOST }}
+          port: ${{ vars.DEPLOY_SSH_PORT }}
+          username: ${{ vars.DEPLOY_SSH_USERNAME }}
+          key: ${{ secrets.DEPLOY_SSH_PRIVATE }}
+          envs: DOCKER_IMAGE
+          script: bash ${{ vars.DEPLOY_SCRIPT }}
