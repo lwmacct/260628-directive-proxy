@@ -14,4 +14,4 @@ COPY dist /app/web
 COPY config/config.example.yaml /app/data/config/config.example.yaml
 
 ENTRYPOINT ["tini", "--"]
-CMD ["app"]
+CMD ["app", "server"]

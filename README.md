@@ -60,7 +60,7 @@ When a directive is accepted, inbound `Authorization`, `X-Client-Request-Id`, an
 ## Run
 
 ```bash
-go run .
+go run . server
 ```
 
 Default listen address is `:40174`.
