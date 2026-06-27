@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 	"github.com/lwmacct/251207-go-pkg-version/pkg/version"
 	"github.com/urfave/cli/v3"
@@ -20,6 +22,11 @@ var Command = &cli.Command{
 	Commands:        []*cli.Command{version.Command},
 	HideHelpCommand: true,
 	Flags:           commandFlags(),
+}
+
+func action(ctx context.Context, cmd *cli.Command) error {
+	cfg := cfgm.MustLoadCmd(cmd, config.DefaultConfig(), "")
+	return NewApp(cfg).Run(ctx)
 }
 
 func commandFlags() []cli.Flag {

@@ -2,33 +2,50 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"time"
+
+	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
+const httpTLSMinVersion = tls.VersionTLS12
+
 type runtime struct {
-	transport http.RoundTripper
-	idGen     proxy.Generator
-	proxy     http.Handler
-	tls       *tlsRuntime
+	proxy http.Handler
+	tls   *tlsRuntime
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
-	rt, err := newServiceRuntime(cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS)
 	if err != nil {
-		_ = rt.Close(context.Background())
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
-	rt.tls = tlsRuntime
-	return rt, nil
+	return &runtime{
+		proxy: newProxyHandler(cfg),
+		tls:   tlsRuntime,
+	}, nil
+}
+
+func newProxyHandler(cfg *config.Config) http.Handler {
+	idGen := proxy.NewGenerator()
+	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
+		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
+		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
+		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
+		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
+		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
+	})
+
+	return proxy.NewHandler(directive.NewResolver(), transport, proxy.HandlerOptions{
+		IDGenerator: idGen,
+	})
 }
 
 func (rt *runtime) Close(_ context.Context) error {
@@ -40,4 +57,53 @@ func (rt *runtime) Close(_ context.Context) error {
 		rt.tls = nil
 	}
 	return nil
+}
+
+type tlsRuntime struct {
+	config   *tls.Config
+	reloader *tlsreload.Reloader
+}
+
+func newTLSRuntime(ctx context.Context, cfg config.ServerHTTPTLS) (*tlsRuntime, error) {
+	if !cfg.Enabled {
+		return &tlsRuntime{}, nil
+	}
+
+	if !cfg.AutoReload {
+		certificate, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return nil, err
+		}
+		return &tlsRuntime{
+			config: &tls.Config{
+				Certificates: []tls.Certificate{certificate},
+				MinVersion:   httpTLSMinVersion,
+			},
+		}, nil
+	}
+
+	reloader, err := tlsreload.New(ctx, tlsreload.Config{
+		CertFile:       cfg.CertFile,
+		KeyFile:        cfg.KeyFile,
+		ReloadInterval: cfg.ReloadInterval,
+		RetryInterval:  2 * time.Second,
+		MinVersion:     httpTLSMinVersion,
+		Logger:         slog.Default(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &tlsRuntime{
+		config:   reloader.TLSConfig(),
+		reloader: reloader,
+	}, nil
+}
+
+func (rt *tlsRuntime) Close() {
+	if rt == nil || rt.reloader == nil {
+		return
+	}
+	rt.reloader.Close()
+	rt.reloader = nil
 }
