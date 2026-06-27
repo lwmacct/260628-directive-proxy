@@ -1,0 +1,93 @@
+package proxyhttp
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"testing"
+	"time"
+
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/proxyplan"
+)
+
+type noopResolver struct{}
+
+func (noopResolver) Resolve(*http.Request) (*proxyplan.Plan, error) {
+	return nil, nil
+}
+
+func TestNewProxyAwareTransportUsesRequestProxy(t *testing.T) {
+	transport, ok := NewProxyAwareTransport(http.DefaultTransport).(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport")
+	}
+
+	proxyURL, err := url.Parse("socks5://user:pass@127.0.0.1:1080")
+	if err != nil {
+		t.Fatalf("parse proxy failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://api.example.com/v1", nil)
+	req = withRequestProxy(req, proxyURL)
+
+	got, err := transport.Proxy(req)
+	if err != nil {
+		t.Fatalf("resolve proxy failed: %v", err)
+	}
+	if got == nil || got.String() != proxyURL.String() {
+		t.Fatalf("unexpected proxy: %#v", got)
+	}
+	if !transport.DisableCompression {
+		t.Fatal("expected implicit transport compression to be disabled")
+	}
+}
+
+func TestNewProxyAwareTransportWithOptionsOverridesIdlePolicy(t *testing.T) {
+	transport, ok := NewProxyAwareTransportWithOptions(http.DefaultTransport, ProxyTransportOptions{
+		MaxIdleConns:        17,
+		MaxIdleConnsPerHost: 1,
+		MaxConnsPerHost:     3000,
+		IdleConnTimeout:     7 * time.Second,
+		DisableKeepAlives:   true,
+	}).(*http.Transport)
+	if !ok {
+		t.Fatal("expected *http.Transport")
+	}
+	if transport.MaxIdleConns != 17 {
+		t.Fatalf("unexpected max idle conns: %d", transport.MaxIdleConns)
+	}
+	if transport.MaxIdleConnsPerHost != 1 {
+		t.Fatalf("unexpected max idle conns per host: %d", transport.MaxIdleConnsPerHost)
+	}
+	if transport.MaxConnsPerHost != 3000 {
+		t.Fatalf("unexpected max conns per host: %d", transport.MaxConnsPerHost)
+	}
+	if transport.IdleConnTimeout != 7*time.Second {
+		t.Fatalf("unexpected idle conn timeout: %s", transport.IdleConnTimeout)
+	}
+	if !transport.DisableKeepAlives {
+		t.Fatal("expected keep-alives to be disabled")
+	}
+}
+
+func TestHandlerRewriteCarriesProxyToOutboundRequest(t *testing.T) {
+	target, _ := url.Parse("https://example.com/base")
+	proxyURL, _ := url.Parse("socks5://user:pass@127.0.0.1:1080")
+	handler := NewHandler(noopResolver{}, http.DefaultTransport, HandlerOptions{})
+
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in = in.WithContext(proxyplan.ContextWithPlan(in.Context(), &proxyplan.Plan{
+		Target: target,
+		Proxy:  proxyURL,
+	}))
+	out := in.Clone(in.Context())
+	req := &httputil.ProxyRequest{In: in, Out: out}
+
+	handler.proxy.Rewrite(req)
+
+	got, ok := requestProxyFromContext(req.Out.Context())
+	if !ok || got == nil || got.String() != proxyURL.String() {
+		t.Fatalf("unexpected proxy in request context: %#v", got)
+	}
+}
