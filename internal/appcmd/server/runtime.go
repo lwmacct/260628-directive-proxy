@@ -22,7 +22,7 @@ type runtime struct {
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
-	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS.TLSReloadConfig())
+	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}

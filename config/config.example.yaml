@@ -10,6 +10,7 @@ server:
       enabled: false
       cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem"
       key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem"
+      poll-interval: 0s
 
 proxy:
   path-prefix: "/proxy"

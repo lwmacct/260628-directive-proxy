@@ -9,7 +9,7 @@ func Validate(cfg Config) (Config, error) {
 	if cfg.Server.HTTP.TLS.Enabled {
 		cfg.Server.HTTP.TLS.CertFile = strings.TrimSpace(cfg.Server.HTTP.TLS.CertFile)
 		cfg.Server.HTTP.TLS.KeyFile = strings.TrimSpace(cfg.Server.HTTP.TLS.KeyFile)
-		if err := cfg.Server.HTTP.TLS.TLSReloadConfig().Validate(); err != nil {
+		if err := cfg.Server.HTTP.TLS.Validate(); err != nil {
 			return cfg, ErrInvalidHTTP
 		}
 	}
