@@ -7,11 +7,10 @@ func Validate(cfg Config) (Config, error) {
 		return cfg, ErrInvalidHTTP
 	}
 	if cfg.Server.HTTP.TLS.Enabled {
-		if strings.TrimSpace(cfg.Server.HTTP.TLS.CertFile) == "" || strings.TrimSpace(cfg.Server.HTTP.TLS.KeyFile) == "" {
+		cfg.Server.HTTP.TLS.CertFile = strings.TrimSpace(cfg.Server.HTTP.TLS.CertFile)
+		cfg.Server.HTTP.TLS.KeyFile = strings.TrimSpace(cfg.Server.HTTP.TLS.KeyFile)
+		if err := cfg.Server.HTTP.TLS.TLSReloadConfig().Validate(); err != nil {
 			return cfg, ErrInvalidHTTP
-		}
-		if cfg.Server.HTTP.TLS.ReloadInterval <= 0 {
-			cfg.Server.HTTP.TLS.ReloadInterval = DefaultConfig().Server.HTTP.TLS.ReloadInterval
 		}
 	}
 	if strings.TrimSpace(cfg.Proxy.PathPrefix) == "" || !strings.HasPrefix(cfg.Proxy.PathPrefix, "/") {

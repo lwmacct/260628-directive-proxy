@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 
@@ -23,7 +22,7 @@ type runtime struct {
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
-	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS)
+	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS.TLSReloadConfig())
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
@@ -60,50 +59,33 @@ func (rt *runtime) Close(_ context.Context) error {
 }
 
 type tlsRuntime struct {
-	config   *tls.Config
-	reloader *tlsreload.Reloader
+	config  *tls.Config
+	manager *tlsreload.Manager
 }
 
-func newTLSRuntime(ctx context.Context, cfg config.ServerHTTPTLS) (*tlsRuntime, error) {
+func newTLSRuntime(ctx context.Context, cfg tlsreload.Config) (*tlsRuntime, error) {
 	if !cfg.Enabled {
 		return &tlsRuntime{}, nil
 	}
 
-	if !cfg.AutoReload {
-		certificate, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
-		if err != nil {
-			return nil, err
-		}
-		return &tlsRuntime{
-			config: &tls.Config{
-				Certificates: []tls.Certificate{certificate},
-				MinVersion:   httpTLSMinVersion,
-			},
-		}, nil
-	}
-
-	reloader, err := tlsreload.New(ctx, tlsreload.Config{
-		CertFile:       cfg.CertFile,
-		KeyFile:        cfg.KeyFile,
-		ReloadInterval: cfg.ReloadInterval,
-		RetryInterval:  2 * time.Second,
-		MinVersion:     httpTLSMinVersion,
-		Logger:         slog.Default(),
+	manager, err := tlsreload.New(ctx, cfg, tlsreload.Options{
+		MinVersion: httpTLSMinVersion,
+		Logger:     slog.Default(),
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &tlsRuntime{
-		config:   reloader.TLSConfig(),
-		reloader: reloader,
+		config:  manager.TLSConfig(),
+		manager: manager,
 	}, nil
 }
 
 func (rt *tlsRuntime) Close() {
-	if rt == nil || rt.reloader == nil {
+	if rt == nil || rt.manager == nil {
 		return
 	}
-	rt.reloader.Close()
-	rt.reloader = nil
+	rt.manager.Close()
+	rt.manager = nil
 }

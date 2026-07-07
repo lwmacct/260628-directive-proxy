@@ -25,7 +25,7 @@ var Command = &cli.Command{
 }
 
 func action(ctx context.Context, cmd *cli.Command) error {
-	cfg := cfgm.MustLoadCmd(cmd, config.DefaultConfig(), "")
+	cfg := cfgm.MustLoad(ctx, config.DefaultConfig(), cfgm.Command(cmd))
 	return NewApp(cfg).Run(ctx)
 }
 
@@ -36,8 +36,6 @@ func commandFlags() []cli.Flag {
 		&cli.BoolFlag{Name: "http.tls.enabled", Usage: flagHelp.MustUsage("http.tls.enabled"), Value: defaults.Server.HTTP.TLS.Enabled},
 		&cli.StringFlag{Name: "http.tls.cert-file", Usage: flagHelp.MustUsage("http.tls.cert-file"), Value: defaults.Server.HTTP.TLS.CertFile},
 		&cli.StringFlag{Name: "http.tls.key-file", Usage: flagHelp.MustUsage("http.tls.key-file"), Value: defaults.Server.HTTP.TLS.KeyFile},
-		&cli.BoolFlag{Name: "http.tls.auto-reload", Usage: flagHelp.MustUsage("http.tls.auto-reload"), Value: defaults.Server.HTTP.TLS.AutoReload},
-		&cli.DurationFlag{Name: "http.tls.reload-interval", Usage: flagHelp.MustUsage("http.tls.reload-interval"), Value: defaults.Server.HTTP.TLS.ReloadInterval},
 		&cli.DurationFlag{Name: "http.read-timeout", Usage: flagHelp.MustUsage("http.read-timeout"), Value: defaults.Server.HTTP.ReadTimeout},
 		&cli.DurationFlag{Name: "http.write-timeout", Usage: flagHelp.MustUsage("http.write-timeout"), Value: defaults.Server.HTTP.WriteTimeout},
 		&cli.DurationFlag{Name: "http.idle-timeout", Usage: flagHelp.MustUsage("http.idle-timeout"), Value: defaults.Server.HTTP.IdleTimeout},

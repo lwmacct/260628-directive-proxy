@@ -10,8 +10,6 @@ server:
       enabled: false
       cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem"
       key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem"
-      auto-reload: true
-      reload-interval: 3s
 
 proxy:
   path-prefix: "/proxy"
