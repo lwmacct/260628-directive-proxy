@@ -40,7 +40,7 @@ func directiveTokenFromAuthorization(req *http.Request) (string, bool) {
 		return "", false
 	}
 	raw := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-	if raw == "" || !strings.HasPrefix(raw, TokenPrefix) {
+	if _, ok := splitToken(raw); !ok {
 		return "", false
 	}
 	return raw, true

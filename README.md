@@ -2,7 +2,7 @@
 
 `llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-项目只负责解析 `Authorization: Bearer dpx1...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.10...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务分为两个独立 HTTP listener：
 
@@ -16,24 +16,19 @@
 唯一入口是：
 
 ```http
-Authorization: Bearer dpx1.<base64url-json>
+Authorization: Bearer dproxy.10.<base64url-json>
 ```
 
-没有 `dpx1.` 前缀的 Bearer token 会被视为非 directive token，不会尝试解码。
+没有 `dproxy.10.` 前缀的 Bearer token 会被视为非 directive token，不会尝试解码。
 
 payload schema：
 
 ```json
 {
-  "version": 1,
-  "kind": "directive-proxy.directive",
   "target": {
-    "url": "https://api.example.com/v1",
-    "join_path": true
+    "url": "https://api.example.com/v1"
   },
-  "transport": {
-    "proxy": "socks5://user:pass@127.0.0.1:1080"
-  },
+  "proxy": "socks5://user:pass@127.0.0.1:1080",
   "headers": {
     "mode": "patch",
     "ops": [
@@ -48,7 +43,7 @@ payload schema：
 }
 ```
 
-使用 `directive.Encode` 可以生成完整的 `dpx1.` token。
+使用 `directive.Encode` 可以生成完整的 `dproxy.10.` token。
 
 directive 被接受后，入站 `Authorization`、`X-Client-Request-Id` 和 `M-Runtime-*` header 会在转发前移除。如果上游需要自己的 `Authorization`，需要通过 directive 的 header ops 显式写入。
 

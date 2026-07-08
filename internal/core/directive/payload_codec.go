@@ -9,20 +9,20 @@ import (
 )
 
 func Encode(payload Payload) (string, error) {
-	payload = withProtocolDefaults(payload)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
-	return TokenPrefix + base64.RawURLEncoding.EncodeToString(raw), nil
+	return TokenFamily + "." + TokenVersion + "." + base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func Decode(encoded string) (Payload, error) {
 	encoded = strings.TrimSpace(encoded)
-	if !strings.HasPrefix(encoded, TokenPrefix) {
+	rawPayload, ok := splitToken(encoded)
+	if !ok {
 		return Payload{}, ErrInvalidPayload
 	}
-	raw, err := decodeBase64(strings.TrimPrefix(encoded, TokenPrefix))
+	raw, err := decodeBase64(rawPayload)
 	if err != nil {
 		return Payload{}, err
 	}
@@ -39,14 +39,12 @@ func Decode(encoded string) (Payload, error) {
 	return payload, nil
 }
 
-func withProtocolDefaults(payload Payload) Payload {
-	if payload.Version == 0 {
-		payload.Version = PayloadVersion
+func splitToken(encoded string) (string, bool) {
+	parts := strings.Split(encoded, ".")
+	if len(parts) != 3 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[2] == "" {
+		return "", false
 	}
-	if strings.TrimSpace(payload.Kind) == "" {
-		payload.Kind = PayloadKind
-	}
-	return payload
+	return parts[2], true
 }
 
 func decodeBase64(raw string) ([]byte, error) {

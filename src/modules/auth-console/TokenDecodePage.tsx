@@ -4,7 +4,7 @@ import { Alert, Button, Card, Col, Form, Input, Row, Typography, message } from 
 import { useMemo, useState } from "react";
 
 const { Paragraph, Text } = Typography;
-const tokenPrefix = "dpx1.";
+const tokenPrefix = "dproxy.10.";
 
 export function TokenDecodePage() {
   const [token, setToken] = useState("");
@@ -14,7 +14,7 @@ export function TokenDecodePage() {
 
   return (
     <WorkbenchPage
-      description="输入不含 Authorization: Bearer 前缀的 dpx1 token，解析 directive payload。"
+      description="输入 dproxy.10 token，也兼容 Bearer 或完整 Authorization header，解析 directive payload。"
       extra={
         <Button
           disabled={!output}
@@ -31,16 +31,16 @@ export function TokenDecodePage() {
         <Col xs={24} xl={12}>
           <Card size="small" title="Token">
             <Form layout="vertical">
-              <Form.Item label="dpx1 token">
+              <Form.Item label="dproxy.10 token">
                 <Input.TextArea
                   autoSize={{ minRows: 8, maxRows: 16 }}
                   onChange={(event) => setToken(event.target.value)}
-                  placeholder="dpx1.<base64url-json>"
+                  placeholder="dproxy.10.<base64url-json> 或 Bearer dproxy.10.<base64url-json>"
                   value={token}
                 />
               </Form.Item>
             </Form>
-            <Text type="secondary">不要包含 Authorization: Bearer。</Text>
+            <Text type="secondary">支持纯 token、Bearer token 或 Authorization header。</Text>
           </Card>
         </Col>
         <Col xs={24} xl={12}>
@@ -66,12 +66,12 @@ type DecodeResult =
   | { ok: false; error: string };
 
 function decodeToken(value: string): DecodeResult {
-  const token = value.trim();
+  const token = normalizeToken(value);
   if (!token) {
     return { ok: false, error: "" };
   }
   if (!token.startsWith(tokenPrefix)) {
-    return { ok: false, error: "token 必须以 dpx1. 开头" };
+    return { ok: false, error: "token 必须以 dproxy.10. 开头" };
   }
   try {
     const raw = token.slice(tokenPrefix.length);
@@ -83,6 +83,17 @@ function decodeToken(value: string): DecodeResult {
       error: err instanceof Error ? err.message : "token 解析失败",
     };
   }
+}
+
+function normalizeToken(value: string) {
+  let token = value.trim();
+  if (token.toLowerCase().startsWith("authorization:")) {
+    token = token.slice("authorization:".length).trim();
+  }
+  if (token.toLowerCase().startsWith("bearer ")) {
+    token = token.slice("bearer ".length).trim();
+  }
+  return token;
 }
 
 function base64URLDecode(value: string) {

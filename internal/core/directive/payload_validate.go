@@ -12,7 +12,6 @@ import (
 var ErrInvalidPayload = errors.New("invalid proxy payload")
 
 func Validate(payload Payload) error {
-	payload = withProtocolDefaults(payload)
 	_, err := NormalizePayload(payload, AssembleOptions{})
 	return err
 }

@@ -4,12 +4,8 @@ import "testing"
 
 func TestToPlan(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Version: PayloadVersion,
-		Kind:    PayloadKind,
-		Target:  TargetSection{URL: "https://api.example.com/base"},
-		Transport: &TransportSection{
-			Proxy: "socks5://user:pass@127.0.0.1:1080",
-		},
+		Target: TargetSection{URL: "https://api.example.com/base"},
+		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: &HeaderSection{Ops: []HeaderOp{
 			{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
 			{Op: "=", Name: "X-Test", Values: []string{"a"}},
@@ -36,9 +32,7 @@ func TestToPlan(t *testing.T) {
 
 func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Version: PayloadVersion,
-		Kind:    PayloadKind,
-		Target:  TargetSection{URL: "https://api.example.com/base"},
+		Target: TargetSection{URL: "https://api.example.com/base"},
 		Headers: &HeaderSection{
 			Mode: "replace",
 			Ops: []HeaderOp{
@@ -60,8 +54,6 @@ func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 func TestToPlanAllowsJoinPathFalse(t *testing.T) {
 	joinPath := false
 	plan, err := ToPlan(Payload{
-		Version: PayloadVersion,
-		Kind:    PayloadKind,
 		Target: TargetSection{
 			URL:      "https://api.example.com/base",
 			JoinPath: &joinPath,

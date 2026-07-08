@@ -1,26 +1,19 @@
 package directive
 
 const (
-	PayloadVersion = 1
-	PayloadKind    = "directive-proxy.directive"
-	TokenPrefix    = "dpx1."
+	TokenFamily  = "dproxy"
+	TokenVersion = "10"
 )
 
 type Payload struct {
-	Version   int               `json:"version"`
-	Kind      string            `json:"kind"`
-	Target    TargetSection     `json:"target"`
-	Transport *TransportSection `json:"transport,omitempty"`
-	Headers   *HeaderSection    `json:"headers,omitempty"`
+	Target  TargetSection  `json:"target"`
+	Proxy   string         `json:"proxy,omitempty"`
+	Headers *HeaderSection `json:"headers,omitempty"`
 }
 
 type TargetSection struct {
 	URL      string `json:"url"`
 	JoinPath *bool  `json:"join_path,omitempty"`
-}
-
-type TransportSection struct {
-	Proxy string `json:"proxy,omitempty"`
 }
 
 type HeaderSection struct {

@@ -54,7 +54,7 @@ func TestResolverIgnoresNonDirectiveBearerToken(t *testing.T) {
 
 func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
-	req.Header.Set("Authorization", "Bearer "+TokenPrefix+"not-valid-base64url")
+	req.Header.Set("Authorization", "Bearer "+TokenFamily+"."+TokenVersion+".not-valid-base64url")
 
 	_, err := NewResolver().Resolve(req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {

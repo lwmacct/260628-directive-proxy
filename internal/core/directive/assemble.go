@@ -28,9 +28,6 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 }
 
 func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload, error) {
-	if payload.Version != PayloadVersion || strings.TrimSpace(payload.Kind) != PayloadKind {
-		return NormalizedPayload{}, ErrInvalidPayload
-	}
 	targetURL := strings.TrimSpace(payload.Target.URL)
 	if targetURL == "" {
 		return NormalizedPayload{}, ErrInvalidPayload
@@ -48,11 +45,7 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 	if err := validateHeaderMode(headerMode); err != nil {
 		return NormalizedPayload{}, err
 	}
-	proxyRaw := ""
-	if payload.Transport != nil {
-		proxyRaw = payload.Transport.Proxy
-	}
-	proxyURL, err := ParseProxy(proxyRaw)
+	proxyURL, err := ParseProxy(payload.Proxy)
 	if err != nil {
 		return NormalizedPayload{}, err
 	}

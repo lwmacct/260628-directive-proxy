@@ -20,6 +20,7 @@ import type { TableColumnsType } from "antd";
 import { useMemo, useState } from "react";
 
 const { Text, Paragraph } = Typography;
+const tokenPrefix = "dproxy.10.";
 
 type HeaderOp = {
   key: string;
@@ -29,15 +30,11 @@ type HeaderOp = {
 };
 
 type DirectivePayload = {
-  version: 1;
-  kind: "directive-proxy.directive";
   target: {
     url: string;
     join_path?: boolean;
   };
-  transport?: {
-    proxy?: string;
-  };
+  proxy?: string;
   headers?: {
     mode?: "patch" | "replace";
     ops?: Array<{
@@ -89,7 +86,7 @@ export function AuthConsolePage() {
   const token = useMemo(() => {
     setError(null);
     try {
-      return `dpx1.${base64URL(JSON.stringify(payload))}`;
+      return `${tokenPrefix}${base64URL(JSON.stringify(payload))}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Encode failed");
       return "";
@@ -195,7 +192,7 @@ export function AuthConsolePage() {
                   enabled
                 </Checkbox>
               </Form.Item>
-              <Form.Item className="grow-field" label="Transport Proxy">
+              <Form.Item className="grow-field" label="Proxy">
                 <Input
                   allowClear
                   placeholder="socks5://user:pass@127.0.0.1:1080"
@@ -312,15 +309,15 @@ function buildPayload(input: {
     .filter((item) => item.name);
 
   const payload: DirectivePayload = {
-    version: 1,
-    kind: "directive-proxy.directive",
     target: {
       url: input.targetURL.trim(),
-      join_path: input.joinPath,
     },
   };
+  if (!input.joinPath) {
+    payload.target.join_path = false;
+  }
   if (input.proxyURL.trim()) {
-    payload.transport = { proxy: input.proxyURL.trim() };
+    payload.proxy = input.proxyURL.trim();
   }
   if (ops.length > 0) {
     payload.headers = {

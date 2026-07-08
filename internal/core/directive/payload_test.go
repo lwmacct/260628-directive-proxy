@@ -9,9 +9,7 @@ import (
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	input := Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Transport: &TransportSection{
-			Proxy: "socks5://user:pass@127.0.0.1:1080",
-		},
+		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: &HeaderSection{
 			Mode: "replace",
 			Ops: []HeaderOp{
@@ -25,7 +23,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}
-	if !strings.HasPrefix(encoded, TokenPrefix) {
+	if !strings.HasPrefix(encoded, TokenFamily+"."+TokenVersion+".") {
 		t.Fatalf("expected token prefix: %q", encoded)
 	}
 
@@ -33,14 +31,11 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
-	if decoded.Version != PayloadVersion || decoded.Kind != PayloadKind {
-		t.Fatalf("unexpected protocol fields: %#v", decoded)
-	}
 	if decoded.Target.URL != input.Target.URL {
 		t.Fatalf("unexpected url: %s", decoded.Target.URL)
 	}
-	if decoded.Transport == nil || decoded.Transport.Proxy != input.Transport.Proxy {
-		t.Fatalf("unexpected proxy: %#v", decoded.Transport)
+	if decoded.Proxy != input.Proxy {
+		t.Fatalf("unexpected proxy: %#v", decoded.Proxy)
 	}
 	if decoded.Headers == nil || decoded.Headers.Mode != "replace" {
 		t.Fatalf("unexpected header mode: %#v", decoded.Headers)
@@ -54,7 +49,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 }
 
 func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"version":1,"kind":"directive-proxy.directive","target":{"url":"https://api.example.com/v1"}}`))
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
 
 	if _, err := Decode(encoded); err == nil {
 		t.Fatal("expected validation error")
@@ -62,7 +57,15 @@ func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 }
 
 func TestDecodeRejectsUnknownField(t *testing.T) {
-	encoded := encodeRawToken([]byte(`{"version":1,"kind":"directive-proxy.directive","target":{"url":"https://api.example.com/v1"},"key":"secret"}`))
+	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"key":"secret"}`))
+
+	if _, err := Decode(encoded); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
+	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"transport":{"proxy":"socks5://127.0.0.1:1080"}}`))
 
 	if _, err := Decode(encoded); err == nil {
 		t.Fatal("expected validation error")
@@ -133,8 +136,8 @@ func TestValidateRejectsUnsupportedTargetScheme(t *testing.T) {
 
 func TestValidateRejectsInvalidProxy(t *testing.T) {
 	err := Validate(Payload{
-		Target:    TargetSection{URL: "https://api.example.com/v1"},
-		Transport: &TransportSection{Proxy: "http://127.0.0.1:1080"},
+		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Proxy:  "http://127.0.0.1:1080",
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -152,5 +155,5 @@ func TestParseProxy(t *testing.T) {
 }
 
 func encodeRawToken(raw []byte) string {
-	return TokenPrefix + base64.RawURLEncoding.EncodeToString(raw)
+	return TokenFamily + "." + TokenVersion + "." + base64.RawURLEncoding.EncodeToString(raw)
 }
