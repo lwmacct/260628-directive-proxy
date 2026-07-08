@@ -13,10 +13,10 @@ func Validate(cfg Config) (Config, error) {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	if strings.TrimSpace(cfg.Proxy.PathPrefix) == "" || !strings.HasPrefix(cfg.Proxy.PathPrefix, "/") {
+	cfg.Proxy.Listen = strings.TrimSpace(cfg.Proxy.Listen)
+	if cfg.Proxy.Listen == "" {
 		return cfg, ErrInvalidProxy
 	}
-	cfg.Proxy.PathPrefix = "/" + strings.Trim(strings.TrimSpace(cfg.Proxy.PathPrefix), "/")
 	if cfg.Proxy.Transport.MaxIdleConns < 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost < 0 ||
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport

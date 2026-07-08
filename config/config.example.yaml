@@ -1,7 +1,7 @@
 server:
   debug: false
   http:
-    listen: ":23194"
+    listen: ":23198"
     read-timeout: 30s
     write-timeout: 0s
     idle-timeout: 120s
@@ -13,7 +13,7 @@ server:
       poll-interval: 0s
 
 proxy:
-  path-prefix: "/proxy"
+  listen: ":23197"
   transport:
     max-idle-conns: 4096
     max-idle-conns-per-host: 2048

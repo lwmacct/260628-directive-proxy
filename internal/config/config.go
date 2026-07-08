@@ -33,8 +33,8 @@ type ServerHTTP struct {
 }
 
 type Proxy struct {
-	PathPrefix string         `json:"path-prefix" desc:"代理流量路径前缀"`
-	Transport  ProxyTransport `json:"transport"   desc:"上游连接池与连接复用配置"`
+	Listen    string         `json:"listen"    desc:"代理 data plane 监听地址"`
+	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
 }
 
 type ProxyTransport struct {
@@ -62,7 +62,7 @@ func DefaultConfig() Config {
 			},
 		},
 		Proxy: Proxy{
-			PathPrefix: "/proxy",
+			Listen: ":23197",
 			Transport: ProxyTransport{
 				MaxIdleConns:        4096,
 				MaxIdleConnsPerHost: 2048,

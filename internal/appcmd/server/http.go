@@ -12,11 +12,20 @@ import (
 
 const httpAPIPrefix = "/api"
 
-func newHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
+func newControlHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
+	httpCfg := cfg.Server.HTTP
+	return newHTTPServer(httpCfg.Listen, newControlHTTPHandler(cfg), cfg, rt), nil
+}
+
+func newProxyHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
+	return newHTTPServer(cfg.Proxy.Listen, rt.proxy, cfg, rt), nil
+}
+
+func newHTTPServer(addr string, handler http.Handler, cfg *config.Config, rt *runtime) *http.Server {
 	httpCfg := cfg.Server.HTTP
 	srv := &http.Server{
-		Addr:              httpCfg.Listen,
-		Handler:           newHTTPHandler(cfg, rt),
+		Addr:              addr,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       httpCfg.ReadTimeout,
 		WriteTimeout:      httpCfg.WriteTimeout,
@@ -24,13 +33,13 @@ func newHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
 	}
 
 	if rt.tls == nil || rt.tls.config == nil {
-		return srv, nil
+		return srv
 	}
 	srv.TLSConfig = rt.tls.config
-	return srv, nil
+	return srv
 }
 
-func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
+func newControlHTTPHandler(cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
 	api := handler.NewEndpoint(handler.Config{}, handler.Services{}).Handler()
 	mux.Handle(httpAPIPrefix+"/", http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes)))
@@ -41,17 +50,6 @@ func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 			"timestamp": time.Now().UTC(),
 		})
 	})
-
-	proxyPrefix := cfg.Proxy.PathPrefix
-	proxyHandler := rt.proxy
-	if proxyPrefix == "/" {
-		mux.Handle("/", proxyHandler)
-		return mux
-	}
-	mux.Handle(proxyPrefix+"/", http.StripPrefix(proxyPrefix, proxyHandler))
-	if proxyPrefix != "/" {
-		mux.Handle(proxyPrefix, http.RedirectHandler(proxyPrefix+"/", http.StatusTemporaryRedirect))
-	}
 	return mux
 }
 
