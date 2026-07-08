@@ -1,6 +1,6 @@
 {
   "name": "llm-relay-dproxy-web",
-  "version": "0.12.260708",
+  "version": "0.13.260708",
   "private": true,
   "packageManager": "pnpm@11.10.0",
   "type": "module",
