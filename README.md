@@ -2,7 +2,7 @@
 
 `llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-项目当前只保留代理职责：解析 `Authorization: Bearer dpx1...` 中的 directive，按 directive 改写请求并转发到目标上游。usage 解析、审计、Kafka/HTTP 投递等观测能力已经迁移到前置的 `llm-relay-parse` 服务。
+项目只负责解析 `Authorization: Bearer dpx1...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务分为两个独立 HTTP listener：
 
