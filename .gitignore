@@ -22,7 +22,9 @@ out/
 [0-9]*-
 
 # 生成文件
-gen/
+**/gen/
+**/__pycache__/
+**/*.py[cod]
 
 # 临时文件
 **/*.bak
@@ -51,6 +53,3 @@ config/config.yaml
 # Go workspace
 go.work
 go.work.sum
-
-# local frontend workspace
-vite.local.ts
