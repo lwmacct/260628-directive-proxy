@@ -13,10 +13,12 @@ type Handler struct {
 	resolver Resolver
 	proxy    *httputil.ReverseProxy
 	idGen    Generator
+	recorder *ExchangeRecorder
 }
 
 type HandlerOptions struct {
 	IDGenerator Generator
+	Recorder    *ExchangeRecorder
 }
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
@@ -41,6 +43,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		resolver: resolver,
 		proxy:    proxy,
 		idGen:    opts.IDGenerator,
+		recorder: opts.Recorder,
 	}
 }
 
@@ -70,6 +73,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = h.ensureRequestID(w, r)
+	var exchange *activeExchange
+	if h.recorder != nil {
+		exchange = h.recorder.Start(r)
+		r = exchange.WrapRequest(r)
+		w = exchange.WrapResponseWriter(w)
+		defer exchange.Finish()
+	}
 
 	d, err := h.resolver.Resolve(r)
 	if err != nil {
@@ -88,6 +98,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if d == nil || d.Target == nil {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
 		return
+	}
+	if exchange != nil {
+		exchange.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
 	}
 
 	h.ServeHTTPWithPlan(w, r, d)

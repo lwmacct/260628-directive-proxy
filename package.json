@@ -1,6 +1,6 @@
 {
   "name": "llm-relay-dproxy-web",
-  "version": "0.9.260707",
+  "version": "0.10.260708",
   "private": true,
   "packageManager": "pnpm@11.10.0",
   "type": "module",
@@ -13,6 +13,8 @@
     "npm": "please-use-pnpm"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.2",
+    "antd": "^6.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

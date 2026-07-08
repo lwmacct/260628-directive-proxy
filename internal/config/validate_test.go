@@ -21,3 +21,13 @@ func TestValidateRejectsMissingProxyListen(t *testing.T) {
 		t.Fatalf("expected invalid proxy config, got %v", err)
 	}
 }
+
+func TestValidateRejectsEnabledCaptureWithoutCapacity(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Proxy.Capture.Enabled = true
+	cfg.Proxy.Capture.Capacity = 0
+
+	if _, err := Validate(cfg); err != ErrInvalidProxy {
+		t.Fatalf("expected invalid proxy config, got %v", err)
+	}
+}

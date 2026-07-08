@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -14,7 +16,7 @@ const httpAPIPrefix = "/api"
 
 func newControlHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
 	httpCfg := cfg.Server.HTTP
-	return newHTTPServer(httpCfg.Listen, newControlHTTPHandler(cfg), cfg, rt), nil
+	return newHTTPServer(httpCfg.Listen, newControlHTTPHandler(cfg, rt), cfg, rt), nil
 }
 
 func newProxyHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
@@ -39,9 +41,9 @@ func newHTTPServer(addr string, handler http.Handler, cfg *config.Config, rt *ru
 	return srv
 }
 
-func newControlHTTPHandler(cfg *config.Config) http.Handler {
+func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	mux := http.NewServeMux()
-	api := handler.NewEndpoint(handler.Config{}, handler.Services{}).Handler()
+	api := handler.NewEndpoint(handler.Config{}, handler.Services{Exchanges: rt.recorder}).Handler()
 	mux.Handle(httpAPIPrefix+"/", http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes)))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -50,7 +52,42 @@ func newControlHTTPHandler(cfg *config.Config) http.Handler {
 			"timestamp": time.Now().UTC(),
 		})
 	})
+	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
+		mux.Handle("/", spaFileServer(webRoot))
+	}
 	return mux
+}
+
+func spaFileServer(root string) http.Handler {
+	fs := http.Dir(root)
+	fileServer := http.FileServer(fs)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+		if fileExists(fs, r.URL.Path) {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		fallback := r.Clone(r.Context())
+		fallback.URL.Path = "/"
+		fileServer.ServeHTTP(w, fallback)
+	})
+}
+
+func fileExists(fs http.FileSystem, urlPath string) bool {
+	name := strings.TrimPrefix(path.Clean(urlPath), "/")
+	if name == "." {
+		name = ""
+	}
+	file, err := fs.Open(name)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	return err == nil && !info.IsDir()
 }
 
 func limitRequestBody(next http.Handler, maxBytes int64) http.Handler {

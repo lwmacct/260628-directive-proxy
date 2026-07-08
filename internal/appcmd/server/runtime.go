@@ -17,8 +17,9 @@ import (
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	proxy http.Handler
-	tls   *tlsRuntime
+	proxy    http.Handler
+	recorder *proxy.ExchangeRecorder
+	tls      *tlsRuntime
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
@@ -26,13 +27,22 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
+	recorder := newExchangeRecorder(cfg)
 	return &runtime{
-		proxy: newProxyHandler(cfg),
-		tls:   tlsRuntime,
+		proxy:    newProxyHandler(cfg, recorder),
+		recorder: recorder,
+		tls:      tlsRuntime,
 	}, nil
 }
 
-func newProxyHandler(cfg *config.Config) http.Handler {
+func newExchangeRecorder(cfg *config.Config) *proxy.ExchangeRecorder {
+	if cfg == nil || !cfg.Proxy.Capture.Enabled {
+		return nil
+	}
+	return proxy.NewExchangeRecorder(cfg.Proxy.Capture.Capacity, cfg.Proxy.Capture.MaxBodyBytes)
+}
+
+func newProxyHandler(cfg *config.Config, recorder *proxy.ExchangeRecorder) http.Handler {
 	idGen := proxy.NewGenerator()
 	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
@@ -44,6 +54,7 @@ func newProxyHandler(cfg *config.Config) http.Handler {
 
 	return proxy.NewHandler(directive.NewResolver(), transport, proxy.HandlerOptions{
 		IDGenerator: idGen,
+		Recorder:    recorder,
 	})
 }
 

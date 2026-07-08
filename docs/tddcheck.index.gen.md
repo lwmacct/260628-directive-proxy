@@ -8,9 +8,10 @@
 
 ## APIs
 
-| Method | Path      | Operation    | Tags | Handler  | Register            | File                                  |
-| ------ | --------- | ------------ | ---- | -------- | ------------------- | ------------------------------------- |
-| `GET`  | `/health` | `get-health` |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| Method | Path               | Operation              | Tags | Handler  | Register            | File                                  |
+| ------ | ------------------ | ---------------------- | ---- | -------- | ------------------- | ------------------------------------- |
+| `GET`  | `/health`          | `get-health`           |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| `GET`  | `/proxy-exchanges` | `list-proxy-exchanges` |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
 
 ## Handlers
 

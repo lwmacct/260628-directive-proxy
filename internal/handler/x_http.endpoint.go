@@ -7,6 +7,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 type Endpoint struct {
@@ -39,4 +41,31 @@ func (e *Endpoint) Register(api huma.API) {
 			},
 		}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-proxy-exchanges",
+		Method:      http.MethodGet,
+		Path:        "/proxy-exchanges",
+		Summary:     "List recent proxy request and response exchanges",
+	}, func(ctx context.Context, input *ListProxyExchangesInputDTO) (*ListProxyExchangesOutputDTO, error) {
+		limit := 0
+		if input != nil {
+			limit = input.Limit
+		}
+		if e.services.Exchanges == nil {
+			return &ListProxyExchangesOutputDTO{
+				Body: emptyProxyExchangesResponse(),
+			}, nil
+		}
+		return &ListProxyExchangesOutputDTO{
+			Body: e.services.Exchanges.Snapshot(limit),
+		}, nil
+	})
+}
+
+func emptyProxyExchangesResponse() proxy.ExchangeSnapshot {
+	return proxy.ExchangeSnapshot{
+		Enabled: false,
+		Items:   []proxy.ExchangeRecord{},
+	}
 }

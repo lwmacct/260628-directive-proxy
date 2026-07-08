@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,6 +33,33 @@ func TestControlHTTPServerOnlyServesControlPlane(t *testing.T) {
 	srv.Handler.ServeHTTP(proxyRecorder, proxyReq)
 	if proxyRecorder.Code != http.StatusNotFound {
 		t.Fatalf("expected control server not to serve proxy paths, got %d", proxyRecorder.Code)
+	}
+}
+
+func TestControlHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
+	cfg := config.DefaultConfig()
+	rt := &runtime{}
+	srv, err := newControlHTTPServer(&cfg, rt)
+	if err != nil {
+		t.Fatalf("create control server failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
+	recorder := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", recorder.Code)
+	}
+	var body struct {
+		Enabled bool  `json:"enabled"`
+		Items   []any `json:"items"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body failed: %v", err)
+	}
+	if body.Enabled || len(body.Items) != 0 {
+		t.Fatalf("unexpected response body: %#v", body)
 	}
 }
 
