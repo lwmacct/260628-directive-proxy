@@ -49,7 +49,7 @@ func DefaultConfig() Config {
 	return Config{
 		Server: Server{
 			HTTP: ServerHTTP{
-				Listen:          ":40174",
+				Listen:          ":23198",
 				ReadTimeout:     30 * time.Second,
 				WriteTimeout:    0,
 				IdleTimeout:     120 * time.Second,

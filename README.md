@@ -37,7 +37,11 @@ payload schema：
   "headers": {
     "mode": "patch",
     "ops": [
-      { "op": "=", "name": "Authorization", "values": ["Bearer upstream-token"] },
+      {
+        "op": "=",
+        "name": "Authorization",
+        "values": ["Bearer upstream-token"]
+      },
       { "op": "=", "name": "X-Tenant", "values": ["tenant-a"] }
     ]
   }
@@ -54,7 +58,7 @@ directive 被接受后，入站 `Authorization`、`X-Client-Request-Id` 和 `M-R
 go run . server
 ```
 
-默认监听地址是 `:40174`。
+默认监听地址是 `:23194`。
 
 常用端点：
 

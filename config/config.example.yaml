@@ -1,7 +1,7 @@
 server:
   debug: false
   http:
-    listen: ":40174"
+    listen: ":23194"
     read-timeout: 30s
     write-timeout: 0s
     idle-timeout: 120s
