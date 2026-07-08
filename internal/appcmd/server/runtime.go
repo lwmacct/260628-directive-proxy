@@ -36,10 +36,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 }
 
 func newExchangeRecorder(cfg *config.Config) *proxy.ExchangeRecorder {
-	if cfg == nil || !cfg.Proxy.Capture.Enabled {
-		return nil
-	}
-	return proxy.NewExchangeRecorder(cfg.Proxy.Capture.Capacity, cfg.Proxy.Capture.MaxBodyBytes)
+	return proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)
 }
 
 func newProxyHandler(cfg *config.Config, recorder *proxy.ExchangeRecorder) http.Handler {

@@ -34,14 +34,7 @@ type ServerHTTP struct {
 
 type Proxy struct {
 	Listen    string         `json:"listen"    desc:"代理 data plane 监听地址"`
-	Capture   ProxyCapture   `json:"capture"   desc:"代理请求响应内存记录配置"`
 	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
-}
-
-type ProxyCapture struct {
-	Enabled      bool  `json:"enabled"        desc:"是否启用最近请求响应内存记录"`
-	Capacity     int   `json:"capacity"       desc:"最多保留最近 N 条代理请求响应记录"`
-	MaxBodyBytes int64 `json:"max-body-bytes" desc:"每个请求体或响应体最多记录的字节数，0 表示不记录 body"`
 }
 
 type ProxyTransport struct {
@@ -70,11 +63,6 @@ func DefaultConfig() Config {
 		},
 		Proxy: Proxy{
 			Listen: ":23197",
-			Capture: ProxyCapture{
-				Enabled:      false,
-				Capacity:     100,
-				MaxBodyBytes: 64 << 10,
-			},
 			Transport: ProxyTransport{
 				MaxIdleConns:        4096,
 				MaxIdleConnsPerHost: 2048,

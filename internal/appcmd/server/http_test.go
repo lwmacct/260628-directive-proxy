@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 func TestControlHTTPServerOnlyServesControlPlane(t *testing.T) {
@@ -38,7 +40,7 @@ func TestControlHTTPServerOnlyServesControlPlane(t *testing.T) {
 
 func TestControlHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
 	cfg := config.DefaultConfig()
-	rt := &runtime{}
+	rt := &runtime{recorder: proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)}
 	srv, err := newControlHTTPServer(&cfg, rt)
 	if err != nil {
 		t.Fatalf("create control server failed: %v", err)
@@ -60,6 +62,48 @@ func TestControlHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
 	}
 	if body.Enabled || len(body.Items) != 0 {
 		t.Fatalf("unexpected response body: %#v", body)
+	}
+}
+
+func TestControlHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
+	cfg := config.DefaultConfig()
+	rt := &runtime{recorder: proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)}
+	srv, err := newControlHTTPServer(&cfg, rt)
+	if err != nil {
+		t.Fatalf("create control server failed: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		"http://control.local/api/proxy-exchanges/settings",
+		strings.NewReader(`{"enabled":true,"capacity":3,"max_body_bytes":128}`),
+	)
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRecorder := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(updateRecorder, updateReq)
+
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected settings status: %d body=%s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+	var updateBody struct {
+		Enabled      bool  `json:"enabled"`
+		Capacity     int   `json:"capacity"`
+		MaxBodyBytes int64 `json:"max_body_bytes"`
+	}
+	if err := json.Unmarshal(updateRecorder.Body.Bytes(), &updateBody); err != nil {
+		t.Fatalf("unmarshal settings body failed: %v", err)
+	}
+	if !updateBody.Enabled || updateBody.Capacity != 3 || updateBody.MaxBodyBytes != 128 {
+		t.Fatalf("unexpected settings body: %#v", updateBody)
+	}
+
+	rt.recorder.Configure(true, 0, -1)
+	rt.recorder.Clear()
+	clearReq := httptest.NewRequest(http.MethodDelete, "http://control.local/api/proxy-exchanges", nil)
+	clearRecorder := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(clearRecorder, clearReq)
+	if clearRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected clear status: %d body=%s", clearRecorder.Code, clearRecorder.Body.String())
 	}
 }
 

@@ -76,9 +76,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var exchange *activeExchange
 	if h.recorder != nil {
 		exchange = h.recorder.Start(r)
-		r = exchange.WrapRequest(r)
-		w = exchange.WrapResponseWriter(w)
-		defer exchange.Finish()
+		if exchange != nil {
+			r = exchange.WrapRequest(r)
+			w = exchange.WrapResponseWriter(w)
+			defer exchange.Finish()
+		}
 	}
 
 	d, err := h.resolver.Resolve(r)

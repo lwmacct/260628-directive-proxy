@@ -17,12 +17,6 @@ func Validate(cfg Config) (Config, error) {
 	if cfg.Proxy.Listen == "" {
 		return cfg, ErrInvalidProxy
 	}
-	if cfg.Proxy.Capture.Capacity < 0 || cfg.Proxy.Capture.MaxBodyBytes < 0 {
-		return cfg, ErrInvalidProxy
-	}
-	if cfg.Proxy.Capture.Enabled && cfg.Proxy.Capture.Capacity == 0 {
-		return cfg, ErrInvalidProxy
-	}
 	if cfg.Proxy.Transport.MaxIdleConns < 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost < 0 ||
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport

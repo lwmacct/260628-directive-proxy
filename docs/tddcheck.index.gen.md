@@ -8,10 +8,13 @@
 
 ## APIs
 
-| Method | Path               | Operation              | Tags | Handler  | Register            | File                                  |
-| ------ | ------------------ | ---------------------- | ---- | -------- | ------------------- | ------------------------------------- |
-| `GET`  | `/health`          | `get-health`           |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
-| `GET`  | `/proxy-exchanges` | `list-proxy-exchanges` |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| Method   | Path                        | Operation                        | Tags | Handler  | Register            | File                                  |
+| -------- | --------------------------- | -------------------------------- | ---- | -------- | ------------------- | ------------------------------------- |
+| `GET`    | `/health`                   | `get-health`                     |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| `DELETE` | `/proxy-exchanges`          | `clear-proxy-exchanges`          |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| `GET`    | `/proxy-exchanges`          | `list-proxy-exchanges`           |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| `PUT`    | `/proxy-exchanges/settings` | `update-proxy-exchange-settings` |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| `GET`    | `/proxy-exchanges/{id}`     | `get-proxy-exchange`             |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
 
 ## Handlers
 

@@ -24,6 +24,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   height: auto;
   min-height: 76px;
   padding: 18px 28px;
@@ -45,7 +46,7 @@ body {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -64,8 +65,39 @@ body {
 .metric-tile strong {
   margin-top: 8px;
   color: #102a43;
-  font-size: 28px;
+  font-size: 24px;
   line-height: 1;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+  border: 1px solid #d9e2ec;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.search-input {
+  min-width: 260px;
+  max-width: 520px;
+  flex: 1 1 320px;
+}
+
+.method-select {
+  width: 132px;
+}
+
+.switch-control {
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.toolbar .ant-input-number {
+  width: 148px;
 }
 
 .status-alert {
@@ -128,6 +160,24 @@ body {
     padding: 16px;
   }
 
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-input,
+  .method-select,
+  .toolbar .ant-input-number,
+  .toolbar .ant-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 440px) {
   .metrics-grid {
     grid-template-columns: 1fr;
   }

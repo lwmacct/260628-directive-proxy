@@ -61,6 +61,58 @@ func (e *Endpoint) Register(api huma.API) {
 			Body: e.services.Exchanges.Snapshot(limit),
 		}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-proxy-exchange",
+		Method:      http.MethodGet,
+		Path:        "/proxy-exchanges/{id}",
+		Summary:     "Get one proxy request and response exchange",
+	}, func(ctx context.Context, input *GetProxyExchangeInputDTO) (*GetProxyExchangeOutputDTO, error) {
+		if e.services.Exchanges == nil || input == nil {
+			return nil, huma.Error404NotFound("proxy exchange not found")
+		}
+		record, ok := e.services.Exchanges.Get(input.ID)
+		if !ok {
+			return nil, huma.Error404NotFound("proxy exchange not found")
+		}
+		return &GetProxyExchangeOutputDTO{Body: record}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "update-proxy-exchange-settings",
+		Method:      http.MethodPut,
+		Path:        "/proxy-exchanges/settings",
+		Summary:     "Enable or disable proxy exchange capture",
+	}, func(ctx context.Context, input *UpdateProxyExchangeSettingsInputDTO) (*UpdateProxyExchangeSettingsOutputDTO, error) {
+		if e.services.Exchanges == nil || input == nil {
+			return &UpdateProxyExchangeSettingsOutputDTO{
+				Body: emptyProxyExchangesResponse(),
+			}, nil
+		}
+		return &UpdateProxyExchangeSettingsOutputDTO{
+			Body: e.services.Exchanges.Configure(
+				input.Body.Enabled,
+				optionalInt(input.Body.Capacity),
+				optionalInt64(input.Body.MaxBodyBytes),
+			),
+		}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "clear-proxy-exchanges",
+		Method:      http.MethodDelete,
+		Path:        "/proxy-exchanges",
+		Summary:     "Clear retained proxy request and response exchanges",
+	}, func(ctx context.Context, input *struct{}) (*ClearProxyExchangesOutputDTO, error) {
+		if e.services.Exchanges == nil {
+			return &ClearProxyExchangesOutputDTO{
+				Body: emptyProxyExchangesResponse(),
+			}, nil
+		}
+		return &ClearProxyExchangesOutputDTO{
+			Body: e.services.Exchanges.Clear(),
+		}, nil
+	})
 }
 
 func emptyProxyExchangesResponse() proxy.ExchangeSnapshot {
@@ -68,4 +120,18 @@ func emptyProxyExchangesResponse() proxy.ExchangeSnapshot {
 		Enabled: false,
 		Items:   []proxy.ExchangeRecord{},
 	}
+}
+
+func optionalInt(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func optionalInt64(value *int64) int64 {
+	if value == nil {
+		return -1
+	}
+	return *value
 }

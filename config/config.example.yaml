@@ -1,26 +1,33 @@
-server:
-  debug: false
-  http:
-    listen: ":23198"
-    read-timeout: 30s
-    write-timeout: 0s
-    idle-timeout: 120s
-    max-api-body-bytes: 1048576
-    tls:
-      enabled: false
-      cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem"
-      key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem"
-      poll-interval: 0s
+# 默认配置示例文件, 此文件由单元测试生成, 请勿直接修改
+# 复制此文件为 config.yaml 并根据需要修改
 
+# 服务运行配置
+server:
+  debug: false # 启用调试日志和诊断信息
+
+  # HTTP 服务配置
+  http:
+    listen: ":23198" # HTTP 服务监听地址
+
+    # HTTPS TLS 配置
+    tls:
+      enabled: false # 是否启用 HTTPS TLS
+      cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem" # TLS 证书文件路径或 URI
+      key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥文件路径或 URI
+      poll-interval: 0s # TLS 证书文件重载兜底轮询间隔，未配置时使用默认间隔
+    read-timeout: 30s # HTTP 读取超时时间
+    write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
+    idle-timeout: 2m0s # HTTP 空闲连接超时时间
+    max-api-body-bytes: 1048576 # Control plane API 最大请求体字节数，0 表示不限制
+
+# 代理 data plane 配置
 proxy:
-  listen: ":23197"
-  capture:
-    enabled: false
-    capacity: 100
-    max-body-bytes: 65536
+  listen: ":23197" # 代理 data plane 监听地址
+
+  # 上游连接池与连接复用配置
   transport:
-    max-idle-conns: 4096
-    max-idle-conns-per-host: 2048
-    max-conns-per-host: 0
-    idle-conn-timeout: 60s
-    disable-keep-alives: false
+    max-idle-conns: 4096 # 全局空闲连接池容量；只影响连接复用，不限制活跃并发
+    max-idle-conns-per-host: 2048 # 单 upstream 空闲连接池容量；只影响连接复用，不限制活跃并发
+    max-conns-per-host: 0 # 单 upstream 活跃连接上限；0 表示不限制
+    idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
+    disable-keep-alives: false # 是否禁用上游 keep-alive

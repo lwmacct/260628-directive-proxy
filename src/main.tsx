@@ -1,4 +1,9 @@
-import { EyeOutlined, ReloadOutlined } from "@ant-design/icons";
+import {
+  ClearOutlined,
+  EyeOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from "@ant-design/icons";
 import {
   Alert,
   Button,
@@ -6,10 +11,16 @@ import {
   Descriptions,
   Drawer,
   Empty,
+  Input,
+  InputNumber,
   Layout,
+  Popconfirm,
+  Select,
   Space,
+  Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import type { TableColumnsType } from "antd";
@@ -49,36 +60,52 @@ type ExchangeRecord = {
 type ExchangeSnapshot = {
   enabled: boolean;
   capacity: number;
+  max_body_bytes: number;
   total: number;
   items: ExchangeRecord[];
 };
 
 const emptySnapshot: ExchangeSnapshot = {
   enabled: false,
-  capacity: 0,
+  capacity: 100,
+  max_body_bytes: 65536,
   total: 0,
   items: [],
 };
 
+const allMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
 function App() {
   const [snapshot, setSnapshot] = useState<ExchangeSnapshot>(emptySnapshot);
   const [loading, setLoading] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ExchangeRecord | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [query, setQuery] = useState("");
+  const [method, setMethod] = useState<string | undefined>();
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const [capacity, setCapacity] = useState(emptySnapshot.capacity);
+  const [maxBodyBytes, setMaxBodyBytes] = useState(emptySnapshot.max_body_bytes);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/proxy-exchanges", { signal });
+      const response = await fetch("/api/proxy-exchanges?limit=1000", { signal });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const data = (await response.json()) as ExchangeSnapshot;
-      setSnapshot({
+      const next = {
+        ...emptySnapshot,
         ...data,
         items: data.items ?? [],
-      });
+      };
+      setSnapshot(next);
+      setCapacity(next.capacity);
+      setMaxBodyBytes(next.max_body_bytes);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
@@ -91,17 +118,101 @@ function App() {
     }
   }, []);
 
+  const updateSettings = useCallback(
+    async (enabled: boolean) => {
+      setUpdating(true);
+      setError(null);
+      try {
+        const response = await fetch("/api/proxy-exchanges/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            enabled,
+            capacity,
+            max_body_bytes: maxBodyBytes,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = (await response.json()) as ExchangeSnapshot;
+        setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Update failed");
+      } finally {
+        setUpdating(false);
+      }
+    },
+    [capacity, maxBodyBytes],
+  );
+
+  const clearRecords = useCallback(async () => {
+    setUpdating(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/proxy-exchanges", { method: "DELETE" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = (await response.json()) as ExchangeSnapshot;
+      setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
+      setSelected(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Clear failed");
+    } finally {
+      setUpdating(false);
+    }
+  }, []);
+
+  const openRecord = useCallback(async (record: ExchangeRecord) => {
+    setSelected(record);
+    setDetailLoading(true);
+    try {
+      const response = await fetch(`/api/proxy-exchanges/${record.id}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      setSelected((await response.json()) as ExchangeRecord);
+    } catch {
+      setSelected(record);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal);
-    const timer = window.setInterval(() => {
-      void load(controller.signal);
-    }, 5000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return () => controller.abort();
   }, [load]);
+
+  useEffect(() => {
+    if (!autoRefresh) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void load();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, load]);
+
+  const filteredItems = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return snapshot.items.filter((item) => {
+      if (method && item.method !== method) {
+        return false;
+      }
+      if (errorsOnly && item.status_code < 400) {
+        return false;
+      }
+      if (!normalizedQuery) {
+        return true;
+      }
+      return [item.url, item.target_url, item.request_id, String(item.id)]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(normalizedQuery));
+    });
+  }, [errorsOnly, method, query, snapshot.items]);
 
   const columns = useMemo<TableColumnsType<ExchangeRecord>>(
     () => [
@@ -158,16 +269,18 @@ function App() {
         width: 64,
         fixed: "right",
         render: (_, record) => (
-          <Button
-            aria-label="Details"
-            icon={<EyeOutlined />}
-            onClick={() => setSelected(record)}
-            type="text"
-          />
+          <Tooltip title="Details">
+            <Button
+              aria-label="Details"
+              icon={<EyeOutlined />}
+              onClick={() => void openRecord(record)}
+              type="text"
+            />
+          </Tooltip>
         ),
       },
     ],
-    [],
+    [openRecord],
   );
 
   return (
@@ -187,10 +300,19 @@ function App() {
             <Title level={3}>Proxy Exchanges</Title>
             <Text type="secondary">LLM Relay DProxy</Text>
           </div>
-          <Space>
-            <Tag color={snapshot.enabled ? "green" : "default"}>
-              {snapshot.enabled ? "enabled" : "disabled"}
-            </Tag>
+          <Space wrap>
+            <Space className="switch-control">
+              <Text type="secondary">Capture</Text>
+              <Switch
+                checked={snapshot.enabled}
+                loading={updating}
+                onChange={(checked) => void updateSettings(checked)}
+              />
+            </Space>
+            <Space className="switch-control">
+              <Text type="secondary">Auto</Text>
+              <Switch checked={autoRefresh} onChange={setAutoRefresh} />
+            </Space>
             <Button
               icon={<ReloadOutlined />}
               loading={loading}
@@ -205,6 +327,59 @@ function App() {
             <Metric label="Retained" value={snapshot.items.length} />
             <Metric label="Capacity" value={snapshot.capacity} />
             <Metric label="Total" value={snapshot.total} />
+            <Metric label="Body Limit" value={formatBytes(snapshot.max_body_bytes)} />
+          </section>
+
+          <section className="toolbar">
+            <Input
+              allowClear
+              className="search-input"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search URL, target, request ID, ID"
+              prefix={<SearchOutlined />}
+              value={query}
+            />
+            <Select
+              allowClear
+              className="method-select"
+              onChange={setMethod}
+              options={allMethods.map((value) => ({ label: value, value }))}
+              placeholder="Method"
+              value={method}
+            />
+            <Space className="switch-control">
+              <Text type="secondary">Errors</Text>
+              <Switch checked={errorsOnly} onChange={setErrorsOnly} />
+            </Space>
+            <InputNumber
+              min={1}
+              max={10000}
+              onChange={(value) => setCapacity(Number(value ?? snapshot.capacity))}
+              prefix="N"
+              value={capacity}
+            />
+            <InputNumber
+              min={0}
+              max={10485760}
+              onChange={(value) =>
+                setMaxBodyBytes(Number(value ?? snapshot.max_body_bytes))
+              }
+              step={1024}
+              value={maxBodyBytes}
+            />
+            <Button loading={updating} onClick={() => void updateSettings(snapshot.enabled)}>
+              Apply
+            </Button>
+            <Popconfirm
+              okButtonProps={{ danger: true }}
+              okText="Clear"
+              onConfirm={() => void clearRecords()}
+              title="Clear retained records?"
+            >
+              <Button danger icon={<ClearOutlined />} loading={updating}>
+                Clear
+              </Button>
+            </Popconfirm>
           </section>
 
           {error ? (
@@ -214,7 +389,7 @@ function App() {
           <Table<ExchangeRecord>
             className="exchange-table"
             columns={columns}
-            dataSource={snapshot.items}
+            dataSource={filteredItems}
             loading={loading}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
             pagination={{ pageSize: 20, showSizeChanger: true }}
@@ -224,30 +399,37 @@ function App() {
           />
         </Content>
       </Layout>
-      <ExchangeDrawer record={selected} onClose={() => setSelected(null)} />
+      <ExchangeDrawer
+        loading={detailLoading}
+        record={selected}
+        onClose={() => setSelected(null)}
+      />
     </ConfigProvider>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="metric-tile">
       <Text type="secondary">{label}</Text>
-      <strong>{value.toLocaleString()}</strong>
+      <strong>{typeof value === "number" ? value.toLocaleString() : value}</strong>
     </div>
   );
 }
 
 function ExchangeDrawer({
+  loading,
   record,
   onClose,
 }: {
+  loading: boolean;
   record: ExchangeRecord | null;
   onClose: () => void;
 }) {
   return (
     <Drawer
       destroyOnHidden
+      loading={loading}
       onClose={onClose}
       open={record != null}
       title={record ? `Exchange #${record.id}` : ""}

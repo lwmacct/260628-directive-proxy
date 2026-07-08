@@ -14,6 +14,7 @@ import (
 
 type ExchangeRecorder struct {
 	mu           sync.RWMutex
+	enabled      bool
 	nextID       uint64
 	total        uint64
 	capacity     int
@@ -22,10 +23,11 @@ type ExchangeRecorder struct {
 }
 
 type ExchangeSnapshot struct {
-	Enabled  bool             `json:"enabled"`
-	Capacity int              `json:"capacity"`
-	Total    uint64           `json:"total"`
-	Items    []ExchangeRecord `json:"items"`
+	Enabled      bool             `json:"enabled"`
+	Capacity     int              `json:"capacity"`
+	MaxBodyBytes int64            `json:"max_body_bytes"`
+	Total        uint64           `json:"total"`
+	Items        []ExchangeRecord `json:"items"`
 }
 
 type ExchangeRecord struct {
@@ -83,10 +85,10 @@ type captureResponseWriter struct {
 
 func NewExchangeRecorder(capacity int, maxBodyBytes int64) *ExchangeRecorder {
 	if capacity <= 0 {
-		return nil
+		capacity = DefaultExchangeCapacity
 	}
 	if maxBodyBytes < 0 {
-		maxBodyBytes = 0
+		maxBodyBytes = DefaultExchangeMaxBodyBytes
 	}
 	return &ExchangeRecorder{
 		capacity:     capacity,
@@ -95,6 +97,11 @@ func NewExchangeRecorder(capacity int, maxBodyBytes int64) *ExchangeRecorder {
 	}
 }
 
+const (
+	DefaultExchangeCapacity     = 100
+	DefaultExchangeMaxBodyBytes = 64 << 10
+)
+
 func (r *ExchangeRecorder) Snapshot(limit int) ExchangeSnapshot {
 	if r == nil {
 		return ExchangeSnapshot{Enabled: false, Items: []ExchangeRecord{}}
@@ -102,6 +109,55 @@ func (r *ExchangeRecorder) Snapshot(limit int) ExchangeSnapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	return r.snapshotLocked(limit)
+}
+
+func (r *ExchangeRecorder) Configure(enabled bool, capacity int, maxBodyBytes int64) ExchangeSnapshot {
+	if r == nil {
+		return ExchangeSnapshot{Enabled: false, Items: []ExchangeRecord{}}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.enabled = enabled
+	if capacity > 0 && capacity != r.capacity {
+		r.resizeLocked(capacity)
+	}
+	if maxBodyBytes >= 0 {
+		r.maxBodyBytes = maxBodyBytes
+	}
+	return r.snapshotLocked(0)
+}
+
+func (r *ExchangeRecorder) Clear() ExchangeSnapshot {
+	if r == nil {
+		return ExchangeSnapshot{Enabled: false, Items: []ExchangeRecord{}}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.nextID = 0
+	r.total = 0
+	r.records = make([]ExchangeRecord, 0, r.capacity)
+	return r.snapshotLocked(0)
+}
+
+func (r *ExchangeRecorder) Get(id uint64) (ExchangeRecord, bool) {
+	if r == nil {
+		return ExchangeRecord{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for i := len(r.records) - 1; i >= 0; i-- {
+		if r.records[i].ID == id {
+			return cloneExchangeRecord(r.records[i]), true
+		}
+	}
+	return ExchangeRecord{}, false
+}
+
+func (r *ExchangeRecorder) snapshotLocked(limit int) ExchangeSnapshot {
 	if limit <= 0 || limit > len(r.records) {
 		limit = len(r.records)
 	}
@@ -110,11 +166,24 @@ func (r *ExchangeRecorder) Snapshot(limit int) ExchangeSnapshot {
 		items = append(items, cloneExchangeRecord(r.records[i]))
 	}
 	return ExchangeSnapshot{
-		Enabled:  true,
-		Capacity: r.capacity,
-		Total:    r.total,
-		Items:    items,
+		Enabled:      r.enabled,
+		Capacity:     r.capacity,
+		MaxBodyBytes: r.maxBodyBytes,
+		Total:        r.total,
+		Items:        items,
 	}
+}
+
+func (r *ExchangeRecorder) resizeLocked(capacity int) {
+	if capacity <= 0 || capacity == r.capacity {
+		return
+	}
+	if len(r.records) > capacity {
+		r.records = append([]ExchangeRecord(nil), r.records[len(r.records)-capacity:]...)
+	} else {
+		r.records = append([]ExchangeRecord(nil), r.records...)
+	}
+	r.capacity = capacity
 }
 
 func (r *ExchangeRecorder) Start(req *http.Request) *activeExchange {
@@ -122,12 +191,17 @@ func (r *ExchangeRecorder) Start(req *http.Request) *activeExchange {
 		return nil
 	}
 	r.mu.Lock()
+	if !r.enabled {
+		r.mu.Unlock()
+		return nil
+	}
 	r.nextID++
 	id := r.nextID
+	maxBodyBytes := r.maxBodyBytes
 	r.mu.Unlock()
 
-	requestBody := newBodyCapture(r.maxBodyBytes)
-	responseBody := newBodyCapture(r.maxBodyBytes)
+	requestBody := newBodyCapture(maxBodyBytes)
+	responseBody := newBodyCapture(maxBodyBytes)
 	return &activeExchange{
 		recorder:     r,
 		requestBody:  requestBody,
