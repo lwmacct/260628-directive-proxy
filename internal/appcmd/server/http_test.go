@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
 )
 
 func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
@@ -40,6 +42,12 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	if healthRecorder.Code != http.StatusOK {
 		t.Fatalf("unexpected health status: %d", healthRecorder.Code)
 	}
+	rootHealthReq := httptest.NewRequest(http.MethodGet, "http://control.local/health", nil)
+	rootHealthRecorder := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rootHealthRecorder, rootHealthReq)
+	if rootHealthRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected root health status: %d", rootHealthRecorder.Code)
+	}
 
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://service.local/api/chat/completions", nil)
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
@@ -63,7 +71,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 
 func TestHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
 	cfg := config.DefaultConfig()
-	rt := &runtime{recorder: proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)}
+	rt := &runtime{exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)}
 	srv := newHTTPServer(&cfg, rt)
 
 	req := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
@@ -87,7 +95,7 @@ func TestHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
 
 func TestHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
 	cfg := config.DefaultConfig()
-	rt := &runtime{recorder: proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)}
+	rt := &runtime{exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)}
 	srv := newHTTPServer(&cfg, rt)
 
 	updateReq := httptest.NewRequest(
@@ -114,13 +122,57 @@ func TestHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
 		t.Fatalf("unexpected settings body: %#v", updateBody)
 	}
 
-	rt.recorder.Configure(true, 0, -1)
-	rt.recorder.Clear()
+	rt.exchanges.Configure(true, 0, -1)
+	rt.exchanges.Clear()
 	clearReq := httptest.NewRequest(http.MethodDelete, "http://control.local/api/proxy-exchanges", nil)
 	clearRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(clearRecorder, clearReq)
 	if clearRecorder.Code != http.StatusOK {
 		t.Fatalf("unexpected clear status: %d body=%s", clearRecorder.Code, clearRecorder.Body.String())
+	}
+}
+
+func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
+	cfg := config.DefaultConfig()
+	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
+	exchanges.Configure(true, 0, -1)
+	rt := &runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges)}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read upstream body: %v", err)
+		}
+		if string(body) != "hello" {
+			t.Errorf("unexpected upstream body: %q", body)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte("world"))
+	}))
+	defer upstream.Close()
+	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
+	if err != nil {
+		t.Fatalf("encode directive failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", strings.NewReader("hello"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	newHTTPServer(&cfg, rt).Handler.ServeHTTP(response, req)
+
+	if response.Code != http.StatusCreated || response.Body.String() != "world" {
+		t.Fatalf("unexpected proxy response: status=%d body=%q", response.Code, response.Body.String())
+	}
+	snapshot := exchanges.Snapshot(0)
+	if len(snapshot.Items) != 1 {
+		t.Fatalf("expected one captured exchange, got %#v", snapshot)
+	}
+	record := snapshot.Items[0]
+	if record.RequestBody.Text != "hello" || record.ResponseBody.Text != "world" || record.StatusCode != http.StatusCreated {
+		t.Fatalf("unexpected captured exchange: %#v", record)
+	}
+	if record.RequestHeaders["Authorization"][0] != "<redacted>" {
+		t.Fatalf("authorization was not redacted: %#v", record.RequestHeaders)
 	}
 }
 

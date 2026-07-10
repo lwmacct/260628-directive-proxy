@@ -3,7 +3,6 @@
 
 # 服务运行配置
 server:
-  debug: false # 启用调试日志和诊断信息
 
   # HTTP 服务配置
   http:

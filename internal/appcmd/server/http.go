@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path"
@@ -34,20 +33,14 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	control := newControlHTTPHandler(cfg, rt)
-	return newProxyHandler(cfg, rt.recorder, control)
+	return newProxyHandler(cfg, rt.observer, control)
 }
 
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	mux := http.NewServeMux()
-	api := handler.NewEndpoint(handler.Config{}, handler.Services{Exchanges: rt.recorder}).Handler()
+	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
 	mux.Handle(httpAPIPrefix+"/", http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes)))
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status":    "ok",
-			"timestamp": time.Now().UTC(),
-		})
-	})
+	mux.Handle("/health", api)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
 		mux.Handle("/", spaFileServer(webRoot))
 	}

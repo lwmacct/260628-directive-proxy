@@ -25,15 +25,12 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T) {
-	exchanges := NewExchangeRecorder(DefaultExchangeCapacity, DefaultExchangeMaxBodyBytes)
-	exchanges.Configure(true, 0, -1)
 	nextCalled := false
 	resolveCalls := 0
 	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
 		resolveCalls++
 		return nil, ErrNoMatch
 	}), http.DefaultTransport, HandlerOptions{
-		Recorder: exchanges,
 		Next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			nextCalled = true
 			w.WriteHeader(http.StatusNoContent)
@@ -53,9 +50,6 @@ func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("unexpected resolver call count: %d", resolveCalls)
-	}
-	if snapshot := exchanges.Snapshot(0); len(snapshot.Items) != 0 {
-		t.Fatalf("unmatched request was recorded: %#v", snapshot.Items)
 	}
 }
 

@@ -8,21 +8,26 @@
 
 ## APIs
 
-| Method   | Path                        | Operation                        | Tags | Handler  | Register            | File                                  |
-| -------- | --------------------------- | -------------------------------- | ---- | -------- | ------------------- | ------------------------------------- |
-| `GET`    | `/health`                   | `get-health`                     |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
-| `DELETE` | `/proxy-exchanges`          | `clear-proxy-exchanges`          |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
-| `GET`    | `/proxy-exchanges`          | `list-proxy-exchanges`           |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
-| `PUT`    | `/proxy-exchanges/settings` | `update-proxy-exchange-settings` |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
-| `GET`    | `/proxy-exchanges/{id}`     | `get-proxy-exchange`             |      | `inline` | `Endpoint.Register` | `internal/handler/x_http.endpoint.go` |
+| Method   | Path                        | Operation                        | Tags | Handler          | Register                | File                                         |
+| -------- | --------------------------- | -------------------------------- | ---- | ---------------- | ----------------------- | -------------------------------------------- |
+| `GET`    | `/health`                   | `get-health`                     |      | `get`            | `RegisterHealth`        | `internal/handler/health.handler.go`         |
+| `DELETE` | `/proxy-exchanges`          | `clear-proxy-exchanges`          |      | `clear`          | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
+| `GET`    | `/proxy-exchanges`          | `list-proxy-exchanges`           |      | `list`           | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
+| `PUT`    | `/proxy-exchanges/settings` | `update-proxy-exchange-settings` |      | `updateSettings` | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
+| `GET`    | `/proxy-exchanges/{id}`     | `get-proxy-exchange`             |      | `get`            | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
 
 ## Handlers
 
-No handlers found.
+| Scope            | Handler                | Register                | File                                         | Methods                          |
+| ---------------- | ---------------------- | ----------------------- | -------------------------------------------- | -------------------------------- |
+| `health`         | `healthHandler`        | `RegisterHealth`        | `internal/handler/health.handler.go`         | get                              |
+| `proxy_exchange` | `proxyExchangeHandler` | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` | clear, get, list, updateSettings |
 
 ## Services
 
-No services found.
+| Service           | Scope      | File                                   | Constructor          | Dependencies | Methods                                                                        |
+| ----------------- | ---------- | -------------------------------------- | -------------------- | ------------ | ------------------------------------------------------------------------------ |
+| `ExchangeService` | `exchange` | `internal/service/exchange.service.go` | `NewExchangeService` |              | Begin, Clear, Complete, Configure, Get, Snapshot, resizeLocked, snapshotLocked |
 
 ## Stores
 

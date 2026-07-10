@@ -9,16 +9,20 @@ import (
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	recorder *proxy.ExchangeRecorder
-	tls      *tlsRuntime
+	exchanges *service.ExchangeService
+	observer  proxy.Observer
+	tls       *tlsRuntime
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
@@ -26,14 +30,15 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
-	recorder := proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)
+	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
 	return &runtime{
-		recorder: recorder,
-		tls:      tlsRuntime,
+		exchanges: exchanges,
+		observer:  capture.NewObserver(exchanges),
+		tls:       tlsRuntime,
 	}, nil
 }
 
-func newProxyHandler(cfg *config.Config, recorder *proxy.ExchangeRecorder, next http.Handler) http.Handler {
+func newProxyHandler(cfg *config.Config, observer proxy.Observer, next http.Handler) http.Handler {
 	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -43,7 +48,7 @@ func newProxyHandler(cfg *config.Config, recorder *proxy.ExchangeRecorder, next 
 	})
 
 	return proxy.NewHandler(directive.NewResolver(), transport, proxy.HandlerOptions{
-		Recorder: recorder,
+		Observer: observer,
 		Next:     next,
 	})
 }

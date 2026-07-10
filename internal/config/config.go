@@ -18,8 +18,7 @@ type Config struct {
 }
 
 type Server struct {
-	Debug bool       `json:"debug" desc:"启用调试日志和诊断信息"`
-	HTTP  ServerHTTP `json:"http"  desc:"HTTP 服务配置"`
+	HTTP ServerHTTP `json:"http" desc:"HTTP 服务配置"`
 }
 
 type ServerHTTP struct {

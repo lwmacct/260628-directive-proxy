@@ -7,19 +7,31 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 )
 
 type Handler struct {
 	resolver Resolver
 	proxy    *httputil.ReverseProxy
-	recorder *ExchangeRecorder
+	observer Observer
 	next     http.Handler
 }
 
 type HandlerOptions struct {
-	Recorder *ExchangeRecorder
+	Observer Observer
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
+}
+
+type Observer interface {
+	Start(*http.Request) Observation
+}
+
+type Observation interface {
+	WrapRequest(*http.Request) *http.Request
+	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
+	SetTargetURL(*url.URL)
+	Finish()
 }
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
@@ -40,7 +52,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 	return &Handler{
 		resolver: resolver,
 		proxy:    proxy,
-		recorder: opts.Recorder,
+		observer: opts.Observer,
 		next:     opts.Next,
 	}
 }
@@ -80,13 +92,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var exchange *activeExchange
-	if h.recorder != nil {
-		exchange = h.recorder.Start(r)
-		if exchange != nil {
-			r = exchange.WrapRequest(r)
-			w = exchange.WrapResponseWriter(w)
-			defer exchange.Finish()
+	var observation Observation
+	if h.observer != nil {
+		observation = h.observer.Start(r)
+		if observation != nil {
+			r = observation.WrapRequest(r)
+			w = observation.WrapResponseWriter(w)
+			defer observation.Finish()
 		}
 	}
 
@@ -103,8 +115,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed")
 		return
 	}
-	if exchange != nil {
-		exchange.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
+	if observation != nil {
+		observation.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
 	}
 	ctx := ContextWithPlan(r.Context(), d)
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))

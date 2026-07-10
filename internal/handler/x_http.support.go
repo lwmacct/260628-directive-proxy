@@ -1,9 +1,7 @@
 package handler
 
-import "github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
-
-type Config struct{}
+import "github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
 
 type Services struct {
-	Exchanges *proxy.ExchangeRecorder
+	Exchanges *service.ExchangeService
 }

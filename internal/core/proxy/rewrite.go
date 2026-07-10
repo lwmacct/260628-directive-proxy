@@ -48,7 +48,6 @@ func applyRewrite(r *httputil.ProxyRequest, d *Plan) {
 	}
 	stripProxyDisclosureHeaders(r.Out.Header)
 	applyRequestHeaderOps(r.Out, d.HeaderOps)
-	stripRuntimeHeaders(r.Out.Header)
 	if replaceHeaders {
 		suppressDefaultUserAgent(r.Out.Header)
 	}
@@ -127,17 +126,6 @@ func stripProxyDisclosureHeaders(headers http.Header) {
 	}
 	for _, name := range proxyDisclosureHeaders {
 		headers.Del(name)
-	}
-}
-
-func stripRuntimeHeaders(headers http.Header) {
-	if headers == nil {
-		return
-	}
-	for name := range headers {
-		if strings.HasPrefix(strings.ToLower(name), "m-runtime-") {
-			headers.Del(name)
-		}
 	}
 }
 

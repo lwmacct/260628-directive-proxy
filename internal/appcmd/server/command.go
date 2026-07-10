@@ -31,7 +31,6 @@ func action(ctx context.Context, cmd *cli.Command) error {
 
 func commandFlags() []cli.Flag {
 	return []cli.Flag{
-		&cli.BoolFlag{Name: "debug", Usage: flagHelp.MustUsage("debug"), Value: defaults.Server.Debug},
 		&cli.StringFlag{Name: "http.listen", Usage: flagHelp.MustUsage("http.listen"), Value: defaults.Server.HTTP.Listen},
 		&cli.BoolFlag{Name: "http.tls.enabled", Usage: flagHelp.MustUsage("http.tls.enabled"), Value: defaults.Server.HTTP.TLS.Enabled},
 		&cli.StringFlag{Name: "http.tls.cert-file", Usage: flagHelp.MustUsage("http.tls.cert-file"), Value: defaults.Server.HTTP.TLS.CertFile},
