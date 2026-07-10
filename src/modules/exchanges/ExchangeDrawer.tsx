@@ -1,4 +1,5 @@
-import { Card, Descriptions, Drawer, Empty, Space, Tag, Typography } from "antd";
+import { WorkbenchPanel } from "@lwmacct/260627-antd-workbench";
+import { Descriptions, Drawer, Empty, Space, Tag, Typography } from "antd";
 import type { BodySnapshot, ExchangeRecord } from "./types";
 import { formatBytes, formatDate, methodColor, statusColor } from "./utils";
 
@@ -23,7 +24,7 @@ export function ExchangeDrawer({
       title={record ? `Exchange #${record.id}` : ""}
     >
       {record ? (
-        <Space className="drawer-stack" direction="vertical" size={18}>
+        <Space className="drawer-stack" orientation="vertical" size={18}>
           <Descriptions bordered column={1} size="small">
             <Descriptions.Item label="Request ID">
               {record.request_id || "-"}
@@ -63,14 +64,13 @@ export function ExchangeDrawer({
 function BodyBlock({ title, body }: { title: string; body: BodySnapshot }) {
   const content = body.text ?? body.base64 ?? "";
   return (
-    <Card
+    <WorkbenchPanel
       extra={
         <Text type="secondary">
           {formatBytes(body.bytes)}
           {body.truncated ? ` / ${formatBytes(body.captured_bytes)} captured` : ""}
         </Text>
       }
-      size="small"
       title={title}
     >
       {content ? (
@@ -80,7 +80,7 @@ function BodyBlock({ title, body }: { title: string; body: BodySnapshot }) {
       ) : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />
       )}
-    </Card>
+    </WorkbenchPanel>
   );
 }
 
@@ -92,7 +92,7 @@ function JSONBlock({
   value?: Record<string, string[]>;
 }) {
   return (
-    <Card size="small" title={title}>
+    <WorkbenchPanel title={title}>
       {value ? (
         <Paragraph className="code-output" copyable>
           {JSON.stringify(value, null, 2)}
@@ -100,6 +100,6 @@ function JSONBlock({
       ) : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />
       )}
-    </Card>
+    </WorkbenchPanel>
   );
 }

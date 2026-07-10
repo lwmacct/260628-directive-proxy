@@ -1,7 +1,10 @@
 import { CopyOutlined } from "@ant-design/icons";
-import { WorkbenchPage } from "@lwmacct/260627-antd-workbench";
-import { Alert, Button, Card, Col, Form, Input, Row, Typography, message } from "antd";
-import { useMemo, useState } from "react";
+import {
+  WorkbenchPage,
+  WorkbenchPanel,
+} from "@lwmacct/260627-antd-workbench";
+import { Alert, Button, Col, Form, Input, Row, Typography, message } from "antd";
+import { useMemo, useState, type ChangeEvent } from "react";
 
 const { Paragraph, Text } = Typography;
 const tokenPrefix = "dproxy.10.";
@@ -29,29 +32,31 @@ export function TokenDecodePage() {
     >
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card size="small" title="Token">
+          <WorkbenchPanel title="Token">
             <Form layout="vertical">
               <Form.Item label="dproxy.10 token">
                 <Input.TextArea
                   autoSize={{ minRows: 8, maxRows: 16 }}
-                  onChange={(event) => setToken(event.target.value)}
+                  onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                    setToken(event.target.value)
+                  }
                   placeholder="dproxy.10.<base64url-json> 或 Bearer dproxy.10.<base64url-json>"
                   value={token}
                 />
               </Form.Item>
             </Form>
             <Text type="secondary">支持纯 token、Bearer token 或 Authorization header。</Text>
-          </Card>
+          </WorkbenchPanel>
         </Col>
         <Col xs={24} xl={12}>
           {result.ok ? (
-            <Card size="small" title="Payload JSON">
+            <WorkbenchPanel title="Payload JSON">
               <Paragraph className="code-output">{output}</Paragraph>
-            </Card>
+            </WorkbenchPanel>
           ) : (
             <Alert
-              message={result.error || "等待输入 token"}
               showIcon
+              title={result.error || "等待输入 token"}
               type={token.trim() ? "error" : "info"}
             />
           )}

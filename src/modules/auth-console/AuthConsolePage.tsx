@@ -1,9 +1,11 @@
 import { CopyOutlined, PlusOutlined, DeleteOutlined } from "@ant-design/icons";
-import { WorkbenchPage } from "@lwmacct/260627-antd-workbench";
+import {
+  WorkbenchPage,
+  WorkbenchPanel,
+} from "@lwmacct/260627-antd-workbench";
 import {
   Alert,
   Button,
-  Card,
   Checkbox,
   Col,
   Flex,
@@ -17,7 +19,8 @@ import {
   message,
 } from "antd";
 import type { TableColumnsType } from "antd";
-import { useMemo, useState } from "react";
+import type { CheckboxChangeEvent } from "antd/es/checkbox";
+import { useMemo, useState, type ChangeEvent } from "react";
 
 const { Text, Paragraph } = Typography;
 const tokenPrefix = "dproxy.10.";
@@ -113,7 +116,7 @@ export function AuthConsolePage() {
             { label: "Remove", value: "-" },
           ]}
           value={record.op}
-          onChange={(value) => updateHeaderOp(record.key, { op: value })}
+          onChange={(value: HeaderOp["op"]) => updateHeaderOp(record.key, { op: value })}
         />
       ),
     },
@@ -123,7 +126,7 @@ export function AuthConsolePage() {
       render: (_, record) => (
         <Input
           value={record.name}
-          onChange={(event) =>
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
             updateHeaderOp(record.key, { name: event.target.value })
           }
         />
@@ -136,7 +139,7 @@ export function AuthConsolePage() {
         <Input
           placeholder="comma separated"
           value={record.values}
-          onChange={(event) =>
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
             updateHeaderOp(record.key, { values: event.target.value })
           }
         />
@@ -177,72 +180,84 @@ export function AuthConsolePage() {
       }
       title="Authorization 生成器"
     >
-      {error ? <Alert className="status-alert" message={error} type="error" /> : null}
+      {error ? <Alert title={error} type="error" /> : null}
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={13}>
-          <Card size="small">
-          <Form layout="vertical">
-            <Form.Item label="Target URL">
-              <Input value={targetURL} onChange={(event) => setTargetURL(event.target.value)} />
-            </Form.Item>
-            <Flex gap="small" wrap>
-              <Form.Item label="Join Path">
-                <Checkbox checked={joinPath} onChange={(event) => setJoinPath(event.target.checked)}>
-                  enabled
-                </Checkbox>
-              </Form.Item>
-              <Form.Item className="grow-field" label="Proxy">
+          <WorkbenchPanel>
+            <Form layout="vertical">
+              <Form.Item label="Target URL">
                 <Input
-                  allowClear
-                  placeholder="socks5://user:pass@127.0.0.1:1080"
-                  value={proxyURL}
-                  onChange={(event) => setProxyURL(event.target.value)}
+                  value={targetURL}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setTargetURL(event.target.value)
+                  }
                 />
               </Form.Item>
-              <Form.Item label="Header Mode">
-                <Select
-                  options={[
-                    { label: "Patch", value: "patch" },
-                    { label: "Replace", value: "replace" },
-                  ]}
-                  value={headerMode}
-                  onChange={setHeaderMode}
-                />
-              </Form.Item>
-            </Flex>
-          </Form>
+              <Flex gap="small" wrap>
+                <Form.Item label="Join Path">
+                  <Checkbox
+                    checked={joinPath}
+                    onChange={(event: CheckboxChangeEvent) =>
+                      setJoinPath(event.target.checked)
+                    }
+                  >
+                    enabled
+                  </Checkbox>
+                </Form.Item>
+                <Form.Item className="grow-field" label="Proxy">
+                  <Input
+                    allowClear
+                    placeholder="socks5://user:pass@127.0.0.1:1080"
+                    value={proxyURL}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setProxyURL(event.target.value)
+                    }
+                  />
+                </Form.Item>
+                <Form.Item label="Header Mode">
+                  <Select
+                    options={[
+                      { label: "Patch", value: "patch" },
+                      { label: "Replace", value: "replace" },
+                    ]}
+                    value={headerMode}
+                    onChange={setHeaderMode}
+                  />
+                </Form.Item>
+              </Flex>
+            </Form>
 
-          <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
-            <Text strong>Header Ops</Text>
-            <Button
-              icon={<PlusOutlined />}
-              onClick={() =>
-                setHeaderOps((items) => [
-                  ...items,
-                  { key: newHeaderOpKey(), op: "=", name: "", values: "" },
-                ])
-              }
-            >
-              Add
-            </Button>
-          </Flex>
-          <Table<HeaderOp>
-            columns={columns}
-            dataSource={headerOps}
-            pagination={false}
-            rowKey="key"
-            size="small"
-          />
-          </Card>
+            <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
+              <Text strong>Header Ops</Text>
+              <Button
+                icon={<PlusOutlined />}
+                onClick={() =>
+                  setHeaderOps((items) => [
+                    ...items,
+                    { key: newHeaderOpKey(), op: "=", name: "", values: "" },
+                  ])
+                }
+              >
+                Add
+              </Button>
+            </Flex>
+            <Table<HeaderOp>
+              columns={columns}
+              dataSource={headerOps}
+              pagination={false}
+              rowKey="key"
+              size="small"
+            />
+          </WorkbenchPanel>
         </Col>
 
         <Col xs={24} xl={11}>
-          <Space direction="vertical" size={14} style={{ width: "100%" }}>
-          <OutputBlock title="Payload JSON" value={payloadJSON} />
-          <CopyOnlyBlock title="Token" value={token} />
-          <CopyOnlyBlock title="Authorization Header" value={authorization} />
-          <CopyOnlyBlock title="curl Sample" value={curlSample} />
+          <Space orientation="vertical" size={14} style={{ width: "100%" }}>
+            <OutputBlock title="Payload JSON" value={payloadJSON} />
+            <CopyOnlyBlock title="Token" value={token} />
+            <CopyOnlyBlock title="Authorization Header" value={authorization} />
+            <CopyOnlyBlock title="curl Sample" value={curlSample} />
           </Space>
         </Col>
       </Row>
@@ -252,7 +267,7 @@ export function AuthConsolePage() {
 
 function OutputBlock({ title, value }: { title: string; value: string }) {
   return (
-    <Card
+    <WorkbenchPanel
       extra={
         <Button
           aria-label={`Copy ${title}`}
@@ -262,19 +277,16 @@ function OutputBlock({ title, value }: { title: string; value: string }) {
           type="text"
         />
       }
-      size="small"
       title={title}
     >
-      <Paragraph className="code-output">
-        {value}
-      </Paragraph>
-    </Card>
+      <Paragraph className="code-output">{value}</Paragraph>
+    </WorkbenchPanel>
   );
 }
 
 function CopyOnlyBlock({ title, value }: { title: string; value: string }) {
   return (
-    <Card
+    <WorkbenchPanel
       extra={
         <Button
           aria-label={`Copy ${title}`}
@@ -284,7 +296,6 @@ function CopyOnlyBlock({ title, value }: { title: string; value: string }) {
           type="text"
         />
       }
-      size="small"
       title={title}
     />
   );

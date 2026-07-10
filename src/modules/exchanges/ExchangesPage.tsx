@@ -4,11 +4,13 @@ import {
   ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { WorkbenchPage } from "@lwmacct/260627-antd-workbench";
+import {
+  WorkbenchPage,
+  WorkbenchPanel,
+} from "@lwmacct/260627-antd-workbench";
 import {
   Alert,
   Button,
-  Card,
   Empty,
   Flex,
   Input,
@@ -26,7 +28,13 @@ import {
   Typography,
 } from "antd";
 import type { TableColumnsType } from "antd";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { ExchangeDrawer } from "./ExchangeDrawer";
 import type { ExchangeRecord, ExchangeSnapshot } from "./types";
 import { formatBytes, formatDate, methodColor, statusColor } from "./utils";
@@ -256,7 +264,7 @@ export function ExchangesPage() {
             <Switch
               checked={snapshot.enabled}
               loading={updating}
-              onChange={(checked) => void updateSettings(checked)}
+              onChange={(checked: boolean) => void updateSettings(checked)}
             />
           </Space>
           <Space className="switch-control">
@@ -274,81 +282,87 @@ export function ExchangesPage() {
       }
       title="请求记录"
     >
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+      <Row gutter={[12, 12]}>
         <Metric label="Retained" value={snapshot.items.length} />
         <Metric label="Capacity" value={snapshot.capacity} />
         <Metric label="Total" value={snapshot.total} />
         <Metric label="Body Limit" value={formatBytes(snapshot.max_body_bytes)} />
       </Row>
 
-      <Card size="small" style={{ marginBottom: 16 }}>
+      <WorkbenchPanel>
         <Flex gap="small" wrap>
-        <Input
-          allowClear
-          className="search-input"
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search URL, target, request ID, ID"
-          prefix={<SearchOutlined />}
-          value={query}
-        />
-        <Select
-          allowClear
-          className="method-select"
-          onChange={setMethod}
-          options={allMethods.map((value) => ({ label: value, value }))}
-          placeholder="Method"
-          value={method}
-        />
-        <Space className="switch-control">
-          <Text type="secondary">Errors</Text>
-          <Switch checked={errorsOnly} onChange={setErrorsOnly} />
-        </Space>
-        <InputNumber
-          className="number-input"
-          min={1}
-          max={10000}
-          onChange={(value) => setCapacity(Number(value ?? snapshot.capacity))}
-          prefix="N"
-          value={capacity}
-        />
-        <InputNumber
-          className="number-input"
-          min={0}
-          max={10485760}
-          onChange={(value) =>
-            setMaxBodyBytes(Number(value ?? snapshot.max_body_bytes))
-          }
-          step={1024}
-          value={maxBodyBytes}
-        />
-        <Button loading={updating} onClick={() => void updateSettings(snapshot.enabled)}>
-          Apply
-        </Button>
-        <Popconfirm
-          okButtonProps={{ danger: true }}
-          okText="Clear"
-          onConfirm={() => void clearRecords()}
-          title="Clear retained records?"
-        >
-          <Button danger icon={<ClearOutlined />} loading={updating}>
-            Clear
+          <Input
+            allowClear
+            className="search-input"
+            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+              setQuery(event.target.value)
+            }
+            placeholder="Search URL, target, request ID, ID"
+            prefix={<SearchOutlined />}
+            value={query}
+          />
+          <Select
+            allowClear
+            className="method-select"
+            onChange={setMethod}
+            options={allMethods.map((value) => ({ label: value, value }))}
+            placeholder="Method"
+            value={method}
+          />
+          <Space className="switch-control">
+            <Text type="secondary">Errors</Text>
+            <Switch checked={errorsOnly} onChange={setErrorsOnly} />
+          </Space>
+          <InputNumber
+            className="number-input"
+            min={1}
+            max={10000}
+            onChange={(value: number | null) =>
+              setCapacity(Number(value ?? snapshot.capacity))
+            }
+            prefix="N"
+            value={capacity}
+          />
+          <InputNumber
+            className="number-input"
+            min={0}
+            max={10485760}
+            onChange={(value: number | null) =>
+              setMaxBodyBytes(Number(value ?? snapshot.max_body_bytes))
+            }
+            step={1024}
+            value={maxBodyBytes}
+          />
+          <Button loading={updating} onClick={() => void updateSettings(snapshot.enabled)}>
+            Apply
           </Button>
-        </Popconfirm>
+          <Popconfirm
+            okButtonProps={{ danger: true }}
+            okText="Clear"
+            onConfirm={() => void clearRecords()}
+            title="Clear retained records?"
+          >
+            <Button danger icon={<ClearOutlined />} loading={updating}>
+              Clear
+            </Button>
+          </Popconfirm>
         </Flex>
-      </Card>
+      </WorkbenchPanel>
 
-      {error ? <Alert className="status-alert" message={error} type="error" /> : null}
+      {error ? <Alert title={error} type="error" /> : null}
 
-      <Table<ExchangeRecord>
-        columns={columns}
-        dataSource={filteredItems}
-        loading={loading}
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-        pagination={{ pageSize: 20, showSizeChanger: true }}
-        rowKey="id"
-        scroll={{ x: 1120 }}
-        size="middle"
-      />
+      <WorkbenchPanel>
+        <Table<ExchangeRecord>
+          columns={columns}
+          dataSource={filteredItems}
+          loading={loading}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+          pagination={{ pageSize: 20, showSizeChanger: true }}
+          rowKey="id"
+          scroll={{ x: 1120 }}
+          size="middle"
+        />
+      </WorkbenchPanel>
       <ExchangeDrawer
         loading={detailLoading}
         record={selected}
@@ -361,9 +375,9 @@ export function ExchangesPage() {
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
     <Col xs={24} sm={12} lg={6}>
-      <Card size="small">
+      <WorkbenchPanel>
         <Statistic title={label} value={value} />
-      </Card>
+      </WorkbenchPanel>
     </Col>
   );
 }
