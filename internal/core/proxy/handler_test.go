@@ -32,29 +32,42 @@ func (g fixedIDGenerator) Generate() string {
 	return g.id
 }
 
-func TestHandlerReturnsBadRequestWhenDirectiveIsMissing(t *testing.T) {
+func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T) {
+	exchanges := NewExchangeRecorder(DefaultExchangeCapacity, DefaultExchangeMaxBodyBytes)
+	exchanges.Configure(true, 0, -1)
+	nextCalled := false
+	resolveCalls := 0
 	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
-		return nil, ErrInvalidPlan
-	}), http.DefaultTransport, HandlerOptions{})
+		resolveCalls++
+		return nil, ErrNoMatch
+	}), http.DefaultTransport, HandlerOptions{
+		IDGenerator: fixedIDGenerator{id: "server-req-0"},
+		Recorder:    exchanges,
+		Next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			nextCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, req)
 
-	if recorder.Code != http.StatusBadRequest {
+	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
-	if got := recorder.Header().Get("Content-Type"); got != "application/json" {
-		t.Fatalf("unexpected content type: %s", got)
+	if !nextCalled {
+		t.Fatal("next handler was not called")
 	}
-
-	var body map[string]string
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal body failed: %v", err)
+	if resolveCalls != 1 {
+		t.Fatalf("unexpected resolver call count: %d", resolveCalls)
 	}
-	if got := body["error"]; got != "directive: missing directive token" {
-		t.Fatalf("unexpected response body: %#v", body)
+	if got := recorder.Header().Get(ClientRequestIDHeader); got != "" {
+		t.Fatalf("unmatched request received proxy request id: %q", got)
+	}
+	if snapshot := exchanges.Snapshot(0); len(snapshot.Items) != 0 {
+		t.Fatalf("unmatched request was recorded: %#v", snapshot.Items)
 	}
 }
 

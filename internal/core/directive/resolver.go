@@ -16,7 +16,7 @@ func NewResolver() proxy.Resolver {
 func (Resolver) Resolve(req *http.Request) (*proxy.Plan, error) {
 	raw, ok := directiveTokenFromAuthorization(req)
 	if !ok {
-		return nil, proxy.ErrInvalidPlan
+		return nil, proxy.ErrNoMatch
 	}
 	payload, err := Decode(raw)
 	if err != nil {
@@ -29,14 +29,6 @@ func (Resolver) Resolve(req *http.Request) (*proxy.Plan, error) {
 		return nil, proxy.ErrInvalidDirective
 	}
 	return plan, nil
-}
-
-// IsDirectiveRequest reports whether the request carries a token in the
-// dproxy Authorization namespace. Token version and payload validation are
-// intentionally left to Resolver.
-func IsDirectiveRequest(req *http.Request) bool {
-	_, ok := directiveTokenFromAuthorization(req)
-	return ok
 }
 
 func directiveTokenFromAuthorization(req *http.Request) (string, bool) {

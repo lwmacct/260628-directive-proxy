@@ -9,18 +9,25 @@ import (
 	"testing"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
 func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	cfg := config.DefaultConfig()
 	var proxyPath string
-	rt := &runtime{
-		proxy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			proxyPath = r.URL.Path
-			w.WriteHeader(http.StatusAccepted)
-		}),
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyPath = r.URL.Path
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer upstream.Close()
+	token, err := directive.Encode(directive.Payload{
+		Target: directive.TargetSection{URL: upstream.URL},
+	})
+	if err != nil {
+		t.Fatalf("encode directive failed: %v", err)
 	}
+	rt := &runtime{}
 	srv := newHTTPServer(&cfg, rt)
 
 	if srv.Addr != ":23198" {
@@ -35,7 +42,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	}
 
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://service.local/api/chat/completions", nil)
-	proxyReq.Header.Set("Authorization", "Bearer dproxy.10.payload")
+	proxyReq.Header.Set("Authorization", "Bearer "+token)
 	proxyRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(proxyRecorder, proxyReq)
 	if proxyRecorder.Code != http.StatusAccepted {
@@ -54,7 +61,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	}
 }
 
-func TestControlHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
+func TestHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
 	cfg := config.DefaultConfig()
 	rt := &runtime{recorder: proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)}
 	srv := newHTTPServer(&cfg, rt)
@@ -78,7 +85,7 @@ func TestControlHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
 	}
 }
 
-func TestControlHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
+func TestHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
 	cfg := config.DefaultConfig()
 	rt := &runtime{recorder: proxy.NewExchangeRecorder(proxy.DefaultExchangeCapacity, proxy.DefaultExchangeMaxBodyBytes)}
 	srv := newHTTPServer(&cfg, rt)
@@ -119,7 +126,7 @@ func TestControlHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
 
 func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
 	cfg := config.DefaultConfig()
-	rt := &runtime{proxy: newProxyHandler(&cfg, nil)}
+	rt := &runtime{}
 	srv := newHTTPServer(&cfg, rt)
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat/completions", nil)
@@ -138,21 +145,27 @@ func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Server.HTTP.MaxAPIBodyBytes = 1
 	var proxyBody string
-	rt := &runtime{
-		proxy: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
-				return
-			}
-			proxyBody = string(body)
-			w.WriteHeader(http.StatusAccepted)
-		}),
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		proxyBody = string(body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer upstream.Close()
+	token, err := directive.Encode(directive.Payload{
+		Target: directive.TargetSection{URL: upstream.URL},
+	})
+	if err != nil {
+		t.Fatalf("encode directive failed: %v", err)
 	}
+	rt := &runtime{}
 	srv := newHTTPServer(&cfg, rt)
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/api/upload", strings.NewReader("payload"))
-	req.Header.Set("Authorization", "Bearer dproxy.10.payload")
+	req.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(recorder, req)
 

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/handler"
 )
 
@@ -35,13 +34,7 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	control := newControlHTTPHandler(cfg, rt)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if directive.IsDirectiveRequest(r) {
-			rt.proxy.ServeHTTP(w, r)
-			return
-		}
-		control.ServeHTTP(w, r)
-	})
+	return newProxyHandler(cfg, rt.recorder, control)
 }
 
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {

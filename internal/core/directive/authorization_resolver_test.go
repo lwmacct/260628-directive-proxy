@@ -42,17 +42,17 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	}
 }
 
-func TestResolverIgnoresNonDirectiveBearerToken(t *testing.T) {
+func TestResolverReturnsNoMatchForNonDirectiveBearerToken(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer opaque-upstream-token")
 
 	_, err := NewResolver().Resolve(req)
-	if !errors.Is(err, proxy.ErrInvalidPlan) {
-		t.Fatalf("expected invalid plan for non-directive bearer token, got %v", err)
+	if !errors.Is(err, proxy.ErrNoMatch) {
+		t.Fatalf("expected no match for non-directive bearer token, got %v", err)
 	}
 }
 
-func TestIsDirectiveRequestReservesDProxyTokenFamily(t *testing.T) {
+func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) {
 	tests := []struct {
 		name          string
 		authorization string
@@ -73,13 +73,14 @@ func TestIsDirectiveRequestReservesDProxyTokenFamily(t *testing.T) {
 			if tt.authorization != "" {
 				req.Header.Set("Authorization", tt.authorization)
 			}
-			if got := IsDirectiveRequest(req); got != tt.want {
+			_, got := directiveTokenFromAuthorization(req)
+			if got != tt.want {
 				t.Fatalf("unexpected directive request match: got %t want %t", got, tt.want)
 			}
 		})
 	}
 
-	if IsDirectiveRequest(nil) {
+	if _, ok := directiveTokenFromAuthorization(nil); ok {
 		t.Fatal("nil request must not match")
 	}
 }

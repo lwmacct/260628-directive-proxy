@@ -14,11 +14,14 @@ type Handler struct {
 	proxy    *httputil.ReverseProxy
 	idGen    Generator
 	recorder *ExchangeRecorder
+	next     http.Handler
 }
 
 type HandlerOptions struct {
 	IDGenerator Generator
 	Recorder    *ExchangeRecorder
+	// Next receives requests for which Resolver returns ErrNoMatch.
+	Next http.Handler
 }
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
@@ -44,6 +47,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		proxy:    proxy,
 		idGen:    opts.IDGenerator,
 		recorder: opts.Recorder,
+		next:     opts.Next,
 	}
 }
 
@@ -72,6 +76,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	d, err := h.resolver.Resolve(r)
+	if errors.Is(err, ErrNoMatch) {
+		if h.next != nil {
+			h.next.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
+
 	r = h.ensureRequestID(w, r)
 	var exchange *activeExchange
 	if h.recorder != nil {
@@ -83,14 +97,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	d, err := h.resolver.Resolve(r)
 	if err != nil {
 		if errors.Is(err, ErrInvalidDirective) {
 			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload", requestIDFromRequest(r))
-			return
-		}
-		if errors.Is(err, ErrInvalidPlan) {
-			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: missing directive token", requestIDFromRequest(r))
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
@@ -103,20 +112,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if exchange != nil {
 		exchange.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
-	}
-
-	h.ServeHTTPWithPlan(w, r, d)
-}
-
-func (h *Handler) ServeHTTPWithPlan(w http.ResponseWriter, r *http.Request, d *Plan) {
-	if h == nil || h.proxy == nil {
-		http.NotFound(w, r)
-		return
-	}
-	r = h.ensureRequestID(w, r)
-	if d == nil || d.Target == nil {
-		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
-		return
 	}
 	ctx := ContextWithPlan(r.Context(), d)
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
@@ -139,10 +134,6 @@ func requestIDFromRequest(r *http.Request) string {
 		return requestID
 	}
 	return ""
-}
-
-func WriteInvalidDirectiveJSON(w http.ResponseWriter, requestID string) {
-	WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload", requestID)
 }
 
 func WriteProxyErrorJSON(w http.ResponseWriter, status int, message string, requestID string) {

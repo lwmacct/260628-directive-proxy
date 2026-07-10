@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	ErrInvalidPlan      = errors.New("invalid proxy plan")
+	ErrNoMatch          = errors.New("proxy resolver did not match request")
 	ErrInvalidDirective = errors.New("invalid proxy directive")
 )
 
