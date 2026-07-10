@@ -184,7 +184,7 @@ export function ExchangesPage() {
       if (!normalizedQuery) {
         return true;
       }
-      return [item.url, item.target_url, item.request_id, String(item.id)]
+      return [item.url, item.target_url, String(item.id)]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(normalizedQuery));
     });
@@ -297,7 +297,7 @@ export function ExchangesPage() {
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setQuery(event.target.value)
             }
-            placeholder="Search URL, target, request ID, ID"
+            placeholder="Search URL, target, ID"
             prefix={<SearchOutlined />}
             value={query}
           />

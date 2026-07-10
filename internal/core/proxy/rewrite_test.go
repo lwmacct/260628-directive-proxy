@@ -190,7 +190,6 @@ func TestApplyRewriteStripsProxyDisclosureHeaders(t *testing.T) {
 func TestApplyRewriteStripsRuntimeHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
-	in.Header.Set(ClientRequestIDHeader, "client-req-1")
 	in.Header.Set("M-Runtime-Shell", "digitflow")
 	in.Header.Set("M-Runtime-Flag", "one")
 	out := in.Clone(in.Context())
@@ -200,14 +199,10 @@ func TestApplyRewriteStripsRuntimeHeaders(t *testing.T) {
 		Target:   target,
 		JoinPath: true,
 		HeaderOps: []HeaderOp{
-			{Action: HeaderSet, Name: ClientRequestIDHeader, Values: []string{"explicit"}},
 			{Action: HeaderSet, Name: "M-Runtime-Explicit", Values: []string{"drop"}},
 		},
 	})
 
-	if got := req.Out.Header.Get(ClientRequestIDHeader); got != "" {
-		t.Fatalf("expected client request id header to be stripped, got %q", got)
-	}
 	if got := req.Out.Header.Get("M-Runtime-Shell"); got != "" {
 		t.Fatalf("expected runtime shell header to be stripped, got %q", got)
 	}

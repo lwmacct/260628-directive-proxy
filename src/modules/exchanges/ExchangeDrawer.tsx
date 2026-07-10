@@ -26,9 +26,6 @@ export function ExchangeDrawer({
       {record ? (
         <Space className="drawer-stack" orientation="vertical" size={18}>
           <Descriptions bordered column={1} size="small">
-            <Descriptions.Item label="Request ID">
-              {record.request_id || "-"}
-            </Descriptions.Item>
             <Descriptions.Item label="Started">
               {formatDate(record.started_at)}
             </Descriptions.Item>

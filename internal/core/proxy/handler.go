@@ -12,22 +12,17 @@ import (
 type Handler struct {
 	resolver Resolver
 	proxy    *httputil.ReverseProxy
-	idGen    Generator
 	recorder *ExchangeRecorder
 	next     http.Handler
 }
 
 type HandlerOptions struct {
-	IDGenerator Generator
-	Recorder    *ExchangeRecorder
+	Recorder *ExchangeRecorder
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
 }
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
-	if opts.IDGenerator == nil {
-		opts.IDGenerator = NewGenerator()
-	}
 	proxy := &httputil.ReverseProxy{
 		// Flush every write so SSE/NDJSON style responses are forwarded promptly.
 		FlushInterval: -1,
@@ -45,7 +40,6 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 	return &Handler{
 		resolver: resolver,
 		proxy:    proxy,
-		idGen:    opts.IDGenerator,
 		recorder: opts.Recorder,
 		next:     opts.Next,
 	}
@@ -57,7 +51,7 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	slog.Error("proxy error", "error", err, "path", requestPath(r))
-	WriteProxyErrorJSON(w, http.StatusBadGateway, "upstream: request failed", requestIDFromRequest(r))
+	WriteProxyErrorJSON(w, http.StatusBadGateway, "upstream: request failed")
 }
 
 func isRequestCanceled(r *http.Request) bool {
@@ -86,7 +80,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r = h.ensureRequestID(w, r)
 	var exchange *activeExchange
 	if h.recorder != nil {
 		exchange = h.recorder.Start(r)
@@ -99,15 +92,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if errors.Is(err, ErrInvalidDirective) {
-			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload", requestIDFromRequest(r))
+			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload")
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
-		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed")
 		return
 	}
 	if d == nil || d.Target == nil {
-		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed", requestIDFromRequest(r))
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed")
 		return
 	}
 	if exchange != nil {
@@ -116,28 +109,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := ContextWithPlan(r.Context(), d)
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
-
-func (h *Handler) ensureRequestID(w http.ResponseWriter, r *http.Request) *http.Request {
-	ctx, requestID := Ensure(r.Context(), h.idGen)
-	w.Header().Set(ClientRequestIDHeader, requestID)
-	if ctx == r.Context() {
-		return r
-	}
-	return r.WithContext(ctx)
-}
-
-func requestIDFromRequest(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	if requestID, ok := FromContext(r.Context()); ok {
-		return requestID
-	}
-	return ""
-}
-
-func WriteProxyErrorJSON(w http.ResponseWriter, status int, message string, requestID string) {
-	writeProxyErrorJSONBody(w, status, proxyErrorJSONBody(message, requestID))
+func WriteProxyErrorJSON(w http.ResponseWriter, status int, message string) {
+	writeProxyErrorJSONBody(w, status, proxyErrorJSONBody(message))
 }
 
 func writeProxyErrorJSONBody(w http.ResponseWriter, status int, body []byte) {
@@ -147,11 +120,8 @@ func writeProxyErrorJSONBody(w http.ResponseWriter, status int, body []byte) {
 	_, _ = w.Write(body)
 }
 
-func proxyErrorJSONBody(message string, requestID string) []byte {
+func proxyErrorJSONBody(message string) []byte {
 	body := map[string]string{"error": message}
-	if requestID != "" {
-		body["request_id"] = requestID
-	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return []byte("{}\n")

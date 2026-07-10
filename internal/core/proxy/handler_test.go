@@ -24,14 +24,6 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-type fixedIDGenerator struct {
-	id string
-}
-
-func (g fixedIDGenerator) Generate() string {
-	return g.id
-}
-
 func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T) {
 	exchanges := NewExchangeRecorder(DefaultExchangeCapacity, DefaultExchangeMaxBodyBytes)
 	exchanges.Configure(true, 0, -1)
@@ -41,8 +33,7 @@ func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T
 		resolveCalls++
 		return nil, ErrNoMatch
 	}), http.DefaultTransport, HandlerOptions{
-		IDGenerator: fixedIDGenerator{id: "server-req-0"},
-		Recorder:    exchanges,
+		Recorder: exchanges,
 		Next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			nextCalled = true
 			w.WriteHeader(http.StatusNoContent)
@@ -63,9 +54,6 @@ func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T
 	if resolveCalls != 1 {
 		t.Fatalf("unexpected resolver call count: %d", resolveCalls)
 	}
-	if got := recorder.Header().Get(ClientRequestIDHeader); got != "" {
-		t.Fatalf("unmatched request received proxy request id: %q", got)
-	}
 	if snapshot := exchanges.Snapshot(0); len(snapshot.Items) != 0 {
 		t.Fatalf("unmatched request was recorded: %#v", snapshot.Items)
 	}
@@ -74,10 +62,9 @@ func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T
 func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
 		return nil, ErrInvalidDirective
-	}), http.DefaultTransport, HandlerOptions{IDGenerator: fixedIDGenerator{id: "server-req-1"}})
+	}), http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/responses", nil)
-	req.Header.Set("X-Client-Request-Id", "client-req-1")
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, req)
@@ -85,19 +72,11 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
-	if got := recorder.Header().Get("X-Client-Request-Id"); got != "server-req-1" {
-		t.Fatalf("unexpected client request id header: %q", got)
-	}
-
-	var body struct {
-		Error     string `json:"error"`
-		RequestID string `json:"request_id"`
-	}
+	var body map[string]string
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if body.Error != "directive: invalid proxy directive payload" ||
-		body.RequestID != "server-req-1" {
+	if len(body) != 1 || body["error"] != "directive: invalid proxy directive payload" {
 		t.Fatalf("unexpected response body: %#v", body)
 	}
 }
@@ -131,11 +110,10 @@ func TestHandlerDoesNotExposeResolverErrorText(t *testing.T) {
 
 	handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
 		return nil, errors.New("resolve failed with " + rawAuthorization + " and " + decodedSecret)
-	}), http.DefaultTransport, HandlerOptions{IDGenerator: fixedIDGenerator{id: "server-req-2"}})
+	}), http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
 	req.Header.Set("Authorization", rawAuthorization)
-	req.Header.Set("X-Client-Request-Id", "client-req-2")
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, req)
@@ -150,15 +128,11 @@ func TestHandlerDoesNotExposeResolverErrorText(t *testing.T) {
 	if strings.Contains(body, rawAuthorization) || strings.Contains(body, decodedSecret) {
 		t.Fatalf("response leaked authorization content: %q", body)
 	}
-	var parsed struct {
-		Error     string `json:"error"`
-		RequestID string `json:"request_id"`
-	}
+	var parsed map[string]string
 	if err := json.Unmarshal(recorder.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if parsed.Error != "resolver: resolve proxy plan failed" ||
-		parsed.RequestID != "server-req-2" {
+	if len(parsed) != 1 || parsed["error"] != "resolver: resolve proxy plan failed" {
 		t.Fatalf("unexpected response body: %#v", parsed)
 	}
 }
@@ -181,12 +155,11 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 		roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("dial failed for " + req.URL.String() + " with " + rawAuthorization)
 		}),
-		HandlerOptions{IDGenerator: fixedIDGenerator{id: "server-req-3"}},
+		HandlerOptions{},
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/v1/chat", nil)
 	req.Header.Set("Authorization", rawAuthorization)
-	req.Header.Set("X-Client-Request-Id", "client-req-3")
 	recorder := httptest.NewRecorder()
 
 	handler.ServeHTTP(recorder, req)
@@ -201,15 +174,11 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 	if got := recorder.Header().Get("Location"); got != "" {
 		t.Fatalf("unexpected location header: %q", got)
 	}
-	var parsed struct {
-		Error     string `json:"error"`
-		RequestID string `json:"request_id"`
-	}
+	var parsed map[string]string
 	if err := json.Unmarshal(recorder.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if parsed.Error != "upstream: request failed" ||
-		parsed.RequestID != "server-req-3" {
+	if len(parsed) != 1 || parsed["error"] != "upstream: request failed" {
 		t.Fatalf("unexpected response body: %#v", parsed)
 	}
 }
@@ -243,7 +212,7 @@ func TestHandlerPassesThroughUpstreamErrorResponse(t *testing.T) {
 				Request:       req,
 			}, nil
 		}),
-		HandlerOptions{IDGenerator: fixedIDGenerator{id: "server-req-4"}},
+		HandlerOptions{},
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/responses", nil)

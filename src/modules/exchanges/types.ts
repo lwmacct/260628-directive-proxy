@@ -8,7 +8,6 @@ export type BodySnapshot = {
 
 export type ExchangeRecord = {
   id: number;
-  request_id?: string;
   started_at: string;
   completed_at: string;
   duration_millis: number;

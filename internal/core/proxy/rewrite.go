@@ -134,7 +134,6 @@ func stripRuntimeHeaders(headers http.Header) {
 	if headers == nil {
 		return
 	}
-	headers.Del(ClientRequestIDHeader)
 	for name := range headers {
 		if strings.HasPrefix(strings.ToLower(name), "m-runtime-") {
 			headers.Del(name)

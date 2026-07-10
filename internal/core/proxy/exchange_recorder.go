@@ -32,7 +32,6 @@ type ExchangeSnapshot struct {
 
 type ExchangeRecord struct {
 	ID              uint64               `json:"id"`
-	RequestID       string               `json:"request_id,omitempty"`
 	StartedAt       time.Time            `json:"started_at"`
 	CompletedAt     time.Time            `json:"completed_at"`
 	DurationMillis  int64                `json:"duration_millis"`
@@ -208,7 +207,6 @@ func (r *ExchangeRecorder) Start(req *http.Request) *activeExchange {
 		responseBody: responseBody,
 		record: ExchangeRecord{
 			ID:             id,
-			RequestID:      requestIDFromRequest(req),
 			StartedAt:      time.Now().UTC(),
 			Method:         req.Method,
 			Host:           req.Host,

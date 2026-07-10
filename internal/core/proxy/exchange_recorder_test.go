@@ -36,7 +36,7 @@ func TestExchangeRecorderCapturesProxyRequestAndResponse(t *testing.T) {
 				Request:    req,
 			}, nil
 		}),
-		HandlerOptions{Recorder: recorder, IDGenerator: fixedIDGenerator{id: "req-1"}},
+		HandlerOptions{Recorder: recorder},
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", strings.NewReader("hello"))
@@ -53,7 +53,7 @@ func TestExchangeRecorderCapturesProxyRequestAndResponse(t *testing.T) {
 		t.Fatalf("expected one record, got %d", len(snapshot.Items))
 	}
 	record := snapshot.Items[0]
-	if record.RequestID != "req-1" || record.StatusCode != http.StatusCreated {
+	if record.StatusCode != http.StatusCreated {
 		t.Fatalf("unexpected record metadata: %#v", record)
 	}
 	if record.TargetURL != "https://api.example.test/base/v1/chat" {
@@ -85,7 +85,7 @@ func TestExchangeRecorderIsDisabledByDefault(t *testing.T) {
 				Request:    req,
 			}, nil
 		}),
-		HandlerOptions{Recorder: recorder, IDGenerator: fixedIDGenerator{id: "req-2"}},
+		HandlerOptions{Recorder: recorder},
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/v1/chat", nil)
