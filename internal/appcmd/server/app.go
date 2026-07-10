@@ -33,30 +33,17 @@ func (app *App) Run(ctx context.Context) error {
 	}
 	defer func() { _ = rt.Close(context.Background()) }()
 
-	controlSrv, err := newControlHTTPServer(app.cfg, rt)
+	srv := newHTTPServer(app.cfg, rt)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", srv.Addr)
 	if err != nil {
 		return err
 	}
-	controlLn, err := (&net.ListenConfig{}).Listen(ctx, "tcp", controlSrv.Addr)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = controlLn.Close() }()
+	defer func() { _ = ln.Close() }()
 
-	proxySrv, err := newProxyHTTPServer(app.cfg, rt)
-	if err != nil {
-		return err
-	}
-	proxyLn, err := (&net.ListenConfig{}).Listen(ctx, "tcp", proxySrv.Addr)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = proxyLn.Close() }()
-
-	errCh := make(chan error, 2)
-	startHTTPServer := func(name string, srv *http.Server, ln net.Listener) {
+	errCh := make(chan error, 1)
+	go func() {
 		cfg := app.cfg.Server.HTTP
-		slog.Info("http server starting", "plane", name, "listen", srv.Addr, "https", cfg.TLS.Enabled)
+		slog.Info("directive proxy service starting", "listen", srv.Addr, "https", cfg.TLS.Enabled)
 		var serveErr error
 		if cfg.TLS.Enabled {
 			serveErr = srv.ServeTLS(ln, "", "")
@@ -64,12 +51,10 @@ func (app *App) Run(ctx context.Context) error {
 			serveErr = srv.Serve(ln)
 		}
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			slog.Error("http server failed", "plane", name, "error", serveErr)
+			slog.Error("http server failed", "error", serveErr)
 			errCh <- serveErr
 		}
-	}
-	go startHTTPServer("control", controlSrv, controlLn)
-	go startHTTPServer("proxy", proxySrv, proxyLn)
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, os.Interrupt)
@@ -77,10 +62,10 @@ func (app *App) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		return shutdown(ctx, []*http.Server{controlSrv, proxySrv}, rt)
+		return shutdown(ctx, srv, rt)
 	case sig := <-sigCh:
 		slog.Info("received shutdown signal", "signal", sig.String())
-		return shutdown(ctx, []*http.Server{controlSrv, proxySrv}, rt)
+		return shutdown(ctx, srv, rt)
 	case err := <-errCh:
 		return err
 	}
@@ -98,15 +83,12 @@ func validateConfig(cfg *config.Config) error {
 	return nil
 }
 
-func shutdown(ctx context.Context, servers []*http.Server, rt *runtime) error {
+func shutdown(ctx context.Context, srv *http.Server, rt *runtime) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 
 	var errs []error
-	for _, srv := range servers {
-		if srv == nil {
-			continue
-		}
+	if srv != nil {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			errs = append(errs, err)
 		}

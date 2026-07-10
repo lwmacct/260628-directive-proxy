@@ -6,15 +6,15 @@
 
 ## 职责
 
-- 只从 `Authorization: Bearer <token>` 提取 directive token
-- 只识别 `dproxy.10.` 三段格式；非 `dproxy.10.` bearer token 不尝试解码
+- 从 `Authorization: Bearer <token>` 提取 `dproxy.` family token
+- 将 dproxy family 请求与 control 请求分流，decoder 只接受 `dproxy.10.` 三段格式
 - 解码 base64url JSON 并校验 v10 payload schema
 - 将 target、proxy、headers 等 payload 字段组装成 `proxy.Plan`
 
 ## 处理流程
 
 1. `resolver.go` 读取 `Authorization` bearer token。
-2. bearer token 必须是 `dproxy.10.<base64url-json>`，否则返回 `proxy.ErrInvalidPlan`。
+2. 非 dproxy family token 返回 `proxy.ErrInvalidPlan`；dproxy family token 必须是 `dproxy.10.<base64url-json>`，否则返回 `proxy.ErrInvalidDirective`。
 3. `payload_codec.go` 解码 base64url 并使用严格 JSON schema，未知字段会被拒绝。
 4. `assemble.go` 对 payload 做一次 normalize，并转换成 `proxy.Plan`。
 5. `payload_validate.go` 保留对外校验入口，复用 normalize 流程。
@@ -23,8 +23,8 @@
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - `dproxy.10.` 的前两段是协议族和版本标识；payload 不再重复携带 `version` 或 `kind`。
-- malformed `dproxy.10.` token 返回 `proxy.ErrInvalidDirective`。
-- 未识别到 directive token 返回 `proxy.ErrInvalidPlan`，由 data plane 响应缺失 directive。
+- malformed 或不支持版本的 dproxy family token 返回 `proxy.ErrInvalidDirective`。
+- 未识别到 dproxy family token 返回 `proxy.ErrInvalidPlan`。
 
 ## 文件结构
 

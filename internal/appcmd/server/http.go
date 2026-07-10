@@ -9,25 +9,17 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/handler"
 )
 
 const httpAPIPrefix = "/api"
 
-func newControlHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
-	httpCfg := cfg.Server.HTTP
-	return newHTTPServer(httpCfg.Listen, newControlHTTPHandler(cfg, rt), cfg, rt), nil
-}
-
-func newProxyHTTPServer(cfg *config.Config, rt *runtime) (*http.Server, error) {
-	return newHTTPServer(cfg.Proxy.Listen, rt.proxy, cfg, rt), nil
-}
-
-func newHTTPServer(addr string, handler http.Handler, cfg *config.Config, rt *runtime) *http.Server {
+func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 	httpCfg := cfg.Server.HTTP
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           handler,
+		Addr:              httpCfg.Listen,
+		Handler:           newHTTPHandler(cfg, rt),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       httpCfg.ReadTimeout,
 		WriteTimeout:      httpCfg.WriteTimeout,
@@ -39,6 +31,17 @@ func newHTTPServer(addr string, handler http.Handler, cfg *config.Config, rt *ru
 	}
 	srv.TLSConfig = rt.tls.config
 	return srv
+}
+
+func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
+	control := newControlHTTPHandler(cfg, rt)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if directive.IsDirectiveRequest(r) {
+			rt.proxy.ServeHTTP(w, r)
+			return
+		}
+		control.ServeHTTP(w, r)
+	})
 }
 
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {

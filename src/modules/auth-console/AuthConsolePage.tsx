@@ -97,7 +97,7 @@ export function AuthConsolePage() {
   }, [payload]);
   const authorization = token ? `Authorization: Bearer ${token}` : "";
   const curlSample = [
-    "curl -i 'http://127.0.0.1:23197/v1/chat/completions' \\",
+    "curl -i 'http://127.0.0.1:23198/v1/chat/completions' \\",
     `  -H '${authorization}' \\`,
     "  -H 'Content-Type: application/json' \\",
     "  --data '{\"message\":\"hello through directive proxy\"}'",

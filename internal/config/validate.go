@@ -13,10 +13,6 @@ func Validate(cfg Config) (Config, error) {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	cfg.Proxy.Listen = strings.TrimSpace(cfg.Proxy.Listen)
-	if cfg.Proxy.Listen == "" {
-		return cfg, ErrInvalidProxy
-	}
 	if cfg.Proxy.Transport.MaxIdleConns < 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost < 0 ||
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport

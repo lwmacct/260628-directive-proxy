@@ -4,12 +4,12 @@
 
 项目只负责解析 `Authorization: Bearer dproxy.10...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
-服务分为两个独立 HTTP listener：
+服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
-- Control plane：默认监听 `:23198`，基于 Huma 的 `/api/*`，当前包含 `/api/health`、`/api/openapi.json`、`/api/docs`。
-- Data plane：默认监听 `:23197`，基于原生 `net/http` 的 `/*` 反向代理。
+- 携带 `Authorization: Bearer dproxy.*` 的请求进入基于原生 `net/http` 的反向代理。
+- 其他请求进入 control handler，包括 Huma `/api/*`、`/health` 和可选的 Web UI。
 
-代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
+Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请求仍会进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
 ## Directive Token
 
@@ -19,7 +19,7 @@
 Authorization: Bearer dproxy.10.<base64url-json>
 ```
 
-没有 `dproxy.10.` 前缀的 Bearer token 会被视为非 directive token，不会尝试解码。
+`dproxy.` token family 由代理保留，当前只接受 `dproxy.10.` 协议。其他 Bearer token 不会进入代理。
 
 payload schema：
 
@@ -53,18 +53,16 @@ directive 被接受后，入站 `Authorization`、`X-Client-Request-Id` 和 `M-R
 go run . server
 ```
 
-默认 control plane 监听地址是 `:23198`，默认 data plane 监听地址是 `:23197`。
+默认 HTTP 监听地址是 `:23198`，可通过 `--http.listen` 修改。
 
 常用端点：
 
 ```text
-Control plane (:23198)
+HTTP (:23198)
   GET /api/health
   GET /api/openapi.json
   GET /api/docs
-
-Data plane (:23197)
-  ANY /*
+  ANY /*  (需要 Authorization: Bearer dproxy.*)
 ```
 
 ## 验证

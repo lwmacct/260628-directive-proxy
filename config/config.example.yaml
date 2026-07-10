@@ -18,11 +18,10 @@ server:
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间
-    max-api-body-bytes: 1048576 # Control plane API 最大请求体字节数，0 表示不限制
+    max-api-body-bytes: 1048576 # Control API 最大请求体字节数，0 表示不限制
 
-# 代理 data plane 配置
+# 代理配置
 proxy:
-  listen: ":23197" # 代理 data plane 监听地址
 
   # 上游连接池与连接复用配置
   transport:

@@ -52,6 +52,48 @@ func TestResolverIgnoresNonDirectiveBearerToken(t *testing.T) {
 	}
 }
 
+func TestIsDirectiveRequestReservesDProxyTokenFamily(t *testing.T) {
+	tests := []struct {
+		name          string
+		authorization string
+		want          bool
+	}{
+		{name: "current version", authorization: "Bearer dproxy.10.payload", want: true},
+		{name: "unsupported version", authorization: "Bearer dproxy.11.payload", want: true},
+		{name: "malformed family token", authorization: "Bearer dproxy.", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dproxy.10.payload", want: true},
+		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
+		{name: "other scheme", authorization: "Basic dproxy.10.payload", want: false},
+		{name: "missing", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			if got := IsDirectiveRequest(req); got != tt.want {
+				t.Fatalf("unexpected directive request match: got %t want %t", got, tt.want)
+			}
+		})
+	}
+
+	if IsDirectiveRequest(nil) {
+		t.Fatal("nil request must not match")
+	}
+}
+
+func TestResolverReturnsInvalidDirectiveForUnsupportedDirectiveVersion(t *testing.T) {
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer "+TokenFamily+".11.payload")
+
+	_, err := NewResolver().Resolve(req)
+	if !errors.Is(err, proxy.ErrInvalidDirective) {
+		t.Fatalf("expected invalid directive, got %v", err)
+	}
+}
+
 func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+"."+TokenVersion+".not-valid-base64url")

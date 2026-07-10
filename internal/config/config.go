@@ -9,13 +9,12 @@ import (
 
 var (
 	ErrInvalidHTTP      = errors.New("invalid http config")
-	ErrInvalidProxy     = errors.New("invalid proxy config")
 	ErrInvalidTransport = errors.New("invalid transport config")
 )
 
 type Config struct {
 	Server Server `json:"server" desc:"服务运行配置"`
-	Proxy  Proxy  `json:"proxy"  desc:"代理 data plane 配置"`
+	Proxy  Proxy  `json:"proxy"  desc:"代理配置"`
 }
 
 type Server struct {
@@ -29,11 +28,10 @@ type ServerHTTP struct {
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
-	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control plane API 最大请求体字节数，0 表示不限制"`
+	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control API 最大请求体字节数，0 表示不限制"`
 }
 
 type Proxy struct {
-	Listen    string         `json:"listen"    desc:"代理 data plane 监听地址"`
 	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
 }
 
@@ -62,7 +60,6 @@ func DefaultConfig() Config {
 			},
 		},
 		Proxy: Proxy{
-			Listen: ":23197",
 			Transport: ProxyTransport{
 				MaxIdleConns:        4096,
 				MaxIdleConnsPerHost: 2048,
