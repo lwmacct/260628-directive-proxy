@@ -1,25 +1,12 @@
 import {
-  WorkbenchAuthPage,
+  WorkbenchOAuthSignInPage,
 } from "@lwmacct/260627-antd-workbench";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useText } from "../shared/i18n";
-
-export type AuthIdentity = {
-  subject: string;
-  username: string;
-  name?: string;
-  email?: string;
-  avatar_url?: string;
-  provider?: string;
-  provider_user_id?: string;
-};
+import { loadSession, type AuthIdentity, type SessionState } from "./session";
 
 type AuthState =
-  | { status: "checking" }
-  | { status: "authenticated"; identity: AuthIdentity }
-  | { status: "signed-out" }
-  | { status: "forbidden" }
-  | { status: "unavailable" }
+  | SessionState
   | { status: "signing-in"; provider: "github" };
 
 type AuthContextValue = {
@@ -43,24 +30,14 @@ export function useAuth() {
   return value;
 }
 
-export function AuthBoundary({ children }: { children: ReactNode }) {
+export function AuthBoundary({ children, initialSession }: { children: ReactNode; initialSession: SessionState }) {
   const t = useText();
-  const [state, setState] = useState<AuthState>({ status: "checking" });
+  const [state, setState] = useState<AuthState>(initialSession);
 
-  const loadSession = useCallback(async () => {
-    setState({ status: "checking" });
-    try {
-      const response = await fetch("/auth/session");
-      if (response.status === 401) return setState({ status: "signed-out" });
-      if (response.status === 403) return setState({ status: "forbidden" });
-      if (!response.ok) return setState({ status: "unavailable" });
-      setState({ status: "authenticated", identity: (await response.json()) as AuthIdentity });
-    } catch {
-      setState({ status: "unavailable" });
-    }
+  const retrySession = useCallback(async () => {
+    setState(await loadSession());
   }, []);
 
-  useEffect(() => void loadSession(), [loadSession]);
   useEffect(() => {
     const update = (event: Event) => {
       const status = (event as CustomEvent<"signed-out" | "forbidden">).detail;
@@ -71,14 +48,17 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    const response = await fetch("/auth/logout", { method: "POST" });
+    const response = await fetch("/oidcauth/logout", { method: "POST" });
     if (!response.ok && response.status !== 401) throw new Error(`HTTP ${response.status}`);
     setState({ status: "signed-out" });
   }, []);
 
   const login = useCallback(() => {
     setState({ status: "signing-in", provider: "github" });
-    window.requestAnimationFrame(() => window.location.assign("/auth/login"));
+    const returnTo = window.location.pathname + window.location.search + window.location.hash;
+    window.requestAnimationFrame(() => {
+      window.location.assign(`/oidcauth/login?return_to=${encodeURIComponent(returnTo)}`);
+    });
   }, []);
 
   const value = useMemo(
@@ -88,24 +68,18 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
 
   if (!value) {
     return (
-      <WorkbenchAuthPage
+      <WorkbenchOAuthSignInPage
         brand={{
           description: t.auth.signInDescription,
           mark: "D",
           name: "LLM Relay DProxy",
         }}
         hint={state.status === "signed-out" ? t.auth.authorizedOnly : undefined}
+        error={state.status === "unavailable" ? t.auth.unavailable : state.status === "forbidden" ? t.auth.forbidden : undefined}
+        pendingProvider={state.status === "signing-in" ? state.provider : undefined}
         providers={[{ label: "GitHub", provider: "github" }]}
-        state={state.status === "checking"
-          ? { status: "checking" }
-          : state.status === "signing-in"
-            ? { status: "signing-in", provider: state.provider }
-            : {
-                status: "ready",
-                error: state.status === "unavailable" ? t.auth.unavailable : state.status === "forbidden" ? t.auth.forbidden : undefined,
-                retry: state.status === "unavailable",
-              }}
-        onRetry={state.status === "unavailable" ? loadSession : undefined}
+        retry={state.status === "unavailable"}
+        onRetry={state.status === "unavailable" ? retrySession : undefined}
         onSelectProvider={login}
       />
     );

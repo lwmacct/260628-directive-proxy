@@ -24,7 +24,7 @@ const httpTLSMinVersion = tls.VersionTLS12
 type runtime struct {
 	exchanges *service.ExchangeService
 	observer  proxy.Observer
-	auth      *oidcauth.Auth
+	oidcAuth  *oidcauth.Auth
 	tls       *tlsRuntime
 }
 
@@ -33,7 +33,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
-	auth, err := dexgithub.New(ctx, cfg.Server.HTTP.Auth, dexgithub.Options{})
+	oidcAuth, err := dexgithub.New(ctx, cfg.Server.HTTP.OIDCAuth, dexgithub.Options{})
 	if err != nil {
 		tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
@@ -42,7 +42,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	return &runtime{
 		exchanges: exchanges,
 		observer:  capture.NewObserver(exchanges),
-		auth:      auth,
+		oidcAuth:  oidcAuth,
 		tls:       tlsRuntime,
 	}, nil
 }

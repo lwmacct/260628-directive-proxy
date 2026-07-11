@@ -40,9 +40,9 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	mux := http.NewServeMux()
 	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
 	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
-	if rt.auth != nil {
-		protectedAPI = rt.auth.RequireUser(protectedAPI)
-		mux.Handle("/auth/", noStore(rt.auth.Handler()))
+	if rt.oidcAuth != nil {
+		protectedAPI = rt.oidcAuth.RequireUser(protectedAPI)
+		mux.Handle("/oidcauth/", noStore(rt.oidcAuth.Handler()))
 	}
 	mux.Handle(httpAPIPrefix+"/", protectedAPI)
 	mux.Handle("/health", api)

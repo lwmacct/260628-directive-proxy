@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(rootDir, "src"),
     },
+    dedupe: ["react", "react-dom"],
   },
   build: {
     chunkSizeWarningLimit: 5120,
@@ -19,7 +20,7 @@ export default defineConfig({
     port: 23199,
     strictPort: true,
     proxy: {
-      "/auth": {
+      "/oidcauth": {
         target: "http://localhost:23198",
         changeOrigin: true,
       },

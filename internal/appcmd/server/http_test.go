@@ -247,7 +247,7 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/auth/session", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/oidcauth/session", nil))
 
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("unexpected Cache-Control: %q", got)

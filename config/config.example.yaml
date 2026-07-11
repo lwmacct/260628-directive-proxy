@@ -16,13 +16,11 @@ server:
       poll-interval: 0s # TLS 证书文件重载兜底轮询间隔，未配置时使用默认间隔
 
     # Control API OIDC 认证配置
-    auth:
+    oidc-auth:
       issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
       client-id: "dproxy-local" # Dex OIDC client ID
       client-secret: "" # Dex confidential client secret；public client 留空
-      callback-url: "http://localhost:23198/auth/callback" # OIDC callback URL
-      public-url: "http://localhost:23199" # 浏览器访问应用的公开 URL
-      after-login-url: "http://localhost:23199/#/console" # 登录成功后的同源跳转 URL
+      external-url: "http://localhost:23199" # 浏览器访问应用的外部 origin
 
       # 允许访问应用的 GitHub 用户名
       allowed-users:
