@@ -23,6 +23,17 @@ export default defineConfig({
         target: "http://localhost:23198",
         changeOrigin: true,
       },
+      "/": {
+        target: "http://localhost:23198",
+        changeOrigin: true,
+        bypass(request) {
+          const authorization = request.headers.authorization ?? "";
+          if (authorization.startsWith("Bearer dproxy.")) {
+            return undefined;
+          }
+          return request.url;
+        },
+      },
     },
   },
 });

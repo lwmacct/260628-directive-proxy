@@ -3,6 +3,7 @@ import {
   DeleteOutlined,
   ImportOutlined,
   PlusOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 import {
   WorkbenchPage,
@@ -21,12 +22,13 @@ import {
   Space,
   Table,
   Tabs,
+  Tag,
   Typography,
   message,
 } from "antd";
 import type { TableColumnsType } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 
 const { Text } = Typography;
 const tokenPrefix = "dproxy.10.";
@@ -62,6 +64,14 @@ type DirectivePayload = {
   };
 };
 
+type RequestResult = {
+  body: string;
+  duration: number;
+  headers: string;
+  status: number;
+  statusText: string;
+};
+
 let headerOpID = 0;
 
 const initialEditor: EditorState = {
@@ -71,7 +81,7 @@ const initialEditor: EditorState = {
   headerMode: "patch",
   headerOps: [
     newHeaderOp("=", "Authorization", "Bearer upstream-token"),
-    newHeaderOp("=", "X-Tenant", "tenant-a"),
+    newHeaderOp("=", "X-Dproxy-Key", "dproxy-demo-key"),
   ],
 };
 
@@ -80,7 +90,20 @@ export function AuthConsolePage() {
   const initialPayload = useMemo(() => buildPayload(initialEditor), []);
   const [payloadInput, setPayloadInput] = useState(() => formatPayload(initialPayload));
   const [tokenInput, setTokenInput] = useState(() => encodeToken(initialPayload));
+  const [activeSource, setActiveSource] = useState<"payload" | "token">("payload");
   const [error, setError] = useState<string | null>(null);
+  const [requestMethod, setRequestMethod] = useState("POST");
+  const [requestPath, setRequestPath] = useState("/v1/chat/completions");
+  const [requestHeaders, setRequestHeaders] = useState(
+    '{\n  "Content-Type": "application/json"\n}',
+  );
+  const [requestBody, setRequestBody] = useState(
+    '{\n  "model": "example-model",\n  "messages": [\n    { "role": "user", "content": "Hello" }\n  ]\n}',
+  );
+  const [requestLoading, setRequestLoading] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestResult, setRequestResult] = useState<RequestResult | null>(null);
+  const requestController = useRef<AbortController | null>(null);
 
   const payload = useMemo(() => buildPayload(editor), [editor]);
   const token = encodeToken(payload);
@@ -126,6 +149,43 @@ export function AuthConsolePage() {
         item.key === key ? { ...item, ...patch } : item,
       ),
     });
+  }
+
+  async function sendRequest() {
+    try {
+      const path = normalizeRequestPath(requestPath);
+      const headers = parseRequestHeaders(requestHeaders);
+      const controller = new AbortController();
+      requestController.current?.abort();
+      requestController.current = controller;
+      setRequestLoading(true);
+      setRequestError(null);
+      setRequestResult(null);
+      const startedAt = performance.now();
+      const response = await fetch(path, {
+        method: requestMethod,
+        headers: { ...headers, Authorization: `Bearer ${token}` },
+        body: requestMethod === "GET" || requestMethod === "HEAD" ? undefined : requestBody,
+        signal: controller.signal,
+      });
+      const body = await response.text();
+      setRequestResult({
+        body,
+        duration: Math.round(performance.now() - startedAt),
+        headers: formatResponseHeaders(response.headers),
+        status: response.status,
+        statusText: response.statusText,
+      });
+    } catch (err) {
+      setRequestError(
+        err instanceof DOMException && err.name === "AbortError"
+          ? "请求已取消"
+          : errorMessage(err, "请求失败"),
+      );
+    } finally {
+      requestController.current = null;
+      setRequestLoading(false);
+    }
   }
 
   const columns: TableColumnsType<HeaderOp> = [
@@ -286,56 +346,214 @@ export function AuthConsolePage() {
         </Col>
 
         <Col xs={24} xl={11}>
-          <Space orientation="vertical" size={14} style={{ width: "100%" }}>
-            <WorkbenchPanel title="可编辑输入源">
-              <Tabs
-                items={[
-                  {
-                    key: "payload",
-                    label: "Payload JSON",
-                    children: (
-                      <SourceEditor
-                        actionLabel="应用 Payload"
-                        placeholder='{ "target": { "url": "https://api.example.com" } }'
-                        value={payloadInput}
-                        onApply={applyPayloadInput}
-                        onChange={setPayloadInput}
-                      />
-                    ),
-                  },
-                  {
-                    key: "token",
-                    label: "Token / Authorization",
-                    children: (
-                      <SourceEditor
-                        actionLabel="解析 Token"
-                        placeholder="dproxy.10...、Bearer dproxy.10... 或完整 Authorization header"
-                        value={tokenInput}
-                        onApply={applyTokenInput}
-                        onChange={setTokenInput}
-                      />
-                    ),
-                  },
-                ]}
-              />
-            </WorkbenchPanel>
-          </Space>
+          <WorkbenchPanel
+            extra={
+              <Space>
+                <Button
+                  aria-label={`复制${activeSource === "payload" ? " Payload" : " Token"}`}
+                  icon={<CopyOutlined />}
+                  onClick={() =>
+                    void copyText(activeSource === "payload" ? payloadInput : tokenInput).then(
+                      reportCopyResult,
+                    )
+                  }
+                />
+                <Button
+                  icon={<ImportOutlined />}
+                  onClick={activeSource === "payload" ? applyPayloadInput : applyTokenInput}
+                  type="primary"
+                >
+                  {activeSource === "payload" ? "应用 Payload" : "解析 Token"}
+                </Button>
+              </Space>
+            }
+            title="可编辑输入源"
+          >
+            <Tabs
+              activeKey={activeSource}
+              items={[
+                {
+                  key: "payload",
+                  label: "Payload JSON",
+                  children: (
+                    <SourceEditor
+                      placeholder='{ "target": { "url": "https://api.example.com" } }'
+                      value={payloadInput}
+                      onChange={setPayloadInput}
+                    />
+                  ),
+                },
+                {
+                  key: "token",
+                  label: "Token / Authorization",
+                  children: (
+                    <SourceEditor
+                      placeholder="dproxy.10...、Bearer dproxy.10... 或完整 Authorization header"
+                      value={tokenInput}
+                      onChange={setTokenInput}
+                    />
+                  ),
+                },
+              ]}
+              onChange={(key: string) => setActiveSource(key as "payload" | "token")}
+            />
+          </WorkbenchPanel>
         </Col>
       </Row>
+
+      <RequestPanel
+        body={requestBody}
+        error={requestError}
+        headers={requestHeaders}
+        loading={requestLoading}
+        method={requestMethod}
+        path={requestPath}
+        result={requestResult}
+        onBodyChange={setRequestBody}
+        onCancel={() => requestController.current?.abort()}
+        onHeadersChange={setRequestHeaders}
+        onMethodChange={setRequestMethod}
+        onPathChange={setRequestPath}
+        onSend={() => void sendRequest()}
+      />
     </WorkbenchPage>
   );
 }
 
+function RequestPanel(props: {
+  body: string;
+  error: string | null;
+  headers: string;
+  loading: boolean;
+  method: string;
+  path: string;
+  result: RequestResult | null;
+  onBodyChange: (value: string) => void;
+  onCancel: () => void;
+  onHeadersChange: (value: string) => void;
+  onMethodChange: (value: string) => void;
+  onPathChange: (value: string) => void;
+  onSend: () => void;
+}) {
+  const bodyDisabled = props.method === "GET" || props.method === "HEAD";
+  return (
+    <WorkbenchPanel
+      extra={
+        <Space>
+          {props.loading ? <Button onClick={props.onCancel}>取消</Button> : null}
+          <Button
+            icon={<SendOutlined />}
+            loading={props.loading}
+            onClick={props.onSend}
+            type="primary"
+          >
+            发起请求
+          </Button>
+        </Space>
+      }
+      style={{ marginTop: 16 }}
+      title="请求调试"
+    >
+      <Text type="secondary">
+        请求发送到当前站点的 data plane，并自动使用工作台当前生成的 Token。
+      </Text>
+      <Flex gap="small" style={{ marginTop: 12 }} wrap>
+        <Select
+          className="request-method"
+          options={["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"].map((value) => ({
+            label: value,
+            value,
+          }))}
+          value={props.method}
+          onChange={props.onMethodChange}
+        />
+        <Input
+          className="request-path"
+          placeholder="/v1/chat/completions"
+          value={props.path}
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+            props.onPathChange(event.target.value)
+          }
+        />
+      </Flex>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 4 }}>
+        <Col xs={24} lg={12}>
+          <Form layout="vertical">
+            <Form.Item label="Request Headers JSON">
+              <Input.TextArea
+                autoSize={{ minRows: 4, maxRows: 10 }}
+                className="request-code-input"
+                value={props.headers}
+                onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                  props.onHeadersChange(event.target.value)
+                }
+              />
+            </Form.Item>
+            <Form.Item
+              help={bodyDisabled ? `${props.method} 请求不会发送 Body` : undefined}
+              label="Request Body"
+            >
+              <Input.TextArea
+                autoSize={{ minRows: 9, maxRows: 20 }}
+                className="request-code-input"
+                disabled={bodyDisabled}
+                value={props.body}
+                onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                  props.onBodyChange(event.target.value)
+                }
+              />
+            </Form.Item>
+          </Form>
+        </Col>
+        <Col xs={24} lg={12}>
+          {props.error ? <Alert showIcon title={props.error} type="error" /> : null}
+          {!props.error && !props.result ? (
+            <Alert showIcon title="等待发起请求" type="info" />
+          ) : null}
+          {props.result ? (
+            <Space orientation="vertical" size={12} style={{ width: "100%" }}>
+              <Flex align="center" gap="small">
+                <Tag color={statusColor(props.result.status)}>
+                  {props.result.status} {props.result.statusText}
+                </Tag>
+                <Text type="secondary">{props.result.duration} ms</Text>
+              </Flex>
+              <Form layout="vertical">
+                <Form.Item label="Response Headers">
+                  <Input.TextArea
+                    autoSize={{ minRows: 4, maxRows: 10 }}
+                    className="request-code-input"
+                    readOnly
+                    value={props.result.headers}
+                  />
+                </Form.Item>
+                <Form.Item label="Response Body">
+                  <Input.TextArea
+                    autoSize={{ minRows: 9, maxRows: 20 }}
+                    className="request-code-input"
+                    readOnly
+                    value={props.result.body}
+                  />
+                </Form.Item>
+              </Form>
+            </Space>
+          ) : null}
+        </Col>
+      </Row>
+    </WorkbenchPanel>
+  );
+}
+
 function SourceEditor(props: {
-  actionLabel: string;
   placeholder: string;
   value: string;
-  onApply: () => void;
   onChange: (value: string) => void;
 }) {
   return (
     <Space orientation="vertical" size={12} style={{ width: "100%" }}>
       <Input.TextArea
+        autoSize={{ minRows: 10 }}
         className="source-input"
         onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
           props.onChange(event.target.value)
@@ -343,19 +561,7 @@ function SourceEditor(props: {
         placeholder={props.placeholder}
         value={props.value}
       />
-      <Flex justify="space-between" gap="small">
-        <Text type="secondary">编辑期间不会覆盖其他区域，点击应用后统一同步。</Text>
-        <Space>
-          <Button
-            aria-label="Copy input"
-            icon={<CopyOutlined />}
-            onClick={() => void copyText(props.value).then(reportCopyResult)}
-          />
-          <Button icon={<ImportOutlined />} onClick={props.onApply} type="primary">
-            {props.actionLabel}
-          </Button>
-        </Space>
-      </Flex>
+      <Text type="secondary">编辑期间不会覆盖其他区域，点击卡片右上角按钮后统一同步。</Text>
     </Space>
   );
 }
@@ -513,6 +719,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function assertKnownKeys(value: Record<string, unknown>, keys: string[], label: string) {
   const unknown = Object.keys(value).find((key) => !keys.includes(key));
   if (unknown) throw new Error(`${label} 包含未知字段 ${unknown}`);
+}
+
+function normalizeRequestPath(value: string) {
+  const path = value.trim();
+  if (!path) throw new Error("请求路径不能为空");
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    throw new Error("请求路径必须是以 / 开头的同源路径");
+  }
+  if (path.startsWith("/api/") || path === "/api" || path === "/health") {
+    throw new Error("请求路径不能指向 control plane");
+  }
+  return path;
+}
+
+function parseRequestHeaders(value: string): Record<string, string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value || "{}");
+  } catch {
+    throw new Error("Request Headers 不是有效的 JSON");
+  }
+  if (!isRecord(parsed)) throw new Error("Request Headers 必须是 JSON object");
+  const headers: Record<string, string> = {};
+  for (const [name, headerValue] of Object.entries(parsed)) {
+    if (typeof headerValue !== "string") {
+      throw new Error(`Request Header ${name} 的值必须是 string`);
+    }
+    if (name.toLowerCase() === "authorization") continue;
+    headers[name] = headerValue;
+  }
+  return headers;
+}
+
+function formatResponseHeaders(headers: Headers) {
+  return [...headers.entries()]
+    .map(([name, value]) => `${name}: ${value}`)
+    .join("\n");
+}
+
+function statusColor(status: number) {
+  if (status >= 500) return "red";
+  if (status >= 400) return "orange";
+  if (status >= 300) return "blue";
+  if (status >= 200) return "green";
+  return "default";
 }
 
 function errorMessage(error: unknown, fallback: string) {

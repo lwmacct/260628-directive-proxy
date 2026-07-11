@@ -42,7 +42,22 @@ body {
 }
 
 .source-input {
-  min-height: 260px !important;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.request-method {
+  width: 112px;
+}
+
+.request-path {
+  min-width: 260px;
+  flex: 1 1 420px;
+}
+
+.request-code-input {
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 12px;
@@ -58,7 +73,9 @@ body {
   .search-input,
   .method-select,
   .number-input,
-  .grow-field {
+  .grow-field,
+  .request-method,
+  .request-path {
     width: 100%;
   }
 }
