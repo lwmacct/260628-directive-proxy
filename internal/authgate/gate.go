@@ -39,17 +39,16 @@ type flow struct {
 }
 
 type Gate struct {
-	oauth      oauth2.Config
-	verifier   *oidc.IDTokenVerifier
-	publicURL  *url.URL
-	maxAge     time.Duration
-	secure     bool
-	cookieName string
-	flowCookie string
-	adminIDs   map[string]struct{}
-	adminNames map[string]struct{}
-	mu         sync.Mutex
-	flows      map[string]flow
+	oauth        oauth2.Config
+	verifier     *oidc.IDTokenVerifier
+	publicURL    *url.URL
+	maxAge       time.Duration
+	secure       bool
+	cookieName   string
+	flowCookie   string
+	allowedUsers map[string]struct{}
+	mu           sync.Mutex
+	flows        map[string]flow
 }
 
 type tokenClaims struct {
@@ -84,32 +83,21 @@ func New(ctx context.Context, cfg config.ServerHTTPAuth) (*Gate, error) {
 			RedirectURL: cfg.CallbackURL,
 			Scopes:      []string{oidc.ScopeOpenID, "profile", identityScope},
 		},
-		verifier:   provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		publicURL:  publicURL,
-		maxAge:     cfg.MaxSessionAge,
-		secure:     callback.Scheme == "https",
-		cookieName: "dproxy_identity_dev",
-		flowCookie: "dproxy_oidc_flow_dev",
-		adminIDs:   make(map[string]struct{}),
-		adminNames: make(map[string]struct{}),
-		flows:      make(map[string]flow),
+		verifier:     provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		publicURL:    publicURL,
+		maxAge:       cfg.SessionTTL,
+		secure:       callback.Scheme == "https",
+		cookieName:   "dproxy_identity_dev",
+		flowCookie:   "dproxy_oidc_flow_dev",
+		allowedUsers: make(map[string]struct{}),
+		flows:        make(map[string]flow),
 	}
 	if gate.secure {
 		gate.cookieName = "__Host-dproxy_identity"
 		gate.flowCookie = "__Host-dproxy_oidc_flow"
 	}
-	for _, id := range cfg.AdministratorIDs {
-		if id != "" {
-			gate.adminIDs[id] = struct{}{}
-		}
-	}
-	for _, name := range cfg.AdministratorNames {
-		if name != "" {
-			gate.adminNames[strings.ToLower(name)] = struct{}{}
-		}
-	}
-	if len(gate.adminNames) > 0 {
-		slog.Warn("GitHub username authorization is enabled; numeric user IDs are safer")
+	for _, username := range cfg.AllowedUsers {
+		gate.allowedUsers[username] = struct{}{}
 	}
 	return gate, nil
 }
@@ -294,10 +282,7 @@ func (g *Gate) verify(ctx context.Context, raw string) (*oidc.IDToken, Identity,
 }
 
 func (g *Gate) allowed(identity Identity) bool {
-	if _, ok := g.adminIDs[identity.GitHubID]; ok {
-		return true
-	}
-	_, ok := g.adminNames[strings.ToLower(identity.Username)]
+	_, ok := g.allowedUsers[strings.ToLower(identity.Username)]
 	return ok
 }
 

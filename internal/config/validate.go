@@ -2,7 +2,6 @@ package config
 
 import (
 	"net/url"
-	"strconv"
 	"strings"
 )
 
@@ -32,7 +31,7 @@ func validateAuth(cfg *ServerHTTPAuth) error {
 	cfg.ClientID = strings.TrimSpace(cfg.ClientID)
 	cfg.CallbackURL = strings.TrimSpace(cfg.CallbackURL)
 	cfg.PublicURL = strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/")
-	if cfg.Issuer == "" || cfg.ClientID == "" || cfg.CallbackURL == "" || cfg.PublicURL == "" || cfg.MaxSessionAge <= 0 {
+	if cfg.Issuer == "" || cfg.ClientID == "" || cfg.CallbackURL == "" || cfg.PublicURL == "" || cfg.SessionTTL <= 0 {
 		return ErrInvalidAuth
 	}
 	issuer, issuerErr := url.Parse(cfg.Issuer)
@@ -46,29 +45,19 @@ func validateAuth(cfg *ServerHTTPAuth) error {
 		callback.Scheme != public.Scheme || !strings.EqualFold(callback.Hostname(), public.Hostname()) {
 		return ErrInvalidAuth
 	}
-	for i := range cfg.AdministratorIDs {
-		cfg.AdministratorIDs[i] = strings.TrimSpace(cfg.AdministratorIDs[i])
-		if cfg.AdministratorIDs[i] != "" {
-			id, err := strconv.ParseUint(cfg.AdministratorIDs[i], 10, 64)
-			if err != nil || id == 0 {
-				return ErrInvalidAuth
-			}
+	seen := make(map[string]struct{}, len(cfg.AllowedUsers))
+	for i := range cfg.AllowedUsers {
+		cfg.AllowedUsers[i] = strings.ToLower(strings.TrimSpace(cfg.AllowedUsers[i]))
+		if cfg.AllowedUsers[i] == "" {
+			return ErrInvalidAuth
 		}
+		if _, exists := seen[cfg.AllowedUsers[i]]; exists {
+			return ErrInvalidAuth
+		}
+		seen[cfg.AllowedUsers[i]] = struct{}{}
 	}
-	for i := range cfg.AdministratorNames {
-		cfg.AdministratorNames[i] = strings.ToLower(strings.TrimSpace(cfg.AdministratorNames[i]))
-	}
-	if !hasNonEmpty(cfg.AdministratorIDs) && !hasNonEmpty(cfg.AdministratorNames) {
+	if len(seen) == 0 {
 		return ErrInvalidAuth
 	}
 	return nil
-}
-
-func hasNonEmpty(values []string) bool {
-	for _, value := range values {
-		if value != "" {
-			return true
-		}
-	}
-	return false
 }

@@ -22,13 +22,10 @@ server:
       callback-url: "http://localhost:23198/auth/callback" # OIDC 登录回调 URL
       public-url: "http://localhost:23199" # 浏览器访问 Control UI 的公开 URL
 
-      # 允许访问 Control API 的 GitHub 数字用户 ID
-      administrator-ids:
-        - 30756209
-
-      # 允许访问 Control API 的 GitHub 用户名；用户名可能变更，优先使用 ID
-      administrator-usernames: []
-      max-session-age: 24h0m0s # 本地身份 Cookie 最长有效时间
+      # 允许访问 Control API 的 GitHub 用户名
+      allowed-users:
+        - lwmacct
+      session-ttl: 24h0m0s # 本地身份 Cookie 最长有效时间
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间

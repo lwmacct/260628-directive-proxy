@@ -29,12 +29,10 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 		{name: "remote http callback", mutate: func(cfg *ServerHTTPAuth) { cfg.CallbackURL = "http://tool.example.com/auth/callback" }},
 		{name: "public URL path", mutate: func(cfg *ServerHTTPAuth) { cfg.PublicURL = "https://tool.example.com/app" }},
 		{name: "callback host mismatch", mutate: func(cfg *ServerHTTPAuth) { cfg.PublicURL = "http://127.0.0.1:23199" }},
-		{name: "non-numeric administrator ID", mutate: func(cfg *ServerHTTPAuth) { cfg.AdministratorIDs = []string{"lwmacct"} }},
-		{name: "missing administrators", mutate: func(cfg *ServerHTTPAuth) {
-			cfg.AdministratorIDs = nil
-			cfg.AdministratorNames = nil
-		}},
-		{name: "invalid max age", mutate: func(cfg *ServerHTTPAuth) { cfg.MaxSessionAge = 0 }},
+		{name: "missing users", mutate: func(cfg *ServerHTTPAuth) { cfg.AllowedUsers = nil }},
+		{name: "empty user", mutate: func(cfg *ServerHTTPAuth) { cfg.AllowedUsers = []string{" "} }},
+		{name: "duplicate users", mutate: func(cfg *ServerHTTPAuth) { cfg.AllowedUsers = []string{"lwmacct", " LwMacct "} }},
+		{name: "invalid session TTL", mutate: func(cfg *ServerHTTPAuth) { cfg.SessionTTL = 0 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -50,7 +48,7 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 func TestValidateNormalizesAuth(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.HTTP.Auth.Issuer += "/"
-	cfg.Server.HTTP.Auth.AdministratorNames = []string{" LwMacct "}
+	cfg.Server.HTTP.Auth.AllowedUsers = []string{" LwMacct "}
 
 	validated, err := Validate(cfg)
 	if err != nil {
@@ -59,7 +57,7 @@ func TestValidateNormalizesAuth(t *testing.T) {
 	if validated.Server.HTTP.Auth.Issuer != "https://2008.s.lwmacct.com:20088" {
 		t.Fatalf("unexpected issuer: %q", validated.Server.HTTP.Auth.Issuer)
 	}
-	if validated.Server.HTTP.Auth.AdministratorNames[0] != "lwmacct" {
-		t.Fatalf("unexpected username: %q", validated.Server.HTTP.Auth.AdministratorNames[0])
+	if validated.Server.HTTP.Auth.AllowedUsers[0] != "lwmacct" {
+		t.Fatalf("unexpected username: %q", validated.Server.HTTP.Auth.AllowedUsers[0])
 	}
 }

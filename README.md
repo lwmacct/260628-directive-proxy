@@ -25,13 +25,12 @@ server:
       client-id: dproxy-local
       callback-url: http://localhost:23198/auth/callback
       public-url: http://localhost:23199
-      administrator-ids:
-        - "30756209"
-      administrator-usernames: []
-      max-session-age: 24h
+      allowed-users:
+        - lwmacct
+      session-ttl: 24h
 ```
 
-`administrator-ids` 匹配 Dex `federated_claims.user_id` 中稳定的 GitHub 数字用户 ID。`administrator-usernames` 仅用于无法配置 ID 的临时场景；GitHub 用户名可以修改，不适合作为长期授权主键。
+`allowed-users` 对 Dex `preferred_username` 中的 GitHub 用户名执行忽略大小写的精确匹配。服务仍验证 `federated_claims.connector_id == github` 并保留 GitHub 数字用户 ID，用于身份响应、头像和审计日志；数字 ID 不参与本地授权配置。
 
 登录成功后，服务将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
 

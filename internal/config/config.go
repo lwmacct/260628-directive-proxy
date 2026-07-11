@@ -33,13 +33,12 @@ type ServerHTTP struct {
 }
 
 type ServerHTTPAuth struct {
-	Issuer             string        `json:"issuer"                 desc:"OIDC issuer URL"`
-	ClientID           string        `json:"client-id"              desc:"OIDC public client ID"`
-	CallbackURL        string        `json:"callback-url"           desc:"OIDC 登录回调 URL"`
-	PublicURL          string        `json:"public-url"             desc:"浏览器访问 Control UI 的公开 URL"`
-	AdministratorIDs   []string      `json:"administrator-ids"      desc:"允许访问 Control API 的 GitHub 数字用户 ID"`
-	AdministratorNames []string      `json:"administrator-usernames" desc:"允许访问 Control API 的 GitHub 用户名；用户名可能变更，优先使用 ID"`
-	MaxSessionAge      time.Duration `json:"max-session-age"        desc:"本地身份 Cookie 最长有效时间"`
+	Issuer       string        `json:"issuer"        desc:"OIDC issuer URL"`
+	ClientID     string        `json:"client-id"     desc:"OIDC public client ID"`
+	CallbackURL  string        `json:"callback-url"  desc:"OIDC 登录回调 URL"`
+	PublicURL    string        `json:"public-url"    desc:"浏览器访问 Control UI 的公开 URL"`
+	AllowedUsers []string      `json:"allowed-users" desc:"允许访问 Control API 的 GitHub 用户名"`
+	SessionTTL   time.Duration `json:"session-ttl"   desc:"本地身份 Cookie 最长有效时间"`
 }
 
 type Proxy struct {
@@ -60,12 +59,12 @@ func DefaultConfig() Config {
 			HTTP: ServerHTTP{
 				Listen: ":23198",
 				Auth: ServerHTTPAuth{
-					Issuer:           "https://2008.s.lwmacct.com:20088",
-					ClientID:         "dproxy-local",
-					CallbackURL:      "http://localhost:23198/auth/callback",
-					PublicURL:        "http://localhost:23199",
-					AdministratorIDs: []string{"30756209"},
-					MaxSessionAge:    24 * time.Hour,
+					Issuer:       "https://2008.s.lwmacct.com:20088",
+					ClientID:     "dproxy-local",
+					CallbackURL:  "http://localhost:23198/auth/callback",
+					PublicURL:    "http://localhost:23199",
+					AllowedUsers: []string{"lwmacct"},
+					SessionTTL:   24 * time.Hour,
 				},
 				ReadTimeout:     30 * time.Second,
 				WriteTimeout:    0,

@@ -85,16 +85,13 @@ func TestRequireAdministratorRejectsMissingIdentity(t *testing.T) {
 	}
 }
 
-func TestAdministratorMatchingPrefersStableIDAndSupportsUsername(t *testing.T) {
-	gate := &Gate{
-		adminIDs:   map[string]struct{}{"30756209": {}},
-		adminNames: map[string]struct{}{"fallback-admin": {}},
-	}
-	if !gate.allowed(Identity{GitHubID: "30756209", Username: "renamed"}) {
-		t.Fatal("stable GitHub ID must authorize after a username change")
-	}
-	if !gate.allowed(Identity{GitHubID: "1", Username: "Fallback-Admin"}) {
+func TestAdministratorMatchesUsernameOnly(t *testing.T) {
+	gate := &Gate{allowedUsers: map[string]struct{}{"lwmacct": {}}}
+	if !gate.allowed(Identity{GitHubID: "30756209", Username: "LwMacct"}) {
 		t.Fatal("configured username must match case-insensitively")
+	}
+	if gate.allowed(Identity{GitHubID: "30756209", Username: "renamed"}) {
+		t.Fatal("GitHub ID must not bypass the configured username")
 	}
 	if gate.allowed(Identity{GitHubID: "2", Username: "visitor"}) {
 		t.Fatal("visitor was unexpectedly authorized")
