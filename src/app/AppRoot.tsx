@@ -2,6 +2,7 @@ import { WorkbenchProvider } from "@lwmacct/260627-antd-workbench";
 import zhCN from "antd/es/locale/zh_CN";
 import { HashRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
+import { AuthGate } from "./auth";
 
 export function AppRoot() {
   return (
@@ -23,9 +24,11 @@ export function AppRoot() {
       }}
       withAntdApp
     >
-      <HashRouter>
-        <AppShell />
-      </HashRouter>
+      <AuthGate>
+        <HashRouter>
+          <AppShell />
+        </HashRouter>
+      </AuthGate>
     </WorkbenchProvider>
   );
 }

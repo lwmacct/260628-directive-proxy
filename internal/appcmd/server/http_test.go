@@ -228,3 +228,16 @@ func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
 		t.Fatalf("unexpected proxy body: %q", proxyBody)
 	}
 }
+
+func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) {
+	cfg := config.DefaultConfig()
+	rt := &runtime{exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)}
+	srv := newHTTPServer(&cfg, rt)
+
+	healthReq := httptest.NewRequest(http.MethodGet, "http://control.local/health", nil)
+	healthRecorder := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(healthRecorder, healthReq)
+	if healthRecorder.Code != http.StatusOK {
+		t.Fatalf("health must remain public, got %d", healthRecorder.Code)
+	}
+}

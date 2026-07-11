@@ -32,6 +32,13 @@ func action(ctx context.Context, cmd *cli.Command) error {
 func commandFlags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: "http.listen", Usage: flagHelp.MustUsage("http.listen"), Value: defaults.Server.HTTP.Listen},
+		&cli.StringFlag{Name: "http.auth.issuer", Usage: flagHelp.MustUsage("http.auth.issuer"), Value: defaults.Server.HTTP.Auth.Issuer},
+		&cli.StringFlag{Name: "http.auth.client-id", Usage: flagHelp.MustUsage("http.auth.client-id"), Value: defaults.Server.HTTP.Auth.ClientID},
+		&cli.StringFlag{Name: "http.auth.callback-url", Usage: flagHelp.MustUsage("http.auth.callback-url"), Value: defaults.Server.HTTP.Auth.CallbackURL},
+		&cli.StringFlag{Name: "http.auth.public-url", Usage: flagHelp.MustUsage("http.auth.public-url"), Value: defaults.Server.HTTP.Auth.PublicURL},
+		&cli.StringSliceFlag{Name: "http.auth.administrator-ids", Usage: flagHelp.MustUsage("http.auth.administrator-ids"), Value: defaults.Server.HTTP.Auth.AdministratorIDs},
+		&cli.StringSliceFlag{Name: "http.auth.administrator-usernames", Usage: flagHelp.MustUsage("http.auth.administrator-usernames"), Value: defaults.Server.HTTP.Auth.AdministratorNames},
+		&cli.DurationFlag{Name: "http.auth.max-session-age", Usage: flagHelp.MustUsage("http.auth.max-session-age"), Value: defaults.Server.HTTP.Auth.MaxSessionAge},
 		&cli.BoolFlag{Name: "http.tls.enabled", Usage: flagHelp.MustUsage("http.tls.enabled"), Value: defaults.Server.HTTP.TLS.Enabled},
 		&cli.StringFlag{Name: "http.tls.cert-file", Usage: flagHelp.MustUsage("http.tls.cert-file"), Value: defaults.Server.HTTP.TLS.CertFile},
 		&cli.StringFlag{Name: "http.tls.key-file", Usage: flagHelp.MustUsage("http.tls.key-file"), Value: defaults.Server.HTTP.TLS.KeyFile},

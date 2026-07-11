@@ -9,6 +9,7 @@ import (
 
 var (
 	ErrInvalidHTTP      = errors.New("invalid http config")
+	ErrInvalidAuth      = errors.New("invalid auth config")
 	ErrInvalidTransport = errors.New("invalid transport config")
 )
 
@@ -24,10 +25,21 @@ type Server struct {
 type ServerHTTP struct {
 	Listen          string           `json:"listen"             desc:"HTTP 服务监听地址"`
 	TLS             tlsreload.Config `json:"tls"                desc:"HTTPS TLS 配置"`
+	Auth            ServerHTTPAuth   `json:"auth"               desc:"Control API OIDC 认证配置"`
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
 	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control API 最大请求体字节数，0 表示不限制"`
+}
+
+type ServerHTTPAuth struct {
+	Issuer             string        `json:"issuer"                 desc:"OIDC issuer URL"`
+	ClientID           string        `json:"client-id"              desc:"OIDC public client ID"`
+	CallbackURL        string        `json:"callback-url"           desc:"OIDC 登录回调 URL"`
+	PublicURL          string        `json:"public-url"             desc:"浏览器访问 Control UI 的公开 URL"`
+	AdministratorIDs   []string      `json:"administrator-ids"      desc:"允许访问 Control API 的 GitHub 数字用户 ID"`
+	AdministratorNames []string      `json:"administrator-usernames" desc:"允许访问 Control API 的 GitHub 用户名；用户名可能变更，优先使用 ID"`
+	MaxSessionAge      time.Duration `json:"max-session-age"        desc:"本地身份 Cookie 最长有效时间"`
 }
 
 type Proxy struct {
@@ -46,7 +58,15 @@ func DefaultConfig() Config {
 	return Config{
 		Server: Server{
 			HTTP: ServerHTTP{
-				Listen:          ":23198",
+				Listen: ":23198",
+				Auth: ServerHTTPAuth{
+					Issuer:           "https://2008.s.lwmacct.com:20088",
+					ClientID:         "dproxy-local",
+					CallbackURL:      "http://localhost:23198/auth/callback",
+					PublicURL:        "http://localhost:23199",
+					AdministratorIDs: []string{"30756209"},
+					MaxSessionAge:    24 * time.Hour,
+				},
 				ReadTimeout:     30 * time.Second,
 				WriteTimeout:    0,
 				IdleTimeout:     120 * time.Second,

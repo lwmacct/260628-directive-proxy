@@ -39,7 +39,12 @@ func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	mux := http.NewServeMux()
 	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
-	mux.Handle(httpAPIPrefix+"/", http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes)))
+	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
+	if rt.auth != nil {
+		protectedAPI = rt.auth.RequireAdministrator(protectedAPI)
+		mux.Handle("/auth/", rt.auth.Handler())
+	}
+	mux.Handle(httpAPIPrefix+"/", protectedAPI)
 	mux.Handle("/health", api)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
 		mux.Handle("/", spaFileServer(webRoot))

@@ -35,6 +35,7 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import { apiFetch } from "../../app/auth";
 import { ExchangeDrawer } from "./ExchangeDrawer";
 import type { ExchangeRecord, ExchangeSnapshot } from "./types";
 import { formatBytes, formatDate, methodColor, statusColor } from "./utils";
@@ -69,7 +70,7 @@ export function ExchangesPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/proxy-exchanges?limit=1000", { signal });
+      const response = await apiFetch("/api/proxy-exchanges?limit=1000", { signal });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -99,7 +100,7 @@ export function ExchangesPage() {
       setUpdating(true);
       setError(null);
       try {
-        const response = await fetch("/api/proxy-exchanges/settings", {
+        const response = await apiFetch("/api/proxy-exchanges/settings", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -126,7 +127,7 @@ export function ExchangesPage() {
     setUpdating(true);
     setError(null);
     try {
-      const response = await fetch("/api/proxy-exchanges", { method: "DELETE" });
+      const response = await apiFetch("/api/proxy-exchanges", { method: "DELETE" });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -144,7 +145,7 @@ export function ExchangesPage() {
     setSelected(record);
     setDetailLoading(true);
     try {
-      const response = await fetch(`/api/proxy-exchanges/${record.id}`);
+      const response = await apiFetch(`/api/proxy-exchanges/${record.id}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

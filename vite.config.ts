@@ -19,6 +19,10 @@ export default defineConfig({
     port: 23199,
     strictPort: true,
     proxy: {
+      "/auth": {
+        target: "http://localhost:23198",
+        changeOrigin: true,
+      },
       "/api": {
         target: "http://localhost:23198",
         changeOrigin: true,

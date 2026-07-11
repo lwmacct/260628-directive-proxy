@@ -10,6 +10,7 @@ import (
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/authgate"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
@@ -22,6 +23,7 @@ const httpTLSMinVersion = tls.VersionTLS12
 type runtime struct {
 	exchanges *service.ExchangeService
 	observer  proxy.Observer
+	auth      *authgate.Gate
 	tls       *tlsRuntime
 }
 
@@ -30,10 +32,16 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
+	auth, err := authgate.New(ctx, cfg.Server.HTTP.Auth)
+	if err != nil {
+		tlsRuntime.Close()
+		return nil, fmt.Errorf("configure authentication: %w", err)
+	}
 	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
 	return &runtime{
 		exchanges: exchanges,
 		observer:  capture.NewObserver(exchanges),
+		auth:      auth,
 		tls:       tlsRuntime,
 	}, nil
 }

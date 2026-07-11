@@ -11,6 +11,32 @@
 
 Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请求仍会进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
+Control API 使用 Dex OIDC 登录，并在本地按 GitHub 数字用户 ID 授权。`/api/*` 必须持有有效身份 Cookie；`/health`、Web UI 和 dproxy 代理流量保持公开。
+
+## Control API 登录
+
+默认开发配置连接中央 Dex，使用 public client、Authorization Code Flow 和 S256 PKCE：
+
+```yaml
+server:
+  http:
+    auth:
+      issuer: https://2008.s.lwmacct.com:20088
+      client-id: dproxy-local
+      callback-url: http://localhost:23198/auth/callback
+      public-url: http://localhost:23199
+      administrator-ids:
+        - "30756209"
+      administrator-usernames: []
+      max-session-age: 24h
+```
+
+`administrator-ids` 匹配 Dex `federated_claims.user_id` 中稳定的 GitHub 数字用户 ID。`administrator-usernames` 仅用于无法配置 ID 的临时场景；GitHub 用户名可以修改，不适合作为长期授权主键。
+
+登录成功后，服务将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
+
+生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `callback-url` 和 `public-url`。默认 `public-url` 指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
+
 ## Directive Token
 
 唯一入口是：
@@ -68,6 +94,10 @@ go run . server
 
 ```text
 HTTP (:23198)
+  GET /auth/login
+  GET /auth/callback
+  GET /auth/session
+  POST /auth/logout
   GET /api/health
   GET /api/openapi.json
   GET /api/docs
