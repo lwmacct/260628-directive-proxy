@@ -41,6 +41,14 @@ body {
   word-break: break-word;
 }
 
+.source-input {
+  min-height: 260px !important;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .grow-field {
   min-width: 260px;
   flex: 1 1 auto;
