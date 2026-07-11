@@ -30,6 +30,7 @@ import {
 import type { TableColumnsType } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useText, type Text as AppText } from "../../shared/i18n";
 
 const { Text } = Typography;
 const tokenPrefix = "dproxy.11.";
@@ -91,6 +92,7 @@ const initialEditor: EditorState = {
 };
 
 export function AuthConsolePage() {
+  const t = useText();
   const [editor, setEditor] = useState(initialEditor);
   const initialPayload = useMemo(() => buildPayload(initialEditor), []);
   const [payloadInput, setPayloadInput] = useState(() => formatPayload(initialPayload));
@@ -130,19 +132,19 @@ export function AuthConsolePage() {
 
   function applyPayloadInput() {
     try {
-      applyPayload(parsePayloadJSON(payloadInput));
-      void message.success("Payload 已应用到表单和 Token");
+      applyPayload(parsePayloadJSON(payloadInput, t.authConsole));
+      void message.success(t.authConsole.payloadApplied);
     } catch (err) {
-      setError(errorMessage(err, "Payload JSON 解析失败"));
+      setError(errorMessage(err, t.authConsole.payloadParseFailed));
     }
   }
 
   function applyTokenInput() {
     try {
-      applyPayload(decodeDirectiveToken(tokenInput));
-      void message.success("Token 已解析并应用到表单和 Payload");
+      applyPayload(decodeDirectiveToken(tokenInput, t.authConsole));
+      void message.success(t.authConsole.tokenApplied);
     } catch (err) {
-      setError(errorMessage(err, "Token 解析失败"));
+      setError(errorMessage(err, t.authConsole.tokenParseFailed));
     }
   }
 
@@ -161,8 +163,8 @@ export function AuthConsolePage() {
 
   async function sendRequest() {
     try {
-      const path = normalizeRequestPath(requestPath);
-      const headers = parseRequestHeaders(requestHeaders);
+      const path = normalizeRequestPath(requestPath, t.authConsole);
+      const headers = parseRequestHeaders(requestHeaders, t.authConsole);
       const controller = new AbortController();
       requestController.current?.abort();
       requestController.current = controller;
@@ -187,8 +189,8 @@ export function AuthConsolePage() {
     } catch (err) {
       setRequestError(
         err instanceof DOMException && err.name === "AbortError"
-          ? "请求已取消"
-          : errorMessage(err, "请求失败"),
+          ? t.authConsole.requestCancelled
+          : errorMessage(err, t.authConsole.requestFailed),
       );
     } finally {
       requestController.current = null;
@@ -198,15 +200,15 @@ export function AuthConsolePage() {
 
   const columns: TableColumnsType<HeaderOp> = [
     {
-      title: "Op",
+      title: t.authConsole.op,
       dataIndex: "op",
       width: 104,
       render: (_, record) => (
         <Select
           options={[
-            { label: "Set", value: "=" },
+            { label: t.authConsole.set, value: "=" },
             { label: "Add", value: "+" },
-            { label: "Remove", value: "-" },
+            { label: t.authConsole.remove, value: "-" },
           ]}
           value={record.op}
           onChange={(op: HeaderOp["op"]) => updateHeaderOp(record.key, { op })}
@@ -214,13 +216,13 @@ export function AuthConsolePage() {
       ),
     },
     {
-      title: "Match",
+      title: t.authConsole.match,
       dataIndex: "selector",
       width: 132,
       render: (_, record) => (
         <Segmented
           options={[
-            { label: "Exact", value: "name" },
+            { label: t.authConsole.exact, value: "name" },
             { label: "Glob", value: "glob" },
           ]}
           value={record.selector}
@@ -231,7 +233,7 @@ export function AuthConsolePage() {
       ),
     },
     {
-      title: "Selector",
+      title: t.authConsole.selector,
       dataIndex: "pattern",
       render: (_, record) => (
         <Input
@@ -244,13 +246,13 @@ export function AuthConsolePage() {
       ),
     },
     {
-      title: "Values",
+      title: t.authConsole.values,
       dataIndex: "values",
       render: (_, record) => record.op === "-" ? null : (
         <Select
           mode="tags"
           open={false}
-          placeholder="Type a value and press Enter"
+          placeholder={t.authConsole.valuePlaceholder}
           style={{ width: "100%" }}
           value={record.values}
           onChange={(values: string[]) => updateHeaderOp(record.key, { values })}
@@ -263,7 +265,7 @@ export function AuthConsolePage() {
       width: 56,
       render: (_, record) => (
         <Button
-          aria-label="Remove header op"
+          aria-label={t.authConsole.removeHeaderOp}
           icon={<DeleteOutlined />}
           onClick={() =>
             updateEditor({
@@ -278,8 +280,8 @@ export function AuthConsolePage() {
 
   return (
     <WorkbenchPage
-      description="从结构化表单、Payload JSON 或 Token 任一来源编辑 directive，并同步生成其他格式。"
-      title="Authorization 工作台"
+      description={t.authConsole.description}
+      title={t.app.authConsole}
     >
       {error ? (
         <Alert
@@ -294,7 +296,7 @@ export function AuthConsolePage() {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={13}>
-          <WorkbenchPanel title="结构化编辑">
+          <WorkbenchPanel title={t.authConsole.structured}>
             <Form layout="vertical">
               <Form.Item label="Target URL">
                 <Input
@@ -312,7 +314,7 @@ export function AuthConsolePage() {
                       updateEditor({ joinPath: event.target.checked })
                     }
                   >
-                    enabled
+                    {t.authConsole.enabled}
                   </Checkbox>
                 </Form.Item>
                 <Form.Item className="grow-field" label="Proxy">
@@ -341,7 +343,7 @@ export function AuthConsolePage() {
             </Form>
 
             <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
-              <Text strong>Header Ops</Text>
+              <Text strong>{t.authConsole.headerOps}</Text>
               <Button
                 icon={<PlusOutlined />}
                 onClick={() =>
@@ -350,7 +352,7 @@ export function AuthConsolePage() {
                   })
                 }
               >
-                Add
+                {t.authConsole.add}
               </Button>
             </Flex>
             <Table<HeaderOp>
@@ -365,7 +367,7 @@ export function AuthConsolePage() {
         </Col>
 
         <Col xs={24} xl={11}>
-          <WorkbenchPanel title="可编辑输入源">
+          <WorkbenchPanel title={t.authConsole.editableSources}>
             <Tabs
               activeKey={activeSource}
               items={[
@@ -396,7 +398,7 @@ export function AuthConsolePage() {
             />
             <Flex align="center" gap="small" justify="space-between" wrap>
               <Tag color={sourceDirty ? "orange" : "green"}>
-                {sourceDirty ? "有未应用修改" : "已同步"}
+                {sourceDirty ? t.authConsole.dirty : t.authConsole.synced}
               </Tag>
               <Space wrap>
                 <Button
@@ -406,17 +408,17 @@ export function AuthConsolePage() {
                       activeSource === "payload"
                         ? payloadInput
                         : tokenInput,
-                    ).then(reportCopyResult)
+                    ).then((ok) => reportCopyResult(ok, t.authConsole))
                   }
                 >
-                  {activeSource === "payload" ? "复制 Payload" : "复制 Token"}
+                  {activeSource === "payload" ? t.authConsole.copyPayload : t.authConsole.copyToken}
                 </Button>
                 <Button
                   icon={<ImportOutlined />}
                   onClick={activeSource === "payload" ? applyPayloadInput : applyTokenInput}
                   type="primary"
                 >
-                  {activeSource === "payload" ? "应用 Payload" : "解析 Token"}
+                  {activeSource === "payload" ? t.authConsole.applyPayload : t.authConsole.parseToken}
                 </Button>
               </Space>
             </Flex>
@@ -432,6 +434,7 @@ export function AuthConsolePage() {
         method={requestMethod}
         path={requestPath}
         result={requestResult}
+        text={t.authConsole}
         onBodyChange={setRequestBody}
         onCancel={() => requestController.current?.abort()}
         onHeadersChange={setRequestHeaders}
@@ -451,6 +454,7 @@ function RequestPanel(props: {
   method: string;
   path: string;
   result: RequestResult | null;
+  text: AppText["authConsole"];
   onBodyChange: (value: string) => void;
   onCancel: () => void;
   onHeadersChange: (value: string) => void;
@@ -463,22 +467,22 @@ function RequestPanel(props: {
     <WorkbenchPanel
       extra={
         <Space>
-          {props.loading ? <Button onClick={props.onCancel}>取消</Button> : null}
+          {props.loading ? <Button onClick={props.onCancel}>{props.text.cancel}</Button> : null}
           <Button
             icon={<SendOutlined />}
             loading={props.loading}
             onClick={props.onSend}
             type="primary"
           >
-            发起请求
+            {props.text.send}
           </Button>
         </Space>
       }
       style={{ marginTop: 16 }}
-      title="请求调试"
+      title={props.text.requestDebug}
     >
       <Text type="secondary">
-        请求发送到当前站点的 data plane，并自动使用工作台当前生成的 Token。
+        {props.text.requestDescription}
       </Text>
       <Flex gap="small" style={{ marginTop: 12 }} wrap>
         <Select
@@ -503,7 +507,7 @@ function RequestPanel(props: {
       <Row gutter={[16, 16]} style={{ marginTop: 4 }}>
         <Col xs={24} lg={12}>
           <Form layout="vertical">
-            <Form.Item label="Request Headers JSON">
+            <Form.Item label={props.text.requestHeaders}>
               <Input.TextArea
                 autoSize={{ minRows: 4, maxRows: 10 }}
                 className="request-code-input"
@@ -514,8 +518,8 @@ function RequestPanel(props: {
               />
             </Form.Item>
             <Form.Item
-              help={bodyDisabled ? `${props.method} 请求不会发送 Body` : undefined}
-              label="Request Body"
+              help={bodyDisabled ? props.text.bodyDisabled(props.method) : undefined}
+              label={props.text.requestBody}
             >
               <Input.TextArea
                 autoSize={{ minRows: 9, maxRows: 20 }}
@@ -532,7 +536,7 @@ function RequestPanel(props: {
         <Col xs={24} lg={12}>
           {props.error ? <Alert showIcon title={props.error} type="error" /> : null}
           {!props.error && !props.result ? (
-            <Alert showIcon title="等待发起请求" type="info" />
+            <Alert showIcon title={props.text.waiting} type="info" />
           ) : null}
           {props.result ? (
             <Space orientation="vertical" size={12} style={{ width: "100%" }}>
@@ -543,7 +547,7 @@ function RequestPanel(props: {
                 <Text type="secondary">{props.result.duration} ms</Text>
               </Flex>
               <Form layout="vertical">
-                <Form.Item label="Response Headers">
+                <Form.Item label={props.text.responseHeaders}>
                   <Input.TextArea
                     autoSize={{ minRows: 4, maxRows: 10 }}
                     className="request-code-input"
@@ -551,7 +555,7 @@ function RequestPanel(props: {
                     value={props.result.headers}
                   />
                 </Form.Item>
-                <Form.Item label="Response Body">
+                <Form.Item label={props.text.responseBody}>
                   <Input.TextArea
                     autoSize={{ minRows: 9, maxRows: 20 }}
                     className="request-code-input"
@@ -622,42 +626,42 @@ function payloadToEditor(payload: DirectivePayload): EditorState {
   };
 }
 
-function parsePayloadJSON(value: string): DirectivePayload {
+function parsePayloadJSON(value: string, text: AppText["authConsole"]): DirectivePayload {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error("Payload 不是有效的 JSON");
+    throw new Error(text.invalidJSON("Payload"));
   }
-  return validatePayload(parsed);
+  return validatePayload(parsed, text);
 }
 
-function validatePayload(value: unknown): DirectivePayload {
-  if (!isRecord(value)) throw new Error("Payload 必须是 JSON object");
-  assertKnownKeys(value, ["target", "proxy", "headers"], "Payload");
-  if (!isRecord(value.target)) throw new Error("target 必须是 object");
-  assertKnownKeys(value.target, ["url", "join_path"], "target");
+function validatePayload(value: unknown, text: AppText["authConsole"]): DirectivePayload {
+  if (!isRecord(value)) throw new Error(text.mustBe("Payload", "JSON object"));
+  assertKnownKeys(value, ["target", "proxy", "headers"], "Payload", text);
+  if (!isRecord(value.target)) throw new Error(text.mustBe("target", "object"));
+  assertKnownKeys(value.target, ["url", "join_path"], "target", text);
   if (typeof value.target.url !== "string" || !value.target.url.trim()) {
-    throw new Error("target.url 必须是非空字符串");
+    throw new Error(text.nonEmptyString("target.url"));
   }
   if (value.target.join_path !== undefined && typeof value.target.join_path !== "boolean") {
-    throw new Error("target.join_path 必须是 boolean");
+    throw new Error(text.mustBe("target.join_path", "boolean"));
   }
   if (value.proxy !== undefined && typeof value.proxy !== "string") {
-    throw new Error("proxy 必须是 string");
+    throw new Error(text.mustBe("proxy", "string"));
   }
 
   let headers: DirectivePayload["headers"];
   if (value.headers !== undefined) {
-    if (!isRecord(value.headers)) throw new Error("headers 必须是 object");
-    assertKnownKeys(value.headers, ["mode", "ops"], "headers");
+    if (!isRecord(value.headers)) throw new Error(text.mustBe("headers", "object"));
+    assertKnownKeys(value.headers, ["mode", "ops"], "headers", text);
     if (value.headers.mode !== undefined && !["patch", "replace"].includes(String(value.headers.mode))) {
-      throw new Error("headers.mode 只能是 patch 或 replace");
+      throw new Error(text.onlyValues("headers.mode", "patch or replace"));
     }
     if (value.headers.ops !== undefined && !Array.isArray(value.headers.ops)) {
-      throw new Error("headers.ops 必须是 array");
+      throw new Error(text.mustBe("headers.ops", "array"));
     }
-    const ops = (value.headers.ops ?? []).map((item, index) => validateHeaderOp(item, index));
+    const ops = (value.headers.ops ?? []).map((item, index) => validateHeaderOp(item, index, text));
     headers = { mode: value.headers.mode as "patch" | "replace" | undefined, ops };
   }
 
@@ -671,44 +675,45 @@ function validatePayload(value: unknown): DirectivePayload {
   };
 }
 
-function validateHeaderOp(value: unknown, index: number) {
-  if (!isRecord(value)) throw new Error(`headers.ops[${index}] 必须是 object`);
-  assertKnownKeys(value, ["op", "name", "glob", "values"], `headers.ops[${index}]`);
+function validateHeaderOp(value: unknown, index: number, text: AppText["authConsole"]) {
+  const label = `headers.ops[${index}]`;
+  if (!isRecord(value)) throw new Error(text.mustBe(label, "object"));
+  assertKnownKeys(value, ["op", "name", "glob", "values"], label, text);
   if (!["=", "+", "-"].includes(String(value.op))) {
-    throw new Error(`headers.ops[${index}].op 只能是 =、+ 或 -`);
+    throw new Error(text.onlyValues(`${label}.op`, "=, +, or -"));
   }
   if (value.name !== undefined && typeof value.name !== "string") {
-    throw new Error(`headers.ops[${index}].name 必须是 string`);
+    throw new Error(text.mustBe(`${label}.name`, "string"));
   }
   if (value.glob !== undefined && typeof value.glob !== "string") {
-    throw new Error(`headers.ops[${index}].glob 必须是 string`);
+    throw new Error(text.mustBe(`${label}.glob`, "string"));
   }
   const hasName = typeof value.name === "string" && Boolean(value.name.trim());
   const hasGlob = typeof value.glob === "string" && Boolean(value.glob.trim());
   if (hasName === hasGlob) {
-    throw new Error(`headers.ops[${index}] 必须且只能包含 name 或 glob`);
+    throw new Error(text.exactlyOneSelector(label));
   }
   if (hasName && !isValidHeaderName((value.name as string).trim())) {
-    throw new Error(`headers.ops[${index}].name 不是合法的 Header 名`);
+    throw new Error(text.invalidHeaderName(`${label}.name`));
   }
   if (hasGlob) {
-    assertValidGlob((value.glob as string).trim(), `headers.ops[${index}].glob`);
+    assertValidGlob((value.glob as string).trim(), `${label}.glob`, text);
   }
   if (value.values !== undefined &&
       (!Array.isArray(value.values) || value.values.some((item) => typeof item !== "string"))) {
-    throw new Error(`headers.ops[${index}].values 必须是 string array`);
+    throw new Error(text.mustBe(`${label}.values`, "string array"));
   }
   const values = value.values as string[] | undefined;
   if (value.op === "-" && values?.length) {
-    throw new Error(`headers.ops[${index}] Remove 操作不能包含 values`);
+    throw new Error(text.removeHasValues(label));
   }
   if (value.op !== "-" && !values?.length) {
-    throw new Error(`headers.ops[${index}] Set/Add 操作必须包含 values`);
+    throw new Error(text.setNeedsValues(label));
   }
   const pattern = ((hasName ? value.name : value.glob) as string).trim();
   if (hasName && pattern.toLowerCase() === "host" &&
       (value.op === "+" || (values?.length ?? 0) > 1)) {
-    throw new Error(`headers.ops[${index}] Host 只支持单值 Set 或 Remove`);
+    throw new Error(text.hostValues(label));
   }
   return {
     op: value.op as HeaderOp["op"],
@@ -721,12 +726,12 @@ function isValidHeaderName(value: string) {
   return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
 }
 
-function assertValidGlob(value: string, label: string) {
+function assertValidGlob(value: string, label: string, text: AppText["authConsole"]) {
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
     if (character === "\\") {
       index += 1;
-      if (index >= value.length) throw new Error(`${label} 不是合法的 Glob`);
+      if (index >= value.length) throw new Error(text.invalidGlob(label));
       continue;
     }
     if (character !== "[") continue;
@@ -735,48 +740,48 @@ function assertValidGlob(value: string, label: string) {
     if (value[index] === "^") index += 1;
     let ranges = 0;
     while (index < value.length && value[index] !== "]") {
-      const [low, nextIndex] = readGlobClassCharacter(value, index, label);
+      const [low, nextIndex] = readGlobClassCharacter(value, index, label, text);
       index = nextIndex;
       if (value[index] === "-") {
-        const [high, rangeEnd] = readGlobClassCharacter(value, index + 1, label);
-        if (high < low) throw new Error(`${label} 不是合法的 Glob`);
+        const [high, rangeEnd] = readGlobClassCharacter(value, index + 1, label, text);
+        if (high < low) throw new Error(text.invalidGlob(label));
         index = rangeEnd;
       }
       ranges += 1;
     }
     if (ranges === 0 || value[index] !== "]") {
-      throw new Error(`${label} 不是合法的 Glob`);
+      throw new Error(text.invalidGlob(label));
     }
   }
 }
 
-function readGlobClassCharacter(value: string, index: number, label: string): [number, number] {
+function readGlobClassCharacter(value: string, index: number, label: string, text: AppText["authConsole"]): [number, number] {
   if (index >= value.length || value[index] === "-" || value[index] === "]") {
-    throw new Error(`${label} 不是合法的 Glob`);
+    throw new Error(text.invalidGlob(label));
   }
   if (value[index] === "\\") {
     index += 1;
-    if (index >= value.length) throw new Error(`${label} 不是合法的 Glob`);
+    if (index >= value.length) throw new Error(text.invalidGlob(label));
   }
   const codePoint = value.codePointAt(index);
   if (codePoint === undefined || codePoint === "/".codePointAt(0)) {
-    throw new Error(`${label} 不是合法的 Glob`);
+    throw new Error(text.invalidGlob(label));
   }
   return [codePoint, index + (codePoint > 0xffff ? 2 : 1)];
 }
 
-function decodeDirectiveToken(value: string): DirectivePayload {
+function decodeDirectiveToken(value: string, text: AppText["authConsole"]): DirectivePayload {
   const directiveToken = value.trim();
   if (!directiveToken.startsWith(tokenPrefix)) {
-    throw new Error("Token 必须以 dproxy.11. 开头");
+    throw new Error(text.tokenPrefix);
   }
   const raw = directiveToken.slice(tokenPrefix.length);
-  if (!raw) throw new Error("Token 缺少 payload");
+  if (!raw) throw new Error(text.tokenPayloadMissing);
   try {
     const json = new TextDecoder().decode(base64URLDecode(raw));
-    return parsePayloadJSON(json);
+    return parsePayloadJSON(json, text);
   } catch (err) {
-    throw new Error(errorMessage(err, "Token payload 解码失败"));
+    throw new Error(errorMessage(err, text.tokenDecodeFailed));
   }
 }
 
@@ -806,35 +811,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function assertKnownKeys(value: Record<string, unknown>, keys: string[], label: string) {
+function assertKnownKeys(value: Record<string, unknown>, keys: string[], label: string, text: AppText["authConsole"]) {
   const unknown = Object.keys(value).find((key) => !keys.includes(key));
-  if (unknown) throw new Error(`${label} 包含未知字段 ${unknown}`);
+  if (unknown) throw new Error(text.unknownField(label, unknown));
 }
 
-function normalizeRequestPath(value: string) {
+function normalizeRequestPath(value: string, text: AppText["authConsole"]) {
   const path = value.trim();
-  if (!path) throw new Error("请求路径不能为空");
+  if (!path) throw new Error(text.pathRequired);
   if (!path.startsWith("/") || path.startsWith("//")) {
-    throw new Error("请求路径必须是以 / 开头的同源路径");
+    throw new Error(text.pathSameOrigin);
   }
   if (path.startsWith("/api/") || path === "/api" || path === "/health") {
-    throw new Error("请求路径不能指向 control plane");
+    throw new Error(text.pathControlPlane);
   }
   return path;
 }
 
-function parseRequestHeaders(value: string): Record<string, string> {
+function parseRequestHeaders(value: string, text: AppText["authConsole"]): Record<string, string> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value || "{}");
   } catch {
-    throw new Error("Request Headers 不是有效的 JSON");
+    throw new Error(text.invalidJSON("Request Headers"));
   }
-  if (!isRecord(parsed)) throw new Error("Request Headers 必须是 JSON object");
+  if (!isRecord(parsed)) throw new Error(text.mustBe("Request Headers", "JSON object"));
   const headers: Record<string, string> = {};
   for (const [name, headerValue] of Object.entries(parsed)) {
     if (typeof headerValue !== "string") {
-      throw new Error(`Request Header ${name} 的值必须是 string`);
+      throw new Error(text.headerValueString(name));
     }
     if (name.toLowerCase() === "authorization") continue;
     headers[name] = headerValue;
@@ -870,8 +875,8 @@ function newHeaderOp(
   return { key: `header-op-${headerOpID}`, op, selector, pattern, values };
 }
 
-function reportCopyResult(ok: boolean) {
-  void (ok ? message.success("已复制") : message.error("复制失败"));
+function reportCopyResult(ok: boolean, text: AppText["authConsole"]) {
+  void (ok ? message.success(text.copied) : message.error(text.copyFailed));
 }
 
 async function copyText(value: string) {

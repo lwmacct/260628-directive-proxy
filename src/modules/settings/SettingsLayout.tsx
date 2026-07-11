@@ -1,14 +1,11 @@
 import { BgColorsOutlined } from "@ant-design/icons";
 import { WorkbenchSectionLayout } from "@lwmacct/260627-antd-workbench";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useText } from "../../shared/i18n";
 
 type SettingsSectionKey = "appearance";
 
-const sectionItems = [
-  { key: "appearance", label: "外观设置", icon: <BgColorsOutlined /> },
-] as const;
-
-const sectionKeys = new Set<SettingsSectionKey>(sectionItems.map((item) => item.key));
+const sectionKeys = new Set<SettingsSectionKey>(["appearance"]);
 
 function activeSection(pathname: string): SettingsSectionKey {
   const key = pathname.split("/")[2];
@@ -19,8 +16,12 @@ function activeSection(pathname: string): SettingsSectionKey {
 }
 
 export function SettingsLayout() {
+  const t = useText();
   const location = useLocation();
   const navigate = useNavigate();
+  const sectionItems = [
+    { key: "appearance", label: t.app.appearance, icon: <BgColorsOutlined /> },
+  ] as const;
 
   return (
     <WorkbenchSectionLayout
@@ -29,7 +30,7 @@ export function SettingsLayout() {
         {
           type: "group",
           key: "preferences",
-          label: "偏好设置",
+          label: t.app.preferences,
           children: [...sectionItems],
         },
       ]}

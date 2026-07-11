@@ -3,15 +3,11 @@ import { WorkbenchSectionLayout } from "@lwmacct/260627-antd-workbench";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthConsolePage } from "../auth-console/AuthConsolePage";
 import { ExchangesPage } from "../exchanges/ExchangesPage";
+import { useText } from "../../shared/i18n";
 
 type ConsoleSectionKey = "auth-console" | "exchanges";
 
-const sectionItems = [
-  { key: "exchanges", label: "请求记录", icon: <HistoryOutlined /> },
-  { key: "auth-console", label: "Authorization 工作台", icon: <ApiOutlined /> },
-] as const;
-
-const sectionKeys = new Set<ConsoleSectionKey>(sectionItems.map((item) => item.key));
+const sectionKeys = new Set<ConsoleSectionKey>(["exchanges", "auth-console"]);
 
 function activeSection(pathname: string): ConsoleSectionKey {
   const key = pathname.split("/")[2];
@@ -22,8 +18,13 @@ function activeSection(pathname: string): ConsoleSectionKey {
 }
 
 export function ConsoleLayout() {
+  const t = useText();
   const location = useLocation();
   const navigate = useNavigate();
+  const sectionItems = [
+    { key: "exchanges", label: t.app.exchanges, icon: <HistoryOutlined /> },
+    { key: "auth-console", label: t.app.authConsole, icon: <ApiOutlined /> },
+  ] as const;
 
   return (
     <WorkbenchSectionLayout
@@ -32,7 +33,7 @@ export function ConsoleLayout() {
         {
           type: "group",
           key: "debug-tools",
-          label: "调试工具",
+          label: t.app.debugTools,
           children: [...sectionItems],
         },
       ]}

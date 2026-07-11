@@ -41,7 +41,7 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
 	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
 	if rt.auth != nil {
-		protectedAPI = rt.auth.RequireAdministrator(protectedAPI)
+		protectedAPI = rt.auth.RequireUser(protectedAPI)
 		mux.Handle("/auth/", rt.auth.Handler())
 	}
 	mux.Handle(httpAPIPrefix+"/", protectedAPI)

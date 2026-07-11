@@ -2,21 +2,17 @@ import {
   WorkbenchLanguageToggle,
   WorkbenchShell,
   WorkbenchThemeToggle,
-  useWorkbenchLocale,
+  WorkbenchUserMenu,
   type WorkbenchNavEntry,
 } from "@lwmacct/260627-antd-workbench";
-import { AppstoreOutlined, LogoutOutlined, SettingOutlined } from "@ant-design/icons";
-import { Avatar, Button, Space, Typography } from "antd";
+import { AppstoreOutlined, GithubOutlined, SettingOutlined } from "@ant-design/icons";
+import { Space } from "antd";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { ConsoleLayout } from "../modules/console/ConsoleLayout";
 import { SettingsLayout } from "../modules/settings/SettingsLayout";
 import { SettingsPage } from "../modules/settings/SettingsPage";
+import { useText } from "../shared/i18n";
 import { useAuth } from "./auth";
-
-const nav: WorkbenchNavEntry[] = [
-  { key: "console", label: "控制台", icon: <AppstoreOutlined /> },
-  { key: "settings", label: "设置", icon: <SettingOutlined /> },
-];
 
 function activeNav(pathname: string) {
   if (pathname.startsWith("/settings")) {
@@ -28,20 +24,29 @@ function activeNav(pathname: string) {
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { locale } = useWorkbenchLocale();
+  const t = useText();
   const { identity, logout } = useAuth();
+  const nav: WorkbenchNavEntry[] = [
+    { key: "console", label: t.app.console, icon: <AppstoreOutlined /> },
+    { key: "settings", label: t.app.settings, icon: <SettingOutlined /> },
+  ];
 
   return (
     <WorkbenchShell
       actions={
         <Space>
-          <Avatar size="small" src={identity.avatar_url} />
-          <Typography.Text>{identity.username}</Typography.Text>
           <WorkbenchThemeToggle />
-          <WorkbenchLanguageToggle
-            labels={{ switchLanguage: locale.startsWith("zh") ? "切换语言" : "Switch language" }}
+          <WorkbenchLanguageToggle />
+          <WorkbenchUserMenu
+            user={{
+              avatarUrl: identity.avatar_url,
+              displayName: identity.name,
+              provider: "GitHub",
+              providerIcon: <GithubOutlined />,
+              username: identity.username,
+            }}
+            onLogout={logout}
           />
-          <Button icon={<LogoutOutlined />} type="text" onClick={() => void logout()}>退出</Button>
         </Space>
       }
       brand={{

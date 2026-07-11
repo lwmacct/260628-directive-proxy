@@ -25,6 +25,7 @@ server:
       client-id: dproxy-local
       callback-url: http://localhost:23198/auth/callback
       public-url: http://localhost:23199
+      after-login-url: http://localhost:23199/#/console
       allowed-users:
         - lwmacct
       session-ttl: 24h
@@ -32,7 +33,7 @@ server:
 
 `allowed-users` 对 Dex `preferred_username` 中的 GitHub 用户名执行忽略大小写的精确匹配。服务仍验证 `federated_claims.connector_id == github` 并保留 GitHub 数字用户 ID，用于身份响应、头像和审计日志；数字 ID 不参与本地授权配置。
 
-登录成功后，服务将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
+登录成功后，`oidcauth` 包将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
 
 生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `callback-url` 和 `public-url`。默认 `public-url` 指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
 

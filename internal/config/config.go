@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
+	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
 )
 
 var (
@@ -25,20 +26,11 @@ type Server struct {
 type ServerHTTP struct {
 	Listen          string           `json:"listen"             desc:"HTTP 服务监听地址"`
 	TLS             tlsreload.Config `json:"tls"                desc:"HTTPS TLS 配置"`
-	Auth            ServerHTTPAuth   `json:"auth"               desc:"Control API OIDC 认证配置"`
+	Auth            dexgithub.Config `json:"auth"               desc:"Control API OIDC 认证配置"`
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
 	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control API 最大请求体字节数，0 表示不限制"`
-}
-
-type ServerHTTPAuth struct {
-	Issuer       string        `json:"issuer"        desc:"OIDC issuer URL"`
-	ClientID     string        `json:"client-id"     desc:"OIDC public client ID"`
-	CallbackURL  string        `json:"callback-url"  desc:"OIDC 登录回调 URL"`
-	PublicURL    string        `json:"public-url"    desc:"浏览器访问 Control UI 的公开 URL"`
-	AllowedUsers []string      `json:"allowed-users" desc:"允许访问 Control API 的 GitHub 用户名"`
-	SessionTTL   time.Duration `json:"session-ttl"   desc:"本地身份 Cookie 最长有效时间"`
 }
 
 type Proxy struct {
@@ -58,13 +50,14 @@ func DefaultConfig() Config {
 		Server: Server{
 			HTTP: ServerHTTP{
 				Listen: ":23198",
-				Auth: ServerHTTPAuth{
-					Issuer:       "https://2008.s.lwmacct.com:20088",
-					ClientID:     "dproxy-local",
-					CallbackURL:  "http://localhost:23198/auth/callback",
-					PublicURL:    "http://localhost:23199",
-					AllowedUsers: []string{"lwmacct"},
-					SessionTTL:   24 * time.Hour,
+				Auth: dexgithub.Config{
+					Issuer:        "https://2008.s.lwmacct.com:20088",
+					ClientID:      "dproxy-local",
+					CallbackURL:   "http://localhost:23198/auth/callback",
+					PublicURL:     "http://localhost:23199",
+					AfterLoginURL: "http://localhost:23199/#/console",
+					AllowedUsers:  []string{"lwmacct"},
+					SessionTTL:    24 * time.Hour,
 				},
 				ReadTimeout:     30 * time.Second,
 				WriteTimeout:    0,

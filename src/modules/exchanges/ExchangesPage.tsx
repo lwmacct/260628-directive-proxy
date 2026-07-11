@@ -36,6 +36,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { apiFetch } from "../../app/auth";
+import { useText } from "../../shared/i18n";
 import { ExchangeDrawer } from "./ExchangeDrawer";
 import type { ExchangeRecord, ExchangeSnapshot } from "./types";
 import { formatBytes, formatDate, methodColor, statusColor } from "./utils";
@@ -53,6 +54,7 @@ const emptySnapshot: ExchangeSnapshot = {
 const allMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 export function ExchangesPage() {
+  const t = useText();
   const [snapshot, setSnapshot] = useState<ExchangeSnapshot>(emptySnapshot);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -87,13 +89,13 @@ export function ExchangesPage() {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
       }
-      setError(err instanceof Error ? err.message : "Request failed");
+      setError(err instanceof Error ? err.message : t.exchanges.requestFailed);
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [t.exchanges.requestFailed]);
 
   const updateSettings = useCallback(
     async (enabled: boolean) => {
@@ -115,12 +117,12 @@ export function ExchangesPage() {
         const data = (await response.json()) as ExchangeSnapshot;
         setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Update failed");
+        setError(err instanceof Error ? err.message : t.exchanges.updateFailed);
       } finally {
         setUpdating(false);
       }
     },
-    [capacity, maxBodyBytes],
+    [capacity, maxBodyBytes, t.exchanges.updateFailed],
   );
 
   const clearRecords = useCallback(async () => {
@@ -135,11 +137,11 @@ export function ExchangesPage() {
       setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
       setSelected(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Clear failed");
+      setError(err instanceof Error ? err.message : t.exchanges.clearFailed);
     } finally {
       setUpdating(false);
     }
-  }, []);
+  }, [t.exchanges.clearFailed]);
 
   const openRecord = useCallback(async (record: ExchangeRecord) => {
     setSelected(record);
@@ -195,13 +197,13 @@ export function ExchangesPage() {
     () => [
       { title: "ID", dataIndex: "id", width: 88, fixed: "left" },
       {
-        title: "Time",
+        title: t.exchanges.time,
         dataIndex: "started_at",
         width: 180,
         render: (value: string) => formatDate(value),
       },
       {
-        title: "Method",
+        title: t.exchanges.method,
         dataIndex: "method",
         width: 104,
         render: (value: string) => <Tag color={methodColor(value)}>{value}</Tag>,
@@ -213,22 +215,22 @@ export function ExchangesPage() {
         render: (value: string) => <Text copyable>{value}</Text>,
       },
       {
-        title: "Status",
+        title: t.exchanges.status,
         dataIndex: "status_code",
         width: 108,
         render: (value: number) => (
-          <Tag color={statusColor(value)}>{value || "open"}</Tag>
+          <Tag color={statusColor(value)}>{value || t.exchanges.open}</Tag>
         ),
       },
       {
-        title: "Latency",
+        title: t.exchanges.latency,
         dataIndex: "duration_millis",
         width: 116,
         align: "right",
         render: (value: number) => `${value} ms`,
       },
       {
-        title: "Body",
+        title: t.exchanges.body,
         key: "body",
         width: 140,
         align: "right",
@@ -241,9 +243,9 @@ export function ExchangesPage() {
         width: 64,
         fixed: "right",
         render: (_, record) => (
-          <Tooltip title="Details">
+          <Tooltip title={t.exchanges.details}>
             <Button
-              aria-label="Details"
+              aria-label={t.exchanges.details}
               icon={<EyeOutlined />}
               onClick={() => void openRecord(record)}
               type="text"
@@ -252,16 +254,16 @@ export function ExchangesPage() {
         ),
       },
     ],
-    [openRecord],
+    [openRecord, t.exchanges],
   );
 
   return (
     <WorkbenchPage
-      description="查看、过滤和管理最近的代理请求响应记录。"
+      description={t.exchanges.description}
       extra={
         <Space wrap>
           <Space className="switch-control">
-            <Text type="secondary">Capture</Text>
+            <Text type="secondary">{t.exchanges.capture}</Text>
             <Switch
               checked={snapshot.enabled}
               loading={updating}
@@ -269,7 +271,7 @@ export function ExchangesPage() {
             />
           </Space>
           <Space className="switch-control">
-            <Text type="secondary">Auto</Text>
+            <Text type="secondary">{t.exchanges.auto}</Text>
             <Switch checked={autoRefresh} onChange={setAutoRefresh} />
           </Space>
           <Button
@@ -277,17 +279,17 @@ export function ExchangesPage() {
             loading={loading}
             onClick={() => void load()}
           >
-            Refresh
+            {t.exchanges.refresh}
           </Button>
         </Space>
       }
-      title="请求记录"
+      title={t.app.exchanges}
     >
       <Row gutter={[12, 12]}>
-        <Metric label="Retained" value={snapshot.items.length} />
-        <Metric label="Capacity" value={snapshot.capacity} />
-        <Metric label="Total" value={snapshot.total} />
-        <Metric label="Body Limit" value={formatBytes(snapshot.max_body_bytes)} />
+        <Metric label={t.exchanges.retained} value={snapshot.items.length} />
+        <Metric label={t.exchanges.capacity} value={snapshot.capacity} />
+        <Metric label={t.exchanges.total} value={snapshot.total} />
+        <Metric label={t.exchanges.bodyLimit} value={formatBytes(snapshot.max_body_bytes)} />
       </Row>
 
       <WorkbenchPanel>
@@ -298,7 +300,7 @@ export function ExchangesPage() {
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setQuery(event.target.value)
             }
-            placeholder="Search URL, target, ID"
+            placeholder={t.exchanges.search}
             prefix={<SearchOutlined />}
             value={query}
           />
@@ -307,11 +309,11 @@ export function ExchangesPage() {
             className="method-select"
             onChange={setMethod}
             options={allMethods.map((value) => ({ label: value, value }))}
-            placeholder="Method"
+            placeholder={t.exchanges.method}
             value={method}
           />
           <Space className="switch-control">
-            <Text type="secondary">Errors</Text>
+            <Text type="secondary">{t.exchanges.errors}</Text>
             <Switch checked={errorsOnly} onChange={setErrorsOnly} />
           </Space>
           <InputNumber
@@ -335,16 +337,16 @@ export function ExchangesPage() {
             value={maxBodyBytes}
           />
           <Button loading={updating} onClick={() => void updateSettings(snapshot.enabled)}>
-            Apply
+            {t.exchanges.apply}
           </Button>
           <Popconfirm
             okButtonProps={{ danger: true }}
-            okText="Clear"
+            okText={t.exchanges.clear}
             onConfirm={() => void clearRecords()}
-            title="Clear retained records?"
+            title={t.exchanges.clearConfirm}
           >
             <Button danger icon={<ClearOutlined />} loading={updating}>
-              Clear
+              {t.exchanges.clear}
             </Button>
           </Popconfirm>
         </Flex>
@@ -365,6 +367,7 @@ export function ExchangesPage() {
         />
       </WorkbenchPanel>
       <ExchangeDrawer
+        text={t.exchanges}
         loading={detailLoading}
         record={selected}
         onClose={() => setSelected(null)}

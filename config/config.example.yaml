@@ -17,15 +17,17 @@ server:
 
     # Control API OIDC 认证配置
     auth:
-      issuer: "https://2008.s.lwmacct.com:20088" # OIDC issuer URL
-      client-id: "dproxy-local" # OIDC public client ID
-      callback-url: "http://localhost:23198/auth/callback" # OIDC 登录回调 URL
-      public-url: "http://localhost:23199" # 浏览器访问 Control UI 的公开 URL
+      issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
+      client-id: "dproxy-local" # Dex OIDC client ID
+      client-secret: "" # Dex confidential client secret；public client 留空
+      callback-url: "http://localhost:23198/auth/callback" # OIDC callback URL
+      public-url: "http://localhost:23199" # 浏览器访问应用的公开 URL
+      after-login-url: "http://localhost:23199/#/console" # 登录成功后的同源跳转 URL
 
-      # 允许访问 Control API 的 GitHub 用户名
+      # 允许访问应用的 GitHub 用户名
       allowed-users:
         - lwmacct
-      session-ttl: 24h0m0s # 本地身份 Cookie 最长有效时间
+      session-ttl: 24h0m0s # 身份 Cookie 最长有效时间
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间

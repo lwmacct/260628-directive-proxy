@@ -29,6 +29,8 @@ github.com/lwmacct/260614-go-pkg-tlsreload v0.13.260630 h1:N8kOOwhNRZ1S4ukgeE7Qq
 github.com/lwmacct/260614-go-pkg-tlsreload v0.13.260630/go.mod h1:2W0xK40pSXql00+H/mt0DBQyoFRUyLtjBxh/s14OY9E=
 github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626 h1:gHyEFXJ6rPEljJSt7Gv++18aORbQ0P0+Oqbe2EJvt1M=
 github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626/go.mod h1:vcBuL7xMgFha98wyMcmTck3z6IADiP7pspe4PRUq0Cg=
+github.com/lwmacct/260711-go-pkg-oidcauth v0.2.260711 h1:XmbxEVpHi2J8Tgq5qlitPMnn67uBKlM9rmq1Nsv/+Xo=
+github.com/lwmacct/260711-go-pkg-oidcauth v0.2.260711/go.mod h1:Y8rqThIWEjAHShQjKfTmdq6/EFy/7A3z364Xtvl/mS8=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
