@@ -37,7 +37,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	if len(plan.HeaderOps) != 4 {
 		t.Fatalf("unexpected header op count: %d", len(plan.HeaderOps))
 	}
-	if plan.HeaderOps[0].Action != proxy.HeaderRemove || plan.HeaderOps[0].Name != "Authorization" {
+	if plan.HeaderOps[0].Action != proxy.HeaderRemove || plan.HeaderOps[0].Selector.Pattern != "Authorization" {
 		t.Fatalf("expected authorization strip op first: %#v", plan.HeaderOps)
 	}
 }
@@ -58,12 +58,12 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dproxy.10.payload", want: true},
-		{name: "unsupported version", authorization: "Bearer dproxy.11.payload", want: true},
+		{name: "current version", authorization: "Bearer dproxy.11.payload", want: true},
+		{name: "unsupported version", authorization: "Bearer dproxy.12.payload", want: true},
 		{name: "malformed family token", authorization: "Bearer dproxy.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dproxy.10.payload", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dproxy.11.payload", want: true},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dproxy.10.payload", want: false},
+		{name: "other scheme", authorization: "Basic dproxy.11.payload", want: false},
 		{name: "missing", want: false},
 	}
 
@@ -87,7 +87,7 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 
 func TestResolverReturnsInvalidDirectiveForUnsupportedDirectiveVersion(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
-	req.Header.Set("Authorization", "Bearer "+TokenFamily+".11.payload")
+	req.Header.Set("Authorization", "Bearer "+TokenFamily+".10.payload")
 
 	_, err := NewResolver().Resolve(req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {

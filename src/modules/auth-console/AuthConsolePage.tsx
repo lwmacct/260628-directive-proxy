@@ -18,6 +18,7 @@ import {
   Form,
   Input,
   Row,
+  Segmented,
   Select,
   Space,
   Table,
@@ -31,13 +32,14 @@ import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 
 const { Text } = Typography;
-const tokenPrefix = "dproxy.10.";
+const tokenPrefix = "dproxy.11.";
 
 type HeaderOp = {
   key: string;
   op: "=" | "+" | "-";
-  name: string;
-  values: string;
+  selector: "name" | "glob";
+  pattern: string;
+  values: string[];
 };
 
 type EditorState = {
@@ -58,11 +60,14 @@ type DirectivePayload = {
     mode?: "patch" | "replace";
     ops?: Array<{
       op: "=" | "+" | "-";
-      name: string;
+      name?: string;
+      glob?: string;
       values?: string[];
     }>;
   };
 };
+
+type DirectiveHeaderOp = NonNullable<NonNullable<DirectivePayload["headers"]>["ops"]>[number];
 
 type RequestResult = {
   body: string;
@@ -80,8 +85,8 @@ const initialEditor: EditorState = {
   proxyURL: "",
   headerMode: "patch",
   headerOps: [
-    newHeaderOp("=", "Authorization", "Bearer upstream-token"),
-    newHeaderOp("=", "X-Dproxy-Key", "dproxy-demo-key"),
+    newHeaderOp("=", "name", "Authorization", ["Bearer upstream-token"]),
+    newHeaderOp("=", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
   ],
 };
 
@@ -89,7 +94,7 @@ export function AuthConsolePage() {
   const [editor, setEditor] = useState(initialEditor);
   const initialPayload = useMemo(() => buildPayload(initialEditor), []);
   const [payloadInput, setPayloadInput] = useState(() => formatPayload(initialPayload));
-  const [tokenInput, setTokenInput] = useState(() => encodeToken(initialPayload));
+  const [tokenInput, setTokenInput] = useState(() => encodeDirectiveToken(initialPayload));
   const [activeSource, setActiveSource] = useState<"payload" | "token">("payload");
   const [error, setError] = useState<string | null>(null);
   const [requestMethod, setRequestMethod] = useState("POST");
@@ -106,7 +111,10 @@ export function AuthConsolePage() {
   const requestController = useRef<AbortController | null>(null);
 
   const payload = useMemo(() => buildPayload(editor), [editor]);
-  const token = encodeToken(payload);
+  const directiveToken = encodeDirectiveToken(payload);
+  const sourceDirty = activeSource === "payload"
+    ? payloadInput !== formatPayload(payload)
+    : tokenInput !== directiveToken;
 
   function updateEditor(patch: Partial<EditorState>) {
     const next = { ...editor, ...patch };
@@ -116,7 +124,7 @@ export function AuthConsolePage() {
 
   function syncInputs(nextPayload: DirectivePayload) {
     setPayloadInput(formatPayload(nextPayload));
-    setTokenInput(encodeToken(nextPayload));
+    setTokenInput(encodeDirectiveToken(nextPayload));
     setError(null);
   }
 
@@ -131,7 +139,7 @@ export function AuthConsolePage() {
 
   function applyTokenInput() {
     try {
-      applyPayload(decodeToken(tokenInput));
+      applyPayload(decodeDirectiveToken(tokenInput));
       void message.success("Token 已解析并应用到表单和 Payload");
     } catch (err) {
       setError(errorMessage(err, "Token 解析失败"));
@@ -164,7 +172,7 @@ export function AuthConsolePage() {
       const startedAt = performance.now();
       const response = await fetch(path, {
         method: requestMethod,
-        headers: { ...headers, Authorization: `Bearer ${token}` },
+        headers: { ...headers, Authorization: `Bearer ${directiveToken}` },
         body: requestMethod === "GET" || requestMethod === "HEAD" ? undefined : requestBody,
         signal: controller.signal,
       });
@@ -206,13 +214,31 @@ export function AuthConsolePage() {
       ),
     },
     {
-      title: "Name",
-      dataIndex: "name",
+      title: "Match",
+      dataIndex: "selector",
+      width: 132,
+      render: (_, record) => (
+        <Segmented
+          options={[
+            { label: "Exact", value: "name" },
+            { label: "Glob", value: "glob" },
+          ]}
+          value={record.selector}
+          onChange={(selector: HeaderOp["selector"]) =>
+            updateHeaderOp(record.key, { selector })
+          }
+        />
+      ),
+    },
+    {
+      title: "Selector",
+      dataIndex: "pattern",
       render: (_, record) => (
         <Input
-          value={record.name}
+          placeholder={record.selector === "glob" ? "X-Tenant-*" : "Authorization"}
+          value={record.pattern}
           onChange={(event: ChangeEvent<HTMLInputElement>) =>
-            updateHeaderOp(record.key, { name: event.target.value })
+            updateHeaderOp(record.key, { pattern: event.target.value })
           }
         />
       ),
@@ -220,14 +246,14 @@ export function AuthConsolePage() {
     {
       title: "Values",
       dataIndex: "values",
-      render: (_, record) => (
-        <Input
-          disabled={record.op === "-"}
-          placeholder="comma separated"
+      render: (_, record) => record.op === "-" ? null : (
+        <Select
+          mode="tags"
+          open={false}
+          placeholder="Type a value and press Enter"
+          style={{ width: "100%" }}
           value={record.values}
-          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-            updateHeaderOp(record.key, { values: event.target.value })
-          }
+          onChange={(values: string[]) => updateHeaderOp(record.key, { values })}
         />
       ),
     },
@@ -253,15 +279,6 @@ export function AuthConsolePage() {
   return (
     <WorkbenchPage
       description="从结构化表单、Payload JSON 或 Token 任一来源编辑 directive，并同步生成其他格式。"
-      extra={
-        <Button
-          icon={<CopyOutlined />}
-          onClick={() => void copyText(token).then(reportCopyResult)}
-          type="primary"
-        >
-          复制 Token
-        </Button>
-      }
       title="Authorization 工作台"
     >
       {error ? (
@@ -328,7 +345,9 @@ export function AuthConsolePage() {
               <Button
                 icon={<PlusOutlined />}
                 onClick={() =>
-                  updateEditor({ headerOps: [...editor.headerOps, newHeaderOp("=", "", "")] })
+                  updateEditor({
+                    headerOps: [...editor.headerOps, newHeaderOp("=", "name", "", [])],
+                  })
                 }
               >
                 Add
@@ -339,36 +358,14 @@ export function AuthConsolePage() {
               dataSource={editor.headerOps}
               pagination={false}
               rowKey="key"
-              scroll={{ x: 620 }}
+              scroll={{ x: 760 }}
               size="small"
             />
           </WorkbenchPanel>
         </Col>
 
         <Col xs={24} xl={11}>
-          <WorkbenchPanel
-            extra={
-              <Space>
-                <Button
-                  aria-label={`复制${activeSource === "payload" ? " Payload" : " Token"}`}
-                  icon={<CopyOutlined />}
-                  onClick={() =>
-                    void copyText(activeSource === "payload" ? payloadInput : tokenInput).then(
-                      reportCopyResult,
-                    )
-                  }
-                />
-                <Button
-                  icon={<ImportOutlined />}
-                  onClick={activeSource === "payload" ? applyPayloadInput : applyTokenInput}
-                  type="primary"
-                >
-                  {activeSource === "payload" ? "应用 Payload" : "解析 Token"}
-                </Button>
-              </Space>
-            }
-            title="可编辑输入源"
-          >
+          <WorkbenchPanel title="可编辑输入源">
             <Tabs
               activeKey={activeSource}
               items={[
@@ -385,10 +382,10 @@ export function AuthConsolePage() {
                 },
                 {
                   key: "token",
-                  label: "Token / Authorization",
+                  label: "Token",
                   children: (
                     <SourceEditor
-                      placeholder="dproxy.10...、Bearer dproxy.10... 或完整 Authorization header"
+                      placeholder="dproxy.11..."
                       value={tokenInput}
                       onChange={setTokenInput}
                     />
@@ -397,6 +394,32 @@ export function AuthConsolePage() {
               ]}
               onChange={(key: string) => setActiveSource(key as "payload" | "token")}
             />
+            <Flex align="center" gap="small" justify="space-between" wrap>
+              <Tag color={sourceDirty ? "orange" : "green"}>
+                {sourceDirty ? "有未应用修改" : "已同步"}
+              </Tag>
+              <Space wrap>
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={() =>
+                    void copyText(
+                      activeSource === "payload"
+                        ? payloadInput
+                        : tokenInput,
+                    ).then(reportCopyResult)
+                  }
+                >
+                  {activeSource === "payload" ? "复制 Payload" : "复制 Token"}
+                </Button>
+                <Button
+                  icon={<ImportOutlined />}
+                  onClick={activeSource === "payload" ? applyPayloadInput : applyTokenInput}
+                  type="primary"
+                >
+                  {activeSource === "payload" ? "应用 Payload" : "解析 Token"}
+                </Button>
+              </Space>
+            </Flex>
           </WorkbenchPanel>
         </Col>
       </Row>
@@ -551,32 +574,29 @@ function SourceEditor(props: {
   onChange: (value: string) => void;
 }) {
   return (
-    <Space orientation="vertical" size={12} style={{ width: "100%" }}>
-      <Input.TextArea
-        autoSize={{ minRows: 10 }}
-        className="source-input"
-        onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-          props.onChange(event.target.value)
-        }
-        placeholder={props.placeholder}
-        value={props.value}
-      />
-      <Text type="secondary">编辑期间不会覆盖其他区域，点击卡片右上角按钮后统一同步。</Text>
-    </Space>
+    <Input.TextArea
+      autoSize={{ minRows: 10 }}
+      className="source-input"
+      onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+        props.onChange(event.target.value)
+      }
+      placeholder={props.placeholder}
+      value={props.value}
+    />
   );
 }
 
 function buildPayload(input: EditorState): DirectivePayload {
-  const ops = input.headerOps
-    .map((item) => ({
+  const ops = input.headerOps.flatMap<DirectiveHeaderOp>((item) => {
+    const pattern = item.pattern.trim();
+    if (!pattern) return [];
+    const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
+    return [{
       op: item.op,
-      name: item.name.trim(),
-      values:
-        item.op === "-"
-          ? []
-          : item.values.split(",").map((value) => value.trim()).filter(Boolean),
-    }))
-    .filter((item) => item.name);
+      ...selector,
+      ...(item.op === "-" ? {} : { values: item.values }),
+    }];
+  });
 
   const payload: DirectivePayload = { target: { url: input.targetURL.trim() } };
   if (!input.joinPath) payload.target.join_path = false;
@@ -592,7 +612,12 @@ function payloadToEditor(payload: DirectivePayload): EditorState {
     proxyURL: payload.proxy ?? "",
     headerMode: payload.headers?.mode ?? "patch",
     headerOps: (payload.headers?.ops ?? []).map((item) =>
-      newHeaderOp(item.op, item.name, (item.values ?? []).join(", ")),
+      newHeaderOp(
+        item.op,
+        item.glob === undefined ? "name" : "glob",
+        item.name ?? item.glob ?? "",
+        item.values ?? [],
+      ),
     ),
   };
 }
@@ -648,28 +673,104 @@ function validatePayload(value: unknown): DirectivePayload {
 
 function validateHeaderOp(value: unknown, index: number) {
   if (!isRecord(value)) throw new Error(`headers.ops[${index}] 必须是 object`);
-  assertKnownKeys(value, ["op", "name", "values"], `headers.ops[${index}]`);
+  assertKnownKeys(value, ["op", "name", "glob", "values"], `headers.ops[${index}]`);
   if (!["=", "+", "-"].includes(String(value.op))) {
     throw new Error(`headers.ops[${index}].op 只能是 =、+ 或 -`);
   }
-  if (typeof value.name !== "string" || !value.name.trim()) {
-    throw new Error(`headers.ops[${index}].name 必须是非空字符串`);
+  if (value.name !== undefined && typeof value.name !== "string") {
+    throw new Error(`headers.ops[${index}].name 必须是 string`);
+  }
+  if (value.glob !== undefined && typeof value.glob !== "string") {
+    throw new Error(`headers.ops[${index}].glob 必须是 string`);
+  }
+  const hasName = typeof value.name === "string" && Boolean(value.name.trim());
+  const hasGlob = typeof value.glob === "string" && Boolean(value.glob.trim());
+  if (hasName === hasGlob) {
+    throw new Error(`headers.ops[${index}] 必须且只能包含 name 或 glob`);
+  }
+  if (hasName && !isValidHeaderName((value.name as string).trim())) {
+    throw new Error(`headers.ops[${index}].name 不是合法的 Header 名`);
+  }
+  if (hasGlob) {
+    assertValidGlob((value.glob as string).trim(), `headers.ops[${index}].glob`);
   }
   if (value.values !== undefined &&
       (!Array.isArray(value.values) || value.values.some((item) => typeof item !== "string"))) {
     throw new Error(`headers.ops[${index}].values 必须是 string array`);
   }
+  const values = value.values as string[] | undefined;
+  if (value.op === "-" && values?.length) {
+    throw new Error(`headers.ops[${index}] Remove 操作不能包含 values`);
+  }
+  if (value.op !== "-" && !values?.length) {
+    throw new Error(`headers.ops[${index}] Set/Add 操作必须包含 values`);
+  }
+  const pattern = ((hasName ? value.name : value.glob) as string).trim();
+  if (hasName && pattern.toLowerCase() === "host" &&
+      (value.op === "+" || (values?.length ?? 0) > 1)) {
+    throw new Error(`headers.ops[${index}] Host 只支持单值 Set 或 Remove`);
+  }
   return {
     op: value.op as HeaderOp["op"],
-    name: value.name.trim(),
-    ...((value.values as string[] | undefined)?.length ? { values: value.values as string[] } : {}),
+    ...(hasName ? { name: pattern } : { glob: pattern }),
+    ...(values?.length ? { values } : {}),
   };
 }
 
-function decodeToken(value: string): DirectivePayload {
-  const token = normalizeToken(value);
-  if (!token.startsWith(tokenPrefix)) throw new Error("Token 必须以 dproxy.10. 开头");
-  const raw = token.slice(tokenPrefix.length);
+function isValidHeaderName(value: string) {
+  return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
+}
+
+function assertValidGlob(value: string, label: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "\\") {
+      index += 1;
+      if (index >= value.length) throw new Error(`${label} 不是合法的 Glob`);
+      continue;
+    }
+    if (character !== "[") continue;
+
+    index += 1;
+    if (value[index] === "^") index += 1;
+    let ranges = 0;
+    while (index < value.length && value[index] !== "]") {
+      const [low, nextIndex] = readGlobClassCharacter(value, index, label);
+      index = nextIndex;
+      if (value[index] === "-") {
+        const [high, rangeEnd] = readGlobClassCharacter(value, index + 1, label);
+        if (high < low) throw new Error(`${label} 不是合法的 Glob`);
+        index = rangeEnd;
+      }
+      ranges += 1;
+    }
+    if (ranges === 0 || value[index] !== "]") {
+      throw new Error(`${label} 不是合法的 Glob`);
+    }
+  }
+}
+
+function readGlobClassCharacter(value: string, index: number, label: string): [number, number] {
+  if (index >= value.length || value[index] === "-" || value[index] === "]") {
+    throw new Error(`${label} 不是合法的 Glob`);
+  }
+  if (value[index] === "\\") {
+    index += 1;
+    if (index >= value.length) throw new Error(`${label} 不是合法的 Glob`);
+  }
+  const codePoint = value.codePointAt(index);
+  if (codePoint === undefined || codePoint === "/".codePointAt(0)) {
+    throw new Error(`${label} 不是合法的 Glob`);
+  }
+  return [codePoint, index + (codePoint > 0xffff ? 2 : 1)];
+}
+
+function decodeDirectiveToken(value: string): DirectivePayload {
+  const directiveToken = value.trim();
+  if (!directiveToken.startsWith(tokenPrefix)) {
+    throw new Error("Token 必须以 dproxy.11. 开头");
+  }
+  const raw = directiveToken.slice(tokenPrefix.length);
   if (!raw) throw new Error("Token 缺少 payload");
   try {
     const json = new TextDecoder().decode(base64URLDecode(raw));
@@ -679,18 +780,7 @@ function decodeToken(value: string): DirectivePayload {
   }
 }
 
-function normalizeToken(value: string) {
-  let token = value.trim();
-  if (token.toLowerCase().startsWith("authorization:")) {
-    token = token.slice("authorization:".length).trim();
-  }
-  if (token.toLowerCase().startsWith("bearer ")) {
-    token = token.slice("bearer ".length).trim();
-  }
-  return token;
-}
-
-function encodeToken(payload: DirectivePayload) {
+function encodeDirectiveToken(payload: DirectivePayload) {
   return `${tokenPrefix}${base64URL(JSON.stringify(payload))}`;
 }
 
@@ -770,9 +860,14 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function newHeaderOp(op: HeaderOp["op"], name: string, values: string): HeaderOp {
+function newHeaderOp(
+  op: HeaderOp["op"],
+  selector: HeaderOp["selector"],
+  pattern: string,
+  values: string[],
+): HeaderOp {
   headerOpID += 1;
-  return { key: `header-op-${headerOpID}`, op, name, values };
+  return { key: `header-op-${headerOpID}`, op, selector, pattern, values };
 }
 
 function reportCopyResult(ok: boolean) {

@@ -14,13 +14,12 @@ func TestApplyHeaderOps(t *testing.T) {
 		"X-Other": []string{"gone"},
 	}
 	applyHeaderOps(headers, []HeaderOp{
-		{Action: HeaderSet, Name: "X-Test", Values: []string{"new", "alt"}},
-		{Action: HeaderRemove, Name: "X-Test", Values: []string{"alt"}},
-		{Action: HeaderAdd, Name: "X-Extra", Values: []string{"one", "two"}},
-		{Action: HeaderRemove, Name: "X-Other", Values: []string{"gone"}},
+		{Action: HeaderSet, Selector: exactSelector("X-Test"), Values: []string{"new", "alt"}},
+		{Action: HeaderAdd, Selector: exactSelector("X-Extra"), Values: []string{"one", "two"}},
+		{Action: HeaderRemove, Selector: exactSelector("X-Other")},
 	})
 
-	if got := headers.Values("X-Test"); len(got) != 1 || got[0] != "new" {
+	if got := headers.Values("X-Test"); len(got) != 2 || got[0] != "new" || got[1] != "alt" {
 		t.Fatalf("unexpected X-Test: %#v", got)
 	}
 	if got := headers.Values("X-Extra"); len(got) != 2 {
@@ -28,6 +27,62 @@ func TestApplyHeaderOps(t *testing.T) {
 	}
 	if _, exists := headers["X-Other"]; exists {
 		t.Fatal("expected X-Other to be removed")
+	}
+}
+
+func TestApplyHeaderOpsWithGlobSelector(t *testing.T) {
+	headers := http.Header{
+		"X-Tenant-One": []string{"old"},
+		"X-Tenant-Two": []string{"old"},
+		"X-Other":      []string{"keep"},
+	}
+	applyHeaderOps(headers, []HeaderOp{
+		{Action: HeaderSet, Selector: globSelector("x-tenant-*"), Values: []string{"shared"}},
+		{Action: HeaderAdd, Selector: exactSelector("X-Tenant-Three"), Values: []string{"new"}},
+		{Action: HeaderRemove, Selector: globSelector("X-Tenant-Tw?")},
+	})
+
+	if got := headers.Get("X-Tenant-One"); got != "shared" {
+		t.Fatalf("unexpected glob set result: %q", got)
+	}
+	if got := headers.Get("X-Tenant-Two"); got != "" {
+		t.Fatalf("expected matching header to be removed, got %q", got)
+	}
+	if got := headers.Get("X-Tenant-Three"); got != "new" {
+		t.Fatalf("expected exact op to create header, got %q", got)
+	}
+	if got := headers.Get("X-Other"); got != "keep" {
+		t.Fatalf("unexpected unrelated header: %q", got)
+	}
+}
+
+func TestGlobSelectorOnlyMatchesExistingHeadersAtEachOperation(t *testing.T) {
+	headers := make(http.Header)
+	applyHeaderOps(headers, []HeaderOp{
+		{Action: HeaderSet, Selector: globSelector("X-*"), Values: []string{"miss"}},
+		{Action: HeaderSet, Selector: exactSelector("X-Created"), Values: []string{"first"}},
+		{Action: HeaderSet, Selector: globSelector("x-*"), Values: []string{"second"}},
+	})
+
+	if got := headers.Get("X-Created"); got != "second" {
+		t.Fatalf("unexpected ordered glob result: %q", got)
+	}
+}
+
+func TestGlobSelectorNeverMatchesHost(t *testing.T) {
+	headers := http.Header{
+		"Host":   []string{"keep.example.com"},
+		"X-Test": []string{"remove"},
+	}
+	applyHeaderOps(headers, []HeaderOp{
+		{Action: HeaderRemove, Selector: globSelector("*")},
+	})
+
+	if got := headers.Get("Host"); got != "keep.example.com" {
+		t.Fatalf("glob must not match Host, got %q", got)
+	}
+	if got := headers.Get("X-Test"); got != "" {
+		t.Fatalf("expected ordinary header to be removed, got %q", got)
 	}
 }
 
@@ -41,9 +96,9 @@ func TestApplyRewrite(t *testing.T) {
 		Target:   target,
 		JoinPath: true,
 		HeaderOps: []HeaderOp{{
-			Action: HeaderSet,
-			Name:   "Authorization",
-			Values: []string{"Bearer abc"},
+			Action:   HeaderSet,
+			Selector: exactSelector("Authorization"),
+			Values:   []string{"Bearer abc"},
 		}},
 	})
 
@@ -145,9 +200,9 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 		JoinPath:   true,
 		HeaderMode: HeaderModeReplace,
 		HeaderOps: []HeaderOp{{
-			Action: HeaderSet,
-			Name:   "X-Only",
-			Values: []string{"keep"},
+			Action:   HeaderSet,
+			Selector: exactSelector("X-Only"),
+			Values:   []string{"keep"},
 		}},
 	})
 
@@ -198,9 +253,9 @@ func TestApplyRewriteCanExplicitlySetProxyDisclosureHeader(t *testing.T) {
 		Target:   target,
 		JoinPath: true,
 		HeaderOps: []HeaderOp{{
-			Action: HeaderSet,
-			Name:   "True-Client-IP",
-			Values: []string{"explicit"},
+			Action:   HeaderSet,
+			Selector: exactSelector("True-Client-IP"),
+			Values:   []string{"explicit"},
 		}},
 	})
 
@@ -219,9 +274,9 @@ func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 		Target:   target,
 		JoinPath: true,
 		HeaderOps: []HeaderOp{{
-			Action: HeaderSet,
-			Name:   "Host",
-			Values: []string{"custom.example.com"},
+			Action:   HeaderSet,
+			Selector: exactSelector("Host"),
+			Values:   []string{"custom.example.com"},
 		}},
 	})
 
@@ -231,4 +286,12 @@ func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 	if got := req.Out.Header.Get("Host"); got != "" {
 		t.Fatalf("host should not be stored in Header map: %q", got)
 	}
+}
+
+func exactSelector(pattern string) HeaderSelector {
+	return HeaderSelector{Kind: HeaderSelectorExact, Pattern: pattern}
+}
+
+func globSelector(pattern string) HeaderSelector {
+	return HeaderSelector{Kind: HeaderSelectorGlob, Pattern: pattern}
 }

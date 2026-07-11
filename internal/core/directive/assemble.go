@@ -2,6 +2,7 @@ package directive
 
 import (
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
@@ -61,7 +62,10 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 		}
 		ops = append(ops, proxy.HeaderOp{
 			Action: proxy.HeaderRemove,
-			Name:   name,
+			Selector: proxy.HeaderSelector{
+				Kind:    proxy.HeaderSelectorExact,
+				Pattern: name,
+			},
 		})
 	}
 
@@ -107,7 +111,17 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 		actionRaw := strings.TrimSpace(rawOp.Op)
 		action := proxy.HeaderAction(actionRaw)
 		name := strings.TrimSpace(rawOp.Name)
-		if name == "" {
+		glob := strings.TrimSpace(rawOp.Glob)
+		if (name == "") == (glob == "") {
+			return nil, ErrInvalidPayload
+		}
+		selector := proxy.HeaderSelector{Kind: proxy.HeaderSelectorExact, Pattern: name}
+		if glob != "" {
+			if _, err := path.Match(strings.ToLower(glob), ""); err != nil {
+				return nil, ErrInvalidPayload
+			}
+			selector = proxy.HeaderSelector{Kind: proxy.HeaderSelectorGlob, Pattern: glob}
+		} else if !isValidHeaderName(name) {
 			return nil, ErrInvalidPayload
 		}
 		switch action {
@@ -116,21 +130,43 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 				return nil, ErrInvalidPayload
 			}
 		case proxy.HeaderRemove:
+			if len(rawOp.Values) != 0 {
+				return nil, ErrInvalidPayload
+			}
 		default:
 			return nil, ErrInvalidPayload
 		}
-		if strings.EqualFold(name, "Host") {
+		if selector.Kind == proxy.HeaderSelectorExact && strings.EqualFold(selector.Pattern, "Host") {
 			if action == proxy.HeaderAdd || len(rawOp.Values) > 1 {
 				return nil, ErrInvalidPayload
 			}
 		}
 		ops = append(ops, proxy.HeaderOp{
-			Action: action,
-			Name:   name,
-			Values: append([]string(nil), rawOp.Values...),
+			Action:   action,
+			Selector: selector,
+			Values:   append([]string(nil), rawOp.Values...),
 		})
 	}
 	return ops, nil
+}
+
+func isValidHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, char := range name {
+		if !isHeaderTokenChar(char) {
+			return false
+		}
+	}
+	return true
+}
+
+func isHeaderTokenChar(char rune) bool {
+	if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+		return true
+	}
+	return strings.ContainsRune("!#$%&'*+-.^_`|~", char)
 }
 
 func toHeaderMode(raw string) proxy.HeaderMode {

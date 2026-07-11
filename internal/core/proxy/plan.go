@@ -25,8 +25,20 @@ const (
 	HeaderSet    HeaderAction = "="
 )
 
+type HeaderSelectorKind string
+
+const (
+	HeaderSelectorExact HeaderSelectorKind = "exact"
+	HeaderSelectorGlob  HeaderSelectorKind = "glob"
+)
+
+type HeaderSelector struct {
+	Kind    HeaderSelectorKind
+	Pattern string
+}
+
 type HeaderOp struct {
-	Action HeaderAction
-	Name   string
-	Values []string
+	Action   HeaderAction
+	Selector HeaderSelector
+	Values   []string
 }

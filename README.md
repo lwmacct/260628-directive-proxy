@@ -2,7 +2,7 @@
 
 `llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-项目只负责解析 `Authorization: Bearer dproxy.10...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.11...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
@@ -16,10 +16,10 @@ Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请
 唯一入口是：
 
 ```http
-Authorization: Bearer dproxy.10.<base64url-json>
+Authorization: Bearer dproxy.11.<base64url-json>
 ```
 
-`dproxy.` token family 由代理保留，当前只接受 `dproxy.10.` 协议。其他 Bearer token 不会进入代理。
+`dproxy.` token family 由代理保留，当前只接受 `dproxy.11.` 协议。其他 Bearer token 不会进入代理。
 
 payload schema：
 
@@ -37,13 +37,22 @@ payload schema：
         "name": "Authorization",
         "values": ["Bearer upstream-token"]
       },
-      { "op": "=", "name": "X-Tenant", "values": ["tenant-a"] }
+      { "op": "-", "glob": "M-Runtime-*" },
+      { "op": "=", "glob": "X-Tenant-*", "values": ["tenant-a"] }
     ]
   }
 }
 ```
 
-使用 `directive.Encode` 可以生成完整的 `dproxy.10.` token。
+使用 `directive.Encode` 可以生成完整的 `dproxy.11.` token。
+
+每条 header op 必须且只能提供 `name` 或 `glob`：
+
+- `name` 执行大小写不敏感的精确匹配，Set/Add 可以创建 header。
+- `glob` 使用 Go `path.Match` 语法执行大小写不敏感的全名匹配，只影响该操作执行时已经存在的普通 header。
+- Glob 支持 `*`、`?`、字符类和转义，不匹配特殊的 `Host`。
+- Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
+- ops 按数组顺序执行。`replace` 模式从空 header 集合开始，因此 Glob 只能匹配前序 op 创建的 header。
 
 directive 被接受后，入站 `Authorization` 会在转发前移除。如果上游需要自己的 `Authorization`，需要通过 directive 的 header ops 显式写入。
 

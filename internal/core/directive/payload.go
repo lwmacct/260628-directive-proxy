@@ -2,7 +2,7 @@ package directive
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "10"
+	TokenVersion = "11"
 )
 
 type Payload struct {
@@ -23,6 +23,7 @@ type HeaderSection struct {
 
 type HeaderOp struct {
 	Op     string   `json:"op"`
-	Name   string   `json:"name"`
+	Name   string   `json:"name,omitempty"`
+	Glob   string   `json:"glob,omitempty"`
 	Values []string `json:"values,omitempty"`
 }

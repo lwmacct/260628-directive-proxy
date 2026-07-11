@@ -46,7 +46,22 @@ func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 	if plan.HeaderMode != "replace" {
 		t.Fatalf("unexpected header mode: %s", plan.HeaderMode)
 	}
-	if len(plan.HeaderOps) != 1 || plan.HeaderOps[0].Name != "Host" {
+	if len(plan.HeaderOps) != 1 || plan.HeaderOps[0].Selector.Pattern != "Host" {
+		t.Fatalf("unexpected header ops: %#v", plan.HeaderOps)
+	}
+}
+
+func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
+	plan, err := ToPlan(Payload{
+		Target: TargetSection{URL: "https://api.example.com/base"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "-", Glob: "M-Runtime-*"},
+		}},
+	}, AssembleOptions{})
+	if err != nil {
+		t.Fatalf("assemble failed: %v", err)
+	}
+	if len(plan.HeaderOps) != 1 || plan.HeaderOps[0].Selector.Kind != "glob" || plan.HeaderOps[0].Selector.Pattern != "M-Runtime-*" {
 		t.Fatalf("unexpected header ops: %#v", plan.HeaderOps)
 	}
 }

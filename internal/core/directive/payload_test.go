@@ -118,6 +118,54 @@ func TestValidateRejectsAppendHost(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsHeaderOpWithBothNameAndGlob(t *testing.T) {
+	err := Validate(Payload{
+		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "-", Name: "X-Test", Glob: "X-*"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
+	err := Validate(Payload{
+		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "-", Glob: "X-["},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
+	err := Validate(Payload{
+		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "-", Name: "Bad Header"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsRemoveWithValues(t *testing.T) {
+	err := Validate(Payload{
+		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "-", Glob: "X-*", Values: []string{"value"}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
 func TestValidateRejectsMissingURL(t *testing.T) {
 	err := Validate(Payload{})
 	if err == nil {

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
+	"sort"
 	"strings"
 )
 
@@ -85,39 +87,56 @@ func BuildOutboundURL(target, inbound *url.URL, joinPath bool) *url.URL {
 
 func applyHeaderOps(headers http.Header, ops []HeaderOp) {
 	for _, op := range ops {
-		headerName := http.CanonicalHeaderKey(strings.TrimSpace(op.Name))
-		if headerName == "" {
-			continue
-		}
-		if len(op.Values) == 0 {
-			headers.Del(headerName)
-			continue
-		}
-		switch op.Action {
-		case HeaderAdd:
-			for _, value := range op.Values {
-				headers.Add(headerName, value)
-			}
-		case HeaderSet:
-			headers.Set(headerName, op.Values[0])
-			for _, value := range op.Values[1:] {
-				headers.Add(headerName, value)
-			}
-		case HeaderRemove:
-			current := headers.Values(headerName)
-			if len(current) == 0 {
-				continue
-			}
-			headers[headerName] = filterHeaderValues(current, op.Values)
-			if len(headers[headerName]) == 0 {
-				headers.Del(headerName)
-			}
+		for _, headerName := range matchingHeaderNames(headers, op.Selector) {
+			applyHeaderOp(headers, headerName, op)
 		}
 	}
 }
 
-func ApplyHeaderOps(headers http.Header, ops []HeaderOp) {
-	applyHeaderOps(headers, ops)
+func matchingHeaderNames(headers http.Header, selector HeaderSelector) []string {
+	pattern := strings.TrimSpace(selector.Pattern)
+	if pattern == "" {
+		return nil
+	}
+	if selector.Kind == HeaderSelectorExact {
+		return []string{http.CanonicalHeaderKey(pattern)}
+	}
+	if selector.Kind != HeaderSelectorGlob {
+		return nil
+	}
+
+	names := make([]string, 0, len(headers))
+	pattern = strings.ToLower(pattern)
+	for name := range headers {
+		if strings.EqualFold(name, "Host") {
+			continue
+		}
+		matched, err := path.Match(pattern, strings.ToLower(name))
+		if err == nil && matched {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func applyHeaderOp(headers http.Header, headerName string, op HeaderOp) {
+	switch op.Action {
+	case HeaderAdd:
+		for _, value := range op.Values {
+			headers.Add(headerName, value)
+		}
+	case HeaderSet:
+		if len(op.Values) == 0 {
+			return
+		}
+		headers.Set(headerName, op.Values[0])
+		for _, value := range op.Values[1:] {
+			headers.Add(headerName, value)
+		}
+	case HeaderRemove:
+		headers.Del(headerName)
+	}
 }
 
 func stripProxyDisclosureHeaders(headers http.Header) {
@@ -137,7 +156,7 @@ func applyRequestHeaderOps(req *http.Request, ops []HeaderOp) {
 		req.Header = make(http.Header)
 	}
 	for _, op := range ops {
-		if !strings.EqualFold(strings.TrimSpace(op.Name), "Host") {
+		if op.Selector.Kind != HeaderSelectorExact || !strings.EqualFold(strings.TrimSpace(op.Selector.Pattern), "Host") {
 			applyHeaderOps(req.Header, []HeaderOp{op})
 			continue
 		}
@@ -170,23 +189,6 @@ func suppressDefaultUserAgent(headers http.Header) {
 	if _, exists := headers["User-Agent"]; !exists {
 		headers["User-Agent"] = nil
 	}
-}
-
-func filterHeaderValues(values []string, remove []string) []string {
-	if len(values) == 0 || len(remove) == 0 {
-		return values
-	}
-	removeSet := make(map[string]struct{}, len(remove))
-	for _, value := range remove {
-		removeSet[value] = struct{}{}
-	}
-	filtered := make([]string, 0, len(values))
-	for _, value := range values {
-		if _, exists := removeSet[value]; !exists {
-			filtered = append(filtered, value)
-		}
-	}
-	return filtered
 }
 
 func singleJoiningSlash(a, b string) string {

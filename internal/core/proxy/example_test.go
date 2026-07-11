@@ -14,7 +14,10 @@ func (staticResolver) Resolve(*http.Request) (*Plan, error) {
 		JoinPath: true,
 		HeaderOps: []HeaderOp{{
 			Action: HeaderSet,
-			Name:   "Authorization",
+			Selector: HeaderSelector{
+				Kind:    HeaderSelectorExact,
+				Pattern: "Authorization",
+			},
 			Values: []string{"Bearer upstream-token"},
 		}},
 	}, nil
