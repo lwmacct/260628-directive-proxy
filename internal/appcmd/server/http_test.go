@@ -241,3 +241,15 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 		t.Fatalf("health must remain public, got %d", healthRecorder.Code)
 	}
 }
+
+func TestNoStoreDisablesCaching(t *testing.T) {
+	handler := noStore(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/auth/session", nil))
+
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("unexpected Cache-Control: %q", got)
+	}
+}

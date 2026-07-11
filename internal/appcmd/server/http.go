@@ -42,7 +42,7 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
 	if rt.auth != nil {
 		protectedAPI = rt.auth.RequireUser(protectedAPI)
-		mux.Handle("/auth/", rt.auth.Handler())
+		mux.Handle("/auth/", noStore(rt.auth.Handler()))
 	}
 	mux.Handle(httpAPIPrefix+"/", protectedAPI)
 	mux.Handle("/health", api)
@@ -50,6 +50,13 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 		mux.Handle("/", spaFileServer(webRoot))
 	}
 	return mux
+}
+
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func spaFileServer(root string) http.Handler {

@@ -6,9 +6,8 @@ const zh = {
     exchanges: "请求记录", authConsole: "Authorization 工作台", appearance: "外观设置",
   },
   auth: {
-    checking: "正在检查登录状态", signInDescription: "使用获准的 GitHub 管理员账号登录控制台",
-    forbiddenDescription: "当前 GitHub 用户无权访问此工具", unavailable: "认证服务暂时不可用",
-    forbidden: "访问被拒绝",
+    authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
+    unavailable: "暂时无法连接认证服务", forbidden: "此账号没有访问权限",
   },
   appearance: { panel: "主题与界面" },
   exchanges: {
@@ -52,9 +51,8 @@ const en: Text = {
     exchanges: "Exchanges", authConsole: "Authorization Workbench", appearance: "Appearance",
   },
   auth: {
-    checking: "Checking sign-in status", signInDescription: "Sign in with an approved GitHub administrator account",
-    forbiddenDescription: "This GitHub user is not allowed to access this tool", unavailable: "Authentication service is unavailable",
-    forbidden: "Access denied",
+    authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
+    unavailable: "Unable to connect to the authentication service", forbidden: "This account does not have access",
   },
   appearance: { panel: "Theme and interface" },
   exchanges: {

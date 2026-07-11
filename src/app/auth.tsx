@@ -1,6 +1,5 @@
 import {
-  WorkbenchAuthCheckingPage,
-  WorkbenchOAuthSignInPage,
+  WorkbenchAuthPage,
 } from "@lwmacct/260627-antd-workbench";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useText } from "../shared/i18n";
@@ -20,7 +19,8 @@ type AuthState =
   | { status: "authenticated"; identity: AuthIdentity }
   | { status: "signed-out" }
   | { status: "forbidden" }
-  | { status: "unavailable" };
+  | { status: "unavailable" }
+  | { status: "signing-in"; provider: "github" };
 
 type AuthContextValue = {
   identity: AuthIdentity;
@@ -76,26 +76,37 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
     setState({ status: "signed-out" });
   }, []);
 
+  const login = useCallback(() => {
+    setState({ status: "signing-in", provider: "github" });
+    window.requestAnimationFrame(() => window.location.assign("/auth/login"));
+  }, []);
+
   const value = useMemo(
     () => state.status === "authenticated" ? { identity: state.identity, logout } : null,
     [logout, state],
   );
 
-  if (state.status === "checking") return <WorkbenchAuthCheckingPage label={t.auth.checking} />;
   if (!value) {
     return (
-      <WorkbenchOAuthSignInPage
+      <WorkbenchAuthPage
         brand={{
-          description: state.status === "forbidden"
-            ? t.auth.forbiddenDescription
-            : t.auth.signInDescription,
+          description: t.auth.signInDescription,
           mark: "D",
           name: "LLM Relay DProxy",
         }}
-        error={state.status === "unavailable" ? t.auth.unavailable : state.status === "forbidden" ? t.auth.forbidden : undefined}
+        hint={state.status === "signed-out" ? t.auth.authorizedOnly : undefined}
         providers={[{ label: "GitHub", provider: "github" }]}
+        state={state.status === "checking"
+          ? { status: "checking" }
+          : state.status === "signing-in"
+            ? { status: "signing-in", provider: state.provider }
+            : {
+                status: "ready",
+                error: state.status === "unavailable" ? t.auth.unavailable : state.status === "forbidden" ? t.auth.forbidden : undefined,
+                retry: state.status === "unavailable",
+              }}
         onRetry={state.status === "unavailable" ? loadSession : undefined}
-        onSelectProvider={() => window.location.assign("/auth/login")}
+        onSelectProvider={login}
       />
     );
   }
