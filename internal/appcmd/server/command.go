@@ -51,9 +51,11 @@ func commandFlags() []cli.Flag {
 		&cli.IntFlag{Name: "proxy.transport.max-conns-per-host", Usage: flagHelp.MustUsage("proxy.transport.max-conns-per-host"), Value: defaults.Proxy.Transport.MaxConnsPerHost},
 		&cli.DurationFlag{Name: "proxy.transport.idle-conn-timeout", Usage: flagHelp.MustUsage("proxy.transport.idle-conn-timeout"), Value: defaults.Proxy.Transport.IdleConnTimeout},
 		&cli.BoolFlag{Name: "proxy.transport.disable-keep-alives", Usage: flagHelp.MustUsage("proxy.transport.disable-keep-alives"), Value: defaults.Proxy.Transport.DisableKeepAlives},
-		&cli.StringFlag{Name: "proxy.directive.redis.url", Usage: flagHelp.MustUsage("proxy.directive.redis.url"), Value: defaults.Proxy.Directive.Redis.URL},
-		&cli.StringFlag{Name: "proxy.directive.redis.key-prefix", Usage: flagHelp.MustUsage("proxy.directive.redis.key-prefix"), Value: defaults.Proxy.Directive.Redis.KeyPrefix},
-		&cli.DurationFlag{Name: "proxy.directive.redis.lookup-timeout", Usage: flagHelp.MustUsage("proxy.directive.redis.lookup-timeout"), Value: defaults.Proxy.Directive.Redis.LookupTimeout},
-		&cli.Int64Flag{Name: "proxy.directive.redis.max-value-bytes", Usage: flagHelp.MustUsage("proxy.directive.redis.max-value-bytes"), Value: defaults.Proxy.Directive.Redis.MaxValueBytes},
+		&cli.DurationFlag{Name: "proxy.directive.remote.timeout", Usage: flagHelp.MustUsage("proxy.directive.remote.timeout"), Value: defaults.Proxy.Directive.Remote.Timeout},
+		&cli.Int64Flag{Name: "proxy.directive.remote.max-request-bytes", Usage: flagHelp.MustUsage("proxy.directive.remote.max-request-bytes"), Value: defaults.Proxy.Directive.Remote.MaxRequestBytes},
+		&cli.Int64Flag{Name: "proxy.directive.remote.max-response-bytes", Usage: flagHelp.MustUsage("proxy.directive.remote.max-response-bytes"), Value: defaults.Proxy.Directive.Remote.MaxResponseBytes},
+		&cli.IntFlag{Name: "proxy.directive.remote.redis-client-cache-capacity", Usage: flagHelp.MustUsage("proxy.directive.remote.redis-client-cache-capacity"), Value: defaults.Proxy.Directive.Remote.RedisClientCacheCapacity},
+		&cli.DurationFlag{Name: "proxy.directive.remote.redis-client-idle-timeout", Usage: flagHelp.MustUsage("proxy.directive.remote.redis-client-idle-timeout"), Value: defaults.Proxy.Directive.Remote.RedisClientIdleTimeout},
+		&cli.IntFlag{Name: "proxy.directive.remote.redis-pool-size", Usage: flagHelp.MustUsage("proxy.directive.remote.redis-pool-size"), Value: defaults.Proxy.Directive.Remote.RedisPoolSize},
 	}
 }

@@ -2,7 +2,7 @@
 
 `llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-项目只负责解析 `Authorization: Bearer dproxy.12...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.13...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
@@ -41,15 +41,15 @@ server:
 唯一入口是：
 
 ```http
-Authorization: Bearer dproxy.12.i.<base64url-json>
-Authorization: Bearer dproxy.12.r.<base64url-redis-key>
+Authorization: Bearer dproxy.13.i.<base64url-directive-json>
+Authorization: Bearer dproxy.13.r.<base64url-remote-spec-json>
 ```
 
-`dproxy.` token family 由代理保留，当前只接受 `dproxy.12.i` 和 `dproxy.12.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
+`dproxy.` token family 由代理保留，当前只接受 `dproxy.13.i` 和 `dproxy.13.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
 
 - `i` 直接从 token 读取完整 directive JSON。
-- `r` 将解码后的可读 key 拼接配置的 Redis key prefix，通过一次 `GET` 读取完整 directive JSON。
-- Redis directive 完整替换本次指令，不与 token 合并、不回退、不递归引用。
+- `r` 从 token 读取自包含的 HTTP 或 Redis `RemoteSpec`，远端响应就是完整 directive JSON。
+- 远端 directive 不与 token 合并、不回退、不缓存 value，也不能递归引用另一条 remote directive。
 
 payload schema：
 
@@ -78,7 +78,7 @@ payload schema：
 }
 ```
 
-使用 `directive.Encode` 可以生成 inline token，使用 `directive.EncodeRedisKey` 可以从 `team-a/openai` 这类可读 key 生成 Redis token。
+使用 `directive.Encode` 生成 inline token，使用 `directive.EncodeRemote` 生成 remote token。
 
 每条 header op 必须且只能提供 `name`、`glob` 或 `preset` 之一：
 
@@ -91,19 +91,61 @@ payload schema：
 
 HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
-Redis 指令读取配置：
+HTTP RemoteSpec：
+
+```json
+{
+  "type": "http",
+  "url": "https://policy.example.com/v1/resolve",
+  "key": "team-a/openai",
+  "headers": {
+    "Authorization": "Bearer policy-token"
+  }
+}
+```
+
+服务向该 URL 发送 `POST application/json`，不发送原请求 body：
+
+```json
+{
+  "protocol": "dproxy.resolve.v1",
+  "key": "team-a/openai",
+  "request": {
+    "method": "POST",
+    "url": "https://relay.example.com/v1/chat?region=cn",
+    "host": "relay.example.com",
+    "headers": { "Content-Type": ["application/json"] }
+  }
+}
+```
+
+原请求中的 dproxy `Authorization` 与 hop-by-hop headers 不会发给 resolver。HTTP resolver 使用独立直连 transport，不读取环境代理、不跟随重定向；`200` body 是完整 directive，`204/404` 表示未找到。
+
+Redis RemoteSpec：
+
+```json
+{
+  "type": "redis",
+  "url": "rediss://user:password@redis.example.com:6380/1",
+  "key": "dproxy:directive:team-a/openai"
+}
+```
+
+服务对 token 指定的 Redis URL 建立动态 client，并执行精确的 `GET key`，不添加 prefix。client 按连接 URL 指纹进行有界复用；directive value 不缓存。remote token 可包含连接凭据，必须按密钥处理，避免写入日志或公开配置。
+
+全局配置只限制远端解析使用的资源：
 
 ```yaml
 proxy:
   directive:
-    redis:
-      url: "redis://127.0.0.1:6379/0"
-      key-prefix: "dproxy:12:directive:"
-      lookup-timeout: 500ms
-      max-value-bytes: 262144
+    remote:
+      timeout: 1s
+      max-request-bytes: 131072
+      max-response-bytes: 262144
+      redis-client-cache-capacity: 64
+      redis-client-idle-timeout: 10m
+      redis-pool-size: 4
 ```
-
-例如 Redis token 解码出的 key 是 `team-a/openai`，服务读取 `dproxy:12:directive:team-a/openai`。URL 为空时 inline token 仍可使用，Redis token 返回 `503`。
 
 ## 运行
 

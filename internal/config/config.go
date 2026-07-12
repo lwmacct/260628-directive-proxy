@@ -40,14 +40,16 @@ type Proxy struct {
 }
 
 type ProxyDirective struct {
-	Redis RedisDirective `json:"redis" desc:"Redis 指令存储配置"`
+	Remote RemoteDirective `json:"remote" desc:"远程指令解析资源限制"`
 }
 
-type RedisDirective struct {
-	URL           string        `json:"url"             desc:"Redis URL；为空时禁用 Redis 指令读取"`
-	KeyPrefix     string        `json:"key-prefix"      desc:"Redis 指令 key 前缀"`
-	LookupTimeout time.Duration `json:"lookup-timeout"  desc:"单次 Redis 指令查询超时"`
-	MaxValueBytes int64         `json:"max-value-bytes" desc:"Redis 指令 JSON 最大字节数"`
+type RemoteDirective struct {
+	Timeout                  time.Duration `json:"timeout"                     desc:"单次远程指令解析总超时"`
+	MaxRequestBytes          int64         `json:"max-request-bytes"           desc:"HTTP resolver 请求元数据最大字节数"`
+	MaxResponseBytes         int64         `json:"max-response-bytes"          desc:"远程 directive JSON 最大字节数"`
+	RedisClientCacheCapacity int           `json:"redis-client-cache-capacity" desc:"动态 Redis client 缓存容量"`
+	RedisClientIdleTimeout   time.Duration `json:"redis-client-idle-timeout"   desc:"动态 Redis client 空闲回收时间"`
+	RedisPoolSize            int           `json:"redis-pool-size"             desc:"每个动态 Redis client 的连接池容量"`
 }
 
 type ProxyTransport struct {
@@ -83,11 +85,13 @@ func DefaultConfig() Config {
 		},
 		Proxy: Proxy{
 			Directive: ProxyDirective{
-				Redis: RedisDirective{
-					URL:           "",
-					KeyPrefix:     "dproxy:12:directive:",
-					LookupTimeout: 500 * time.Millisecond,
-					MaxValueBytes: 256 << 10,
+				Remote: RemoteDirective{
+					Timeout:                  time.Second,
+					MaxRequestBytes:          128 << 10,
+					MaxResponseBytes:         256 << 10,
+					RedisClientCacheCapacity: 64,
+					RedisClientIdleTimeout:   10 * time.Minute,
+					RedisPoolSize:            4,
 				},
 			},
 			Transport: ProxyTransport{

@@ -43,7 +43,7 @@ func TestObserverCapturesAndRedactsHTTPExchange(t *testing.T) {
 	_, _ = wrappedResponse.Write([]byte("world"))
 	target, _ := url.Parse("https://api.example.test/v1/chat")
 	observation.SetTargetURL(target)
-	observation.SetDirective("redis", "team-a/openai", 7)
+	observation.SetDirective("remote", "redis", "redis://redis.example.com/0", "team-a/openai", 7)
 	outboundRequest := httptest.NewRequest(http.MethodPost, target.String(), nil)
 	outboundRequest.Header.Set("Authorization", "Bearer upstream-secret")
 	outboundRequest.Header.Set("X-Outbound", "visible")
@@ -54,7 +54,9 @@ func TestObserverCapturesAndRedactsHTTPExchange(t *testing.T) {
 	if record.ID != 7 || record.StatusCode != http.StatusCreated || record.TargetURL != target.String() {
 		t.Fatalf("unexpected record metadata: %#v", record)
 	}
-	if record.DirectiveSource != "redis" || record.DirectiveKey != "team-a/openai" || record.DirectiveLookupMillis != 7 {
+	if record.DirectiveMode != "remote" || record.DirectiveBackend != "redis" ||
+		record.DirectiveEndpoint != "redis://redis.example.com/0" || record.DirectiveKey != "team-a/openai" ||
+		record.DirectiveResolutionMillis != 7 {
 		t.Fatalf("unexpected directive metadata: %#v", record)
 	}
 	if record.RequestBody.Text != "hello" || record.ResponseBody.Text != "world" {

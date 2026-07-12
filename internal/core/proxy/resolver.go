@@ -6,11 +6,12 @@ import (
 )
 
 var (
-	ErrNoMatch                   = errors.New("proxy resolver did not match request")
-	ErrInvalidDirective          = errors.New("invalid proxy directive")
-	ErrDirectiveNotFound         = errors.New("directive reference not found")
-	ErrDirectiveStoreUnavailable = errors.New("directive store unavailable")
-	ErrStoredDirectiveInvalid    = errors.New("stored directive is invalid")
+	ErrNoMatch                    = errors.New("proxy resolver did not match request")
+	ErrInvalidDirective           = errors.New("invalid proxy directive")
+	ErrDirectiveNotFound          = errors.New("directive reference not found")
+	ErrRemoteDirectiveUnavailable = errors.New("remote directive unavailable")
+	ErrDirectiveMetadataTooLarge  = errors.New("directive request metadata too large")
+	ErrRemoteDirectiveInvalid     = errors.New("remote directive is invalid")
 )
 
 type Resolver interface {

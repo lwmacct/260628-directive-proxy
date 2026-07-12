@@ -34,9 +34,15 @@ import { useText, type Text as AppText } from "../../shared/i18n";
 
 const { Text } = Typography;
 const tokenFamily = "dproxy";
-const tokenVersion = "12";
+const tokenVersion = "13";
 
-type DirectiveSource = "inline" | "redis";
+type DirectiveSource = "inline" | "http" | "redis";
+
+type ResolverHeader = {
+  key: string;
+  name: string;
+  value: string;
+};
 
 type HeaderOp = {
   key: string;
@@ -48,7 +54,10 @@ type HeaderOp = {
 
 type EditorState = {
   source: DirectiveSource;
-  redisKey: string;
+  remoteKey: string;
+  httpURL: string;
+  redisURL: string;
+  resolverHeaders: ResolverHeader[];
   targetURL: string;
   joinPath: boolean;
   proxyURL: string;
@@ -78,7 +87,14 @@ type DirectiveHeaderOp = NonNullable<NonNullable<DirectivePayload["headers"]>["o
 
 type DecodedDirectiveToken =
   | { source: "inline"; payload: DirectivePayload }
-  | { source: "redis"; redisKey: string };
+  | { source: "http" | "redis"; spec: RemoteSpec };
+
+type RemoteSpec = {
+  type: "http" | "redis";
+  url: string;
+  key?: string;
+  headers?: Record<string, string>;
+};
 
 type RequestResult = {
   body: string;
@@ -89,10 +105,14 @@ type RequestResult = {
 };
 
 let headerOpID = 0;
+let resolverHeaderID = 0;
 
 const initialEditor: EditorState = {
   source: "inline",
-  redisKey: "team-a/openai",
+  remoteKey: "team-a/openai",
+  httpURL: "https://policy.example.com/v1/resolve",
+  redisURL: "rediss://user:password@redis.example.com:6380/1",
+  resolverHeaders: [newResolverHeader("Authorization", "Bearer policy-token")],
   targetURL: "https://httpbin.org/anything",
   joinPath: true,
   proxyURL: "",
@@ -164,7 +184,7 @@ export function AuthConsolePage() {
       if (decoded.source === "inline") {
         applyPayload(decoded.payload);
       } else {
-        const next = { ...editor, source: "redis" as const, redisKey: decoded.redisKey };
+        const next = remoteSpecToEditor(editor, decoded.spec);
         setEditor(next);
         setTokenInput(encodeDirectiveToken(next, payload));
         setActiveSource("token");
@@ -177,7 +197,7 @@ export function AuthConsolePage() {
   }
 
   function applyPayload(nextPayload: DirectivePayload) {
-    const next = { ...payloadToEditor(nextPayload), source: "inline" as const, redisKey: editor.redisKey };
+    const next = { ...editor, ...payloadToEditor(nextPayload), source: "inline" as const };
     setEditor(next);
     syncInputs(next, nextPayload);
   }
@@ -192,7 +212,7 @@ export function AuthConsolePage() {
 
   async function sendRequest() {
     try {
-      if (editor.source === "redis") validateRedisKey(editor.redisKey, t.authConsole);
+      if (editor.source !== "inline") validateRemoteSpec(buildRemoteSpec(editor), t.authConsole);
       const path = normalizeRequestPath(requestPath, t.authConsole);
       const headers = parseRequestHeaders(requestHeaders, t.authConsole);
       const controller = new AbortController();
@@ -345,24 +365,14 @@ export function AuthConsolePage() {
                 <Segmented
                   options={[
                     { label: "Inline", value: "inline" },
+                    { label: "HTTP API", value: "http" },
                     { label: "Redis", value: "redis" },
                   ]}
                   value={editor.source}
                   onChange={(source: DirectiveSource) => updateDirectiveSource(source)}
                 />
               </Form.Item>
-              {editor.source === "redis" ? (
-                <Form.Item label={t.authConsole.redisKey}>
-                  <Input
-                    placeholder="team-a/openai"
-                    status={isRedisKeyValid(editor.redisKey) ? undefined : "error"}
-                    value={editor.redisKey}
-                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      updateEditor({ redisKey: event.target.value })
-                    }
-                  />
-                </Form.Item>
-              ) : (
+              {editor.source === "inline" ? (
                 <>
                   <Form.Item label="Target URL">
                     <Input
@@ -406,6 +416,81 @@ export function AuthConsolePage() {
                       />
                     </Form.Item>
                   </Flex>
+                </>
+              ) : (
+                <>
+                  <Form.Item label={editor.source === "http" ? t.authConsole.httpResolverURL : t.authConsole.redisURL}>
+                    <Input
+                      placeholder={editor.source === "http"
+                        ? "https://policy.example.com/v1/resolve"
+                        : "rediss://user:password@redis.example.com:6380/1"}
+                      value={editor.source === "http" ? editor.httpURL : editor.redisURL}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        updateEditor(editor.source === "http"
+                          ? { httpURL: event.target.value }
+                          : { redisURL: event.target.value })
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item label={editor.source === "http" ? t.authConsole.optionalRemoteKey : t.authConsole.redisKey}>
+                    <Input
+                      placeholder="team-a/openai"
+                      status={editor.source === "redis" && !isRemoteKeyValid(editor.remoteKey) ? "error" : undefined}
+                      value={editor.remoteKey}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        updateEditor({ remoteKey: event.target.value })
+                      }
+                    />
+                  </Form.Item>
+                  {editor.source === "http" ? (
+                    <Form.Item label={t.authConsole.resolverHeaders}>
+                      <Flex gap="small" vertical>
+                        {editor.resolverHeaders.map((header) => (
+                          <Flex gap="small" key={header.key} wrap>
+                            <Input
+                              placeholder="Authorization"
+                              style={{ flex: "1 1 160px", minWidth: 0 }}
+                              value={header.name}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                updateEditor({
+                                  resolverHeaders: editor.resolverHeaders.map((item) => item.key === header.key
+                                    ? { ...item, name: event.target.value }
+                                    : item),
+                                })
+                              }
+                            />
+                            <Input
+                              placeholder="Bearer policy-token"
+                              style={{ flex: "1 1 160px", minWidth: 0 }}
+                              value={header.value}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                updateEditor({
+                                  resolverHeaders: editor.resolverHeaders.map((item) => item.key === header.key
+                                    ? { ...item, value: event.target.value }
+                                    : item),
+                                })
+                              }
+                            />
+                            <Button
+                              aria-label={t.authConsole.removeResolverHeader}
+                              icon={<DeleteOutlined />}
+                              onClick={() => updateEditor({
+                                resolverHeaders: editor.resolverHeaders.filter((item) => item.key !== header.key),
+                              })}
+                            />
+                          </Flex>
+                        ))}
+                        <Button
+                          icon={<PlusOutlined />}
+                          onClick={() => updateEditor({
+                            resolverHeaders: [...editor.resolverHeaders, newResolverHeader("", "")],
+                          })}
+                        >
+                          {t.authConsole.addResolverHeader}
+                        </Button>
+                      </Flex>
+                    </Form.Item>
+                  ) : null}
                 </>
               )}
             </Form>
@@ -459,7 +544,7 @@ export function AuthConsolePage() {
                   label: "Token",
                   children: (
                     <SourceEditor
-                      placeholder="dproxy.12.i..."
+                      placeholder="dproxy.13.i..."
                       value={tokenInput}
                       onChange={setTokenInput}
                     />
@@ -471,7 +556,7 @@ export function AuthConsolePage() {
                   label: "Token",
                   children: (
                     <SourceEditor
-                      placeholder="dproxy.12.r..."
+                      placeholder="dproxy.13.r..."
                       value={tokenInput}
                       onChange={setTokenInput}
                     />
@@ -701,10 +786,8 @@ function buildPayload(input: EditorState): DirectivePayload {
   return payload;
 }
 
-function payloadToEditor(payload: DirectivePayload): EditorState {
+function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetURL" | "joinPath" | "proxyURL" | "headerMode" | "headerOps"> {
   return {
-    source: "inline",
-    redisKey: "",
     targetURL: payload.target.url,
     joinPath: payload.target.join_path ?? true,
     proxyURL: payload.proxy ?? "",
@@ -887,7 +970,9 @@ function decodeDirectiveToken(value: string, text: AppText["authConsole"]): Deco
       return { source: "inline", payload: parsePayloadJSON(decoded, text) };
     }
     if (parts[2] === "r") {
-      return { source: "redis", redisKey: validateRedisKey(decoded, text) };
+      const parsed: unknown = JSON.parse(decoded);
+      const spec = validateRemoteSpec(parsed, text);
+      return { source: spec.type, spec };
     }
     throw new Error(text.tokenPrefix);
   } catch (err) {
@@ -897,18 +982,80 @@ function decodeDirectiveToken(value: string, text: AppText["authConsole"]): Deco
 
 function encodeDirectiveToken(editor: EditorState, payload: DirectivePayload) {
   const kind = editor.source === "inline" ? "i" : "r";
-  const value = editor.source === "inline" ? JSON.stringify(payload) : editor.redisKey;
+  const value = editor.source === "inline" ? JSON.stringify(payload) : JSON.stringify(buildRemoteSpec(editor));
   return `${tokenFamily}.${tokenVersion}.${kind}.${base64URL(value)}`;
 }
 
-function validateRedisKey(value: string, text: AppText["authConsole"]) {
-  if (!isRedisKeyValid(value)) {
-    throw new Error(text.invalidRedisKey);
-  }
-  return value;
+function buildRemoteSpec(editor: EditorState): RemoteSpec {
+  const headers = Object.fromEntries(editor.resolverHeaders.flatMap((header) => {
+    const name = header.name.trim();
+    return name ? [[name, header.value]] : [];
+  }));
+  return {
+    type: editor.source === "redis" ? "redis" : "http",
+    url: (editor.source === "redis" ? editor.redisURL : editor.httpURL).trim(),
+    ...(editor.remoteKey ? { key: editor.remoteKey } : {}),
+    ...(editor.source === "http" && Object.keys(headers).length ? { headers } : {}),
+  };
 }
 
-function isRedisKeyValid(value: string) {
+function validateRemoteSpec(value: unknown, text: AppText["authConsole"]): RemoteSpec {
+  if (!isRecord(value)) throw new Error(text.mustBe("RemoteSpec", "JSON object"));
+  assertKnownKeys(value, ["type", "url", "key", "headers"], "RemoteSpec", text);
+  if (value.type !== "http" && value.type !== "redis") {
+    throw new Error(text.onlyValues("RemoteSpec.type", "http, redis"));
+  }
+  if (typeof value.url !== "string") throw new Error(text.nonEmptyString("RemoteSpec.url"));
+  let parsedURL: URL;
+  try {
+    parsedURL = new URL(value.url);
+  } catch {
+    throw new Error(text.invalidRemoteURL);
+  }
+  if ((value.type === "http" && !["http:", "https:"].includes(parsedURL.protocol)) ||
+      (value.type === "http" && Boolean(parsedURL.username || parsedURL.password)) ||
+      (value.type === "redis" && !["redis:", "rediss:"].includes(parsedURL.protocol))) {
+    throw new Error(text.invalidRemoteURL);
+  }
+  const key = value.key ?? "";
+  if (typeof key !== "string" || (key !== "" && !isRemoteKeyValid(key)) ||
+      (value.type === "redis" && key === "")) {
+    throw new Error(text.invalidRedisKey);
+  }
+  let headers: Record<string, string> | undefined;
+  if (value.headers !== undefined) {
+    if (value.type !== "http" || !isRecord(value.headers)) {
+      throw new Error(text.mustBe("RemoteSpec.headers", "string map"));
+    }
+    headers = {};
+    const forbidden = new Set([
+      "host", "content-length", "content-type", "connection", "proxy-connection", "keep-alive",
+      "transfer-encoding", "upgrade", "trailer", "te",
+    ]);
+    for (const [name, headerValue] of Object.entries(value.headers)) {
+      if (!isValidHeaderName(name) || forbidden.has(name.toLowerCase()) ||
+          typeof headerValue !== "string" || /[\r\n]/.test(headerValue)) {
+        throw new Error(text.invalidResolverHeader);
+      }
+      headers[name] = headerValue;
+    }
+  }
+  return { type: value.type, url: value.url.trim(), ...(key ? { key } : {}), ...(headers ? { headers } : {}) };
+}
+
+function remoteSpecToEditor(editor: EditorState, spec: RemoteSpec): EditorState {
+  return {
+    ...editor,
+    source: spec.type,
+    remoteKey: spec.key ?? "",
+    ...(spec.type === "http" ? {
+      httpURL: spec.url,
+      resolverHeaders: Object.entries(spec.headers ?? {}).map(([name, value]) => newResolverHeader(name, value)),
+    } : { redisURL: spec.url }),
+  };
+}
+
+function isRemoteKeyValid(value: string) {
   const bytes = new TextEncoder().encode(value);
   return Boolean(value) && value === value.trim() && bytes.length <= 256 && ![...value].some((char) => {
     const codePoint = char.codePointAt(0) ?? 0;
@@ -1000,6 +1147,11 @@ function newHeaderOp(
 ): HeaderOp {
   headerOpID += 1;
   return { key: `header-op-${headerOpID}`, op, selector, pattern, values };
+}
+
+function newResolverHeader(name: string, value: string): ResolverHeader {
+  resolverHeaderID += 1;
+  return { key: `resolver-header-${resolverHeaderID}`, name, value };
 }
 
 async function copyText(value: string) {

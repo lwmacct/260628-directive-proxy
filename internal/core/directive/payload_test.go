@@ -57,34 +57,56 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEncodeDecodeRedisKeyRoundTrip(t *testing.T) {
-	encoded, err := EncodeRedisKey("team-a/生产/openai")
-	if err != nil {
-		t.Fatalf("encode redis key failed: %v", err)
+func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
+	input := RemoteSpec{
+		Type: RemoteTypeHTTP,
+		URL:  "https://policy.example.com/v1/resolve",
+		Key:  "team-a/生产/openai",
+		Headers: map[string]string{
+			"authorization": "Bearer policy-token",
+		},
 	}
-	if !strings.HasPrefix(encoded, TokenFamily+"."+TokenVersion+"."+TokenRedis+".") {
+	encoded, err := EncodeRemote(input)
+	if err != nil {
+		t.Fatalf("encode remote failed: %v", err)
+	}
+	if !strings.HasPrefix(encoded, TokenFamily+"."+TokenVersion+"."+TokenRemote+".") {
 		t.Fatalf("unexpected token: %q", encoded)
 	}
 	token, err := Decode(encoded)
 	if err != nil {
-		t.Fatalf("decode redis key failed: %v", err)
+		t.Fatalf("decode remote failed: %v", err)
 	}
-	if token.Kind != TokenRedis || token.RedisKey != "team-a/生产/openai" {
+	if token.Kind != TokenRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
+		token.Remote.Key != input.Key || token.Remote.Headers["Authorization"] != "Bearer policy-token" {
 		t.Fatalf("unexpected decoded token: %#v", token)
 	}
 }
 
-func TestRedisKeyValidationIsMinimal(t *testing.T) {
-	valid := []string{"team-a/openai", "region:cn/model:qwen", "客户甲/openai", strings.Repeat("a", maxRedisKeyBytes)}
+func TestRemoteSpecValidation(t *testing.T) {
+	valid := []string{"team-a/openai", "region:cn/model:qwen", "客户甲/openai", strings.Repeat("a", maxRemoteKeyBytes)}
 	for _, key := range valid {
-		if _, err := EncodeRedisKey(key); err != nil {
+		if _, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "rediss://user:pass@redis.example.com:6380/1", Key: key}); err != nil {
 			t.Fatalf("expected key %q to be valid: %v", key, err)
 		}
 	}
-	invalid := []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("a", maxRedisKeyBytes+1)}
+	invalid := []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("a", maxRemoteKeyBytes+1)}
 	for _, key := range invalid {
-		if _, err := EncodeRedisKey(key); err == nil {
+		if _, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "redis://redis.example.com:6379/0", Key: key}); err == nil {
 			t.Fatalf("expected key %q to be invalid", key)
+		}
+	}
+	invalidSpecs := []RemoteSpec{
+		{Type: "unknown", URL: "https://policy.example.com"},
+		{Type: RemoteTypeHTTP, URL: "file:///tmp/directive"},
+		{Type: RemoteTypeHTTP, URL: "https://user:pass@policy.example.com"},
+		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: map[string]string{"Host": "other.example.com"}},
+		{Type: RemoteTypeRedis, URL: "http://redis.example.com", Key: "key"},
+		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", Headers: map[string]string{"X-Test": "value"}},
+	}
+	for _, spec := range invalidSpecs {
+		if _, err := EncodeRemote(spec); err == nil {
+			t.Fatalf("expected spec to be invalid: %#v", spec)
 		}
 	}
 }

@@ -5,16 +5,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 )
 
-const maxRedisKeyBytes = 256
+const maxRemoteKeyBytes = 256
 
 type Token struct {
-	Kind     string
-	Payload  []byte
-	RedisKey string
+	Kind    string
+	Payload []byte
+	Remote  RemoteSpec
 }
 
 func Encode(payload Payload) (string, error) {
@@ -25,12 +27,16 @@ func Encode(payload Payload) (string, error) {
 	return encodeToken(TokenInline, raw), nil
 }
 
-func EncodeRedisKey(key string) (string, error) {
-	key, err := normalizeRedisKey(key)
+func EncodeRemote(spec RemoteSpec) (string, error) {
+	spec, err := normalizeRemoteSpec(spec)
 	if err != nil {
 		return "", err
 	}
-	return encodeToken(TokenRedis, []byte(key)), nil
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	return encodeToken(TokenRemote, raw), nil
 }
 
 func Decode(encoded string) (Token, error) {
@@ -45,12 +51,12 @@ func Decode(encoded string) (Token, error) {
 	switch parts[2] {
 	case TokenInline:
 		return Token{Kind: TokenInline, Payload: raw}, nil
-	case TokenRedis:
-		key, err := normalizeRedisKey(string(raw))
+	case TokenRemote:
+		spec, err := decodeRemoteSpec(raw)
 		if err != nil {
 			return Token{}, err
 		}
-		return Token{Kind: TokenRedis, RedisKey: key}, nil
+		return Token{Kind: TokenRemote, Remote: spec}, nil
 	default:
 		return Token{}, ErrInvalidPayload
 	}
@@ -79,8 +85,67 @@ func encodeToken(kind string, raw []byte) string {
 	}, ".")
 }
 
-func normalizeRedisKey(key string) (string, error) {
-	if !utf8.ValidString(key) || key != strings.TrimSpace(key) || key == "" || len(key) > maxRedisKeyBytes {
+func decodeRemoteSpec(raw []byte) (RemoteSpec, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var spec RemoteSpec
+	if err := decoder.Decode(&spec); err != nil {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	return normalizeRemoteSpec(spec)
+}
+
+func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
+	spec.Type = strings.TrimSpace(spec.Type)
+	spec.URL = strings.TrimSpace(spec.URL)
+	parsed, err := url.Parse(spec.URL)
+	if err != nil || parsed.Host == "" {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	switch spec.Type {
+	case RemoteTypeHTTP:
+		if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+	case RemoteTypeRedis:
+		if (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || spec.Key == "" || len(spec.Headers) > 0 {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+	default:
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	key, err := normalizeRemoteKey(spec.Key, spec.Type == RemoteTypeRedis)
+	if err != nil {
+		return RemoteSpec{}, err
+	}
+	spec.Key = key
+	normalizedHeaders := make(map[string]string, len(spec.Headers))
+	for name, value := range spec.Headers {
+		canonicalName := http.CanonicalHeaderKey(strings.TrimSpace(name))
+		if !isValidHeaderName(canonicalName) || isForbiddenResolverHeader(canonicalName) || strings.ContainsAny(value, "\r\n") {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+		if _, exists := normalizedHeaders[canonicalName]; exists {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+		normalizedHeaders[canonicalName] = value
+	}
+	if len(normalizedHeaders) > 0 {
+		spec.Headers = normalizedHeaders
+	} else {
+		spec.Headers = nil
+	}
+	return spec, nil
+}
+
+func normalizeRemoteKey(key string, required bool) (string, error) {
+	if key == "" && !required {
+		return "", nil
+	}
+	if !utf8.ValidString(key) || key != strings.TrimSpace(key) || key == "" || len(key) > maxRemoteKeyBytes {
 		return "", ErrInvalidPayload
 	}
 	for _, char := range key {
@@ -89,4 +154,13 @@ func normalizeRedisKey(key string) (string, error) {
 		}
 	}
 	return key, nil
+}
+
+func isForbiddenResolverHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "host", "content-length", "content-type", "connection", "proxy-connection", "keep-alive", "transfer-encoding", "upgrade", "trailer", "te":
+		return true
+	default:
+		return false
+	}
 }

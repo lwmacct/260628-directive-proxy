@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/redisstore"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
@@ -24,11 +23,11 @@ import (
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	exchanges      *service.ExchangeService
-	observer       proxy.Observer
-	oidcAuth       *oidcauth.Auth
-	tls            *tlsRuntime
-	directiveStore *redisstore.Store
+	exchanges       *service.ExchangeService
+	observer        proxy.Observer
+	oidcAuth        *oidcauth.Auth
+	tls             *tlsRuntime
+	directiveReader *remote.Reader
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
@@ -42,24 +41,25 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
-	var directiveStore *redisstore.Store
-	if redisConfig := cfg.Proxy.Directive.Redis; strings.TrimSpace(redisConfig.URL) != "" {
-		directiveStore, err = redisstore.New(redisConfig.URL, redisConfig.KeyPrefix)
-		if err != nil {
-			tlsRuntime.Close()
-			return nil, fmt.Errorf("configure redis directive store: %w", err)
-		}
-	}
+	remoteConfig := cfg.Proxy.Directive.Remote
+	directiveReader := remote.New(remote.Options{
+		Timeout:                  remoteConfig.Timeout,
+		MaxRequestBytes:          remoteConfig.MaxRequestBytes,
+		MaxResponseBytes:         remoteConfig.MaxResponseBytes,
+		RedisClientCacheCapacity: remoteConfig.RedisClientCacheCapacity,
+		RedisClientIdleTimeout:   remoteConfig.RedisClientIdleTimeout,
+		RedisPoolSize:            remoteConfig.RedisPoolSize,
+	})
 	return &runtime{
-		exchanges:      exchanges,
-		observer:       capture.NewObserver(exchanges),
-		oidcAuth:       oidcAuth,
-		tls:            tlsRuntime,
-		directiveStore: directiveStore,
+		exchanges:       exchanges,
+		observer:        capture.NewObserver(exchanges),
+		oidcAuth:        oidcAuth,
+		tls:             tlsRuntime,
+		directiveReader: directiveReader,
 	}, nil
 }
 
-func newProxyHandler(cfg *config.Config, store directive.Store, observer proxy.Observer, next http.Handler) http.Handler {
+func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer proxy.Observer, next http.Handler) http.Handler {
 	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -68,11 +68,11 @@ func newProxyHandler(cfg *config.Config, store directive.Store, observer proxy.O
 		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
 	})
 
-	redisConfig := cfg.Proxy.Directive.Redis
+	remoteConfig := cfg.Proxy.Directive.Remote
 	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
-		Store:         store,
-		LookupTimeout: redisConfig.LookupTimeout,
-		MaxValueBytes: redisConfig.MaxValueBytes,
+		RemoteReader:  reader,
+		LookupTimeout: remoteConfig.Timeout,
+		MaxValueBytes: remoteConfig.MaxResponseBytes,
 	}), transport, proxy.HandlerOptions{
 		Observer: observer,
 		Next:     next,
@@ -87,11 +87,11 @@ func (rt *runtime) Close(_ context.Context) error {
 		rt.tls.Close()
 		rt.tls = nil
 	}
-	if rt.directiveStore != nil {
-		if err := rt.directiveStore.Close(); err != nil {
+	if rt.directiveReader != nil {
+		if err := rt.directiveReader.Close(); err != nil {
 			return err
 		}
-		rt.directiveStore = nil
+		rt.directiveReader = nil
 	}
 	return nil
 }

@@ -86,8 +86,9 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 		body   string
 	}{
 		{ErrDirectiveNotFound, http.StatusNotFound, "directive: reference not found"},
-		{ErrDirectiveStoreUnavailable, http.StatusServiceUnavailable, "directive: store unavailable"},
-		{ErrStoredDirectiveInvalid, http.StatusInternalServerError, "directive: stored payload is invalid"},
+		{ErrRemoteDirectiveUnavailable, http.StatusServiceUnavailable, "directive: remote resolver unavailable"},
+		{ErrDirectiveMetadataTooLarge, http.StatusRequestHeaderFieldsTooLarge, "directive: request metadata is too large"},
+		{ErrRemoteDirectiveInvalid, http.StatusBadGateway, "directive: remote payload is invalid"},
 	}
 	for _, tt := range tests {
 		handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {

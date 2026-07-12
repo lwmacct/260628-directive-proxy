@@ -68,21 +68,17 @@ func TestValidateNormalizesAuth(t *testing.T) {
 	}
 }
 
-func TestValidateRedisDirectiveConfig(t *testing.T) {
-	valid := DefaultConfig()
-	valid.Proxy.Directive.Redis.URL = "rediss://user:pass@redis.example.com:6380/1"
-	if _, err := Validate(valid); err != nil {
-		t.Fatalf("expected valid redis config: %v", err)
-	}
-
-	for _, mutate := range []func(*RedisDirective){
-		func(cfg *RedisDirective) { cfg.URL = "http://redis.example.com" },
-		func(cfg *RedisDirective) { cfg.URL = "redis:///0" },
-		func(cfg *RedisDirective) { cfg.LookupTimeout = -1 },
-		func(cfg *RedisDirective) { cfg.MaxValueBytes = 0 },
+func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
+	for _, mutate := range []func(*RemoteDirective){
+		func(cfg *RemoteDirective) { cfg.Timeout = 0 },
+		func(cfg *RemoteDirective) { cfg.MaxRequestBytes = 0 },
+		func(cfg *RemoteDirective) { cfg.MaxResponseBytes = 0 },
+		func(cfg *RemoteDirective) { cfg.RedisClientCacheCapacity = 0 },
+		func(cfg *RemoteDirective) { cfg.RedisClientIdleTimeout = -1 },
+		func(cfg *RemoteDirective) { cfg.RedisPoolSize = 0 },
 	} {
 		cfg := DefaultConfig()
-		mutate(&cfg.Proxy.Directive.Redis)
+		mutate(&cfg.Proxy.Directive.Remote)
 		if _, err := Validate(cfg); err != ErrInvalidDirective {
 			t.Fatalf("expected invalid directive config, got %v", err)
 		}

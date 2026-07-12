@@ -1,9 +1,6 @@
 package config
 
-import (
-	"net/url"
-	"strings"
-)
+import "strings"
 
 func Validate(cfg Config) (Config, error) {
 	if strings.TrimSpace(cfg.Server.HTTP.Listen) == "" {
@@ -25,16 +22,10 @@ func Validate(cfg Config) (Config, error) {
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport
 	}
-	redisConfig := &cfg.Proxy.Directive.Redis
-	redisConfig.URL = strings.TrimSpace(redisConfig.URL)
-	if redisConfig.LookupTimeout < 0 || redisConfig.MaxValueBytes <= 0 {
+	remote := cfg.Proxy.Directive.Remote
+	if remote.Timeout <= 0 || remote.MaxRequestBytes <= 0 || remote.MaxResponseBytes <= 0 ||
+		remote.RedisClientCacheCapacity <= 0 || remote.RedisClientIdleTimeout < 0 || remote.RedisPoolSize <= 0 {
 		return cfg, ErrInvalidDirective
-	}
-	if redisConfig.URL != "" {
-		parsed, err := url.Parse(redisConfig.URL)
-		if err != nil || (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || parsed.Host == "" {
-			return cfg, ErrInvalidDirective
-		}
 	}
 	return cfg, nil
 }

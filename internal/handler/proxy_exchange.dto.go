@@ -45,23 +45,25 @@ type ProxyExchangeSnapshotDTO struct {
 }
 
 type ProxyExchangeRecordDTO struct {
-	ID                     uint64               `json:"id"`
-	StartedAt              time.Time            `json:"started_at"`
-	CompletedAt            time.Time            `json:"completed_at"`
-	DurationMillis         int64                `json:"duration_millis"`
-	Method                 string               `json:"method"`
-	Host                   string               `json:"host,omitempty"`
-	URL                    string               `json:"url"`
-	TargetURL              string               `json:"target_url,omitempty"`
-	DirectiveSource        string               `json:"directive_source,omitempty"`
-	DirectiveKey           string               `json:"directive_key,omitempty"`
-	DirectiveLookupMillis  int64                `json:"directive_lookup_millis,omitempty"`
-	StatusCode             int                  `json:"status_code"`
-	RequestHeaders         map[string][]string  `json:"request_headers,omitempty"`
-	OutboundRequestHeaders map[string][]string  `json:"outbound_request_headers,omitempty"`
-	ResponseHeaders        map[string][]string  `json:"response_headers,omitempty"`
-	RequestBody            ProxyExchangeBodyDTO `json:"request_body"`
-	ResponseBody           ProxyExchangeBodyDTO `json:"response_body"`
+	ID                        uint64               `json:"id"`
+	StartedAt                 time.Time            `json:"started_at"`
+	CompletedAt               time.Time            `json:"completed_at"`
+	DurationMillis            int64                `json:"duration_millis"`
+	Method                    string               `json:"method"`
+	Host                      string               `json:"host,omitempty"`
+	URL                       string               `json:"url"`
+	TargetURL                 string               `json:"target_url,omitempty"`
+	DirectiveMode             string               `json:"directive_mode,omitempty"`
+	DirectiveBackend          string               `json:"directive_backend,omitempty"`
+	DirectiveEndpoint         string               `json:"directive_endpoint,omitempty"`
+	DirectiveKey              string               `json:"directive_key,omitempty"`
+	DirectiveResolutionMillis int64                `json:"directive_resolution_millis,omitempty"`
+	StatusCode                int                  `json:"status_code"`
+	RequestHeaders            map[string][]string  `json:"request_headers,omitempty"`
+	OutboundRequestHeaders    map[string][]string  `json:"outbound_request_headers,omitempty"`
+	ResponseHeaders           map[string][]string  `json:"response_headers,omitempty"`
+	RequestBody               ProxyExchangeBodyDTO `json:"request_body"`
+	ResponseBody              ProxyExchangeBodyDTO `json:"response_body"`
 }
 
 type ProxyExchangeBodyDTO struct {

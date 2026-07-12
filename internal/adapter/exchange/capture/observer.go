@@ -104,14 +104,16 @@ func (o *observation) SetTargetURL(target *url.URL) {
 	o.mu.Unlock()
 }
 
-func (o *observation) SetDirective(source, key string, lookupMillis int64) {
+func (o *observation) SetDirective(mode, backend, endpoint, key string, resolutionMillis int64) {
 	if o == nil {
 		return
 	}
 	o.mu.Lock()
-	o.record.DirectiveSource = source
+	o.record.DirectiveMode = mode
+	o.record.DirectiveBackend = backend
+	o.record.DirectiveEndpoint = endpoint
 	o.record.DirectiveKey = key
-	o.record.DirectiveLookupMillis = lookupMillis
+	o.record.DirectiveResolutionMillis = resolutionMillis
 	o.mu.Unlock()
 }
 

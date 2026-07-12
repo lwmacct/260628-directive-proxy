@@ -31,7 +31,7 @@ type Observation interface {
 	WrapRequest(*http.Request) *http.Request
 	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
 	SetTargetURL(*url.URL)
-	SetDirective(string, string, int64)
+	SetDirective(string, string, string, string, int64)
 	SetOutboundRequest(*http.Request)
 	Finish()
 }
@@ -128,11 +128,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrDirectiveNotFound):
 			WriteProxyErrorJSON(w, http.StatusNotFound, "directive: reference not found")
 			return
-		case errors.Is(err, ErrDirectiveStoreUnavailable):
-			WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "directive: store unavailable")
+		case errors.Is(err, ErrRemoteDirectiveUnavailable):
+			WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "directive: remote resolver unavailable")
 			return
-		case errors.Is(err, ErrStoredDirectiveInvalid):
-			WriteProxyErrorJSON(w, http.StatusInternalServerError, "directive: stored payload is invalid")
+		case errors.Is(err, ErrDirectiveMetadataTooLarge):
+			WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "directive: request metadata is too large")
+			return
+		case errors.Is(err, ErrRemoteDirectiveInvalid):
+			WriteProxyErrorJSON(w, http.StatusBadGateway, "directive: remote payload is invalid")
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
@@ -145,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if observation != nil {
 		observation.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
-		observation.SetDirective(d.DirectiveSource, d.DirectiveKey, d.DirectiveLookupMillis)
+		observation.SetDirective(d.DirectiveMode, d.DirectiveBackend, d.DirectiveEndpoint, d.DirectiveKey, d.DirectiveResolutionMillis)
 	}
 	ctx := ContextWithPlan(r.Context(), d)
 	if observation != nil {

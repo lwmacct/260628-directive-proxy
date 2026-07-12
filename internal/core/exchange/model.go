@@ -8,23 +8,25 @@ const (
 )
 
 type Record struct {
-	ID                     uint64
-	StartedAt              time.Time
-	CompletedAt            time.Time
-	DurationMillis         int64
-	Method                 string
-	Host                   string
-	URL                    string
-	TargetURL              string
-	DirectiveSource        string
-	DirectiveKey           string
-	DirectiveLookupMillis  int64
-	StatusCode             int
-	RequestHeaders         map[string][]string
-	OutboundRequestHeaders map[string][]string
-	ResponseHeaders        map[string][]string
-	RequestBody            Body
-	ResponseBody           Body
+	ID                        uint64
+	StartedAt                 time.Time
+	CompletedAt               time.Time
+	DurationMillis            int64
+	Method                    string
+	Host                      string
+	URL                       string
+	TargetURL                 string
+	DirectiveMode             string
+	DirectiveBackend          string
+	DirectiveEndpoint         string
+	DirectiveKey              string
+	DirectiveResolutionMillis int64
+	StatusCode                int
+	RequestHeaders            map[string][]string
+	OutboundRequestHeaders    map[string][]string
+	ResponseHeaders           map[string][]string
+	RequestBody               Body
+	ResponseBody              Body
 }
 
 type Body struct {

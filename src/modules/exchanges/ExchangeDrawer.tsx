@@ -49,17 +49,27 @@ export function ExchangeDrawer({
             <Descriptions.Item label={text.target}>
               <Text copyable>{record.target_url || "-"}</Text>
             </Descriptions.Item>
-            <Descriptions.Item label={text.directiveSource}>
-              {record.directive_source || "-"}
+            <Descriptions.Item label={text.directiveMode}>
+              {record.directive_mode || "-"}
             </Descriptions.Item>
+            {record.directive_backend ? (
+              <Descriptions.Item label={text.directiveBackend}>
+                {record.directive_backend}
+              </Descriptions.Item>
+            ) : null}
+            {record.directive_endpoint ? (
+              <Descriptions.Item label={text.directiveEndpoint}>
+                <Text copyable>{record.directive_endpoint}</Text>
+              </Descriptions.Item>
+            ) : null}
             {record.directive_key ? (
               <Descriptions.Item label={text.directiveKey}>
                 <Text copyable>{record.directive_key}</Text>
               </Descriptions.Item>
             ) : null}
-            {record.directive_source === "redis" ? (
-              <Descriptions.Item label={text.directiveLookup}>
-                {record.directive_lookup_millis ?? 0} ms
+            {record.directive_mode === "remote" ? (
+              <Descriptions.Item label={text.directiveResolution}>
+                {record.directive_resolution_millis ?? 0} ms
               </Descriptions.Item>
             ) : null}
           </Descriptions>

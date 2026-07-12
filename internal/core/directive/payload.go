@@ -2,10 +2,22 @@ package directive
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "12"
+	TokenVersion = "13"
 	TokenInline  = "i"
-	TokenRedis   = "r"
+	TokenRemote  = "r"
 )
+
+const (
+	RemoteTypeHTTP  = "http"
+	RemoteTypeRedis = "redis"
+)
+
+type RemoteSpec struct {
+	Type    string            `json:"type"`
+	URL     string            `json:"url"`
+	Key     string            `json:"key,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
 
 type Payload struct {
 	Target  TargetSection  `json:"target"`

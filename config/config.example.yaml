@@ -48,9 +48,11 @@ proxy:
   # 指令来源配置
   directive:
 
-    # Redis 指令存储配置
-    redis:
-      url: "" # Redis URL；为空时禁用 Redis 指令读取
-      key-prefix: "dproxy:12:directive:" # Redis 指令 key 前缀
-      lookup-timeout: 500ms # 单次 Redis 指令查询超时
-      max-value-bytes: 262144 # Redis 指令 JSON 最大字节数
+    # 远程指令解析资源限制
+    remote:
+      timeout: 1s # 单次远程指令解析总超时
+      max-request-bytes: 131072 # HTTP resolver 请求元数据最大字节数
+      max-response-bytes: 262144 # 远程 directive JSON 最大字节数
+      redis-client-cache-capacity: 64 # 动态 Redis client 缓存容量
+      redis-client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
+      redis-pool-size: 4 # 每个动态 Redis client 的连接池容量

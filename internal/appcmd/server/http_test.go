@@ -10,7 +10,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/redisstore"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
@@ -184,7 +184,7 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 	if record.OutboundRequestHeaders["Forwarded"][0] != "for=client.example" {
 		t.Fatalf("patch did not preserve forwarding header: %#v", record.OutboundRequestHeaders)
 	}
-	if record.DirectiveSource != "inline" || record.DirectiveKey != "" {
+	if record.DirectiveMode != "inline" || record.DirectiveBackend != "" || record.DirectiveKey != "" {
 		t.Fatalf("unexpected inline directive metadata: %#v", record)
 	}
 }
@@ -192,11 +192,7 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	cfg := config.DefaultConfig()
 	redisServer := miniredis.RunT(t)
-	store, err := redisstore.New("redis://"+redisServer.Addr()+"/0", cfg.Proxy.Directive.Redis.KeyPrefix)
-	if err != nil {
-		t.Fatalf("create redis store failed: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	reader := newTestDirectiveReader(t, cfg)
 
 	var upstreamSource string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,14 +200,18 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	redisServer.Set(cfg.Proxy.Directive.Redis.KeyPrefix+"team-a/openai", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`)
-	token, err := directive.EncodeRedisKey("team-a/openai")
+	redisServer.Set("team-a/openai", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`)
+	token, err := directive.EncodeRemote(directive.RemoteSpec{
+		Type: directive.RemoteTypeRedis,
+		URL:  "redis://" + redisServer.Addr() + "/0",
+		Key:  "team-a/openai",
+	})
 	if err != nil {
 		t.Fatalf("encode redis token failed: %v", err)
 	}
 	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
 	exchanges.Configure(true, 0, -1)
-	rt := &runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges), directiveStore: store}
+	rt := &runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges), directiveReader: reader}
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
@@ -222,9 +222,64 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected proxy result: status=%d source=%q body=%s", recorder.Code, upstreamSource, recorder.Body.String())
 	}
 	record := exchanges.Snapshot(1).Items[0]
-	if record.DirectiveSource != "redis" || record.DirectiveKey != "team-a/openai" {
+	if record.DirectiveMode != "remote" || record.DirectiveBackend != "redis" || record.DirectiveKey != "team-a/openai" ||
+		record.DirectiveEndpoint != "redis://"+redisServer.Addr()+"/0" {
 		t.Fatalf("unexpected redis directive metadata: %#v", record)
 	}
+}
+
+func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
+	cfg := config.DefaultConfig()
+	reader := newTestDirectiveReader(t, cfg)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Directive-Source") != "http" {
+			t.Errorf("directive header was not applied: %#v", r.Header)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Protocol string `json:"protocol"`
+			Key      string `json:"key"`
+		}
+		if r.Header.Get("Authorization") != "Bearer policy-token" || json.NewDecoder(r.Body).Decode(&body) != nil ||
+			body.Protocol != "dproxy.resolve.v1" || body.Key != "team-a/openai" {
+			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
+		}
+		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["http"]}]}}`)
+	}))
+	defer resolver.Close()
+	token, err := directive.EncodeRemote(directive.RemoteSpec{
+		Type: directive.RemoteTypeHTTP,
+		URL:  resolver.URL,
+		Key:  "team-a/openai",
+		Headers: map[string]string{
+			"Authorization": "Bearer policy-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("encode HTTP token failed: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	newHTTPServer(&cfg, &runtime{directiveReader: reader}).Handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("unexpected HTTP resolver result: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func newTestDirectiveReader(t *testing.T, cfg config.Config) *remote.Reader {
+	t.Helper()
+	remoteConfig := cfg.Proxy.Directive.Remote
+	reader := remote.New(remote.Options{
+		Timeout: remoteConfig.Timeout, MaxRequestBytes: remoteConfig.MaxRequestBytes,
+		MaxResponseBytes: remoteConfig.MaxResponseBytes, RedisClientCacheCapacity: remoteConfig.RedisClientCacheCapacity,
+		RedisClientIdleTimeout: remoteConfig.RedisClientIdleTimeout, RedisPoolSize: remoteConfig.RedisPoolSize,
+	})
+	t.Cleanup(func() { _ = reader.Close() })
+	return reader
 }
 
 func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
