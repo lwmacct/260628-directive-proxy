@@ -11,6 +11,7 @@ import {
 } from "@lwmacct/260627-antd-workbench";
 import {
   Alert,
+  App as AntdApp,
   Button,
   Checkbox,
   Col,
@@ -25,7 +26,6 @@ import {
   Tabs,
   Tag,
   Typography,
-  message,
 } from "antd";
 import type { TableColumnsType } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
@@ -33,7 +33,10 @@ import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useText, type Text as AppText } from "../../shared/i18n";
 
 const { Text } = Typography;
-const tokenPrefix = "dproxy.11.";
+const tokenFamily = "dproxy";
+const tokenVersion = "12";
+
+type DirectiveSource = "inline" | "redis";
 
 type HeaderOp = {
   key: string;
@@ -44,6 +47,8 @@ type HeaderOp = {
 };
 
 type EditorState = {
+  source: DirectiveSource;
+  redisKey: string;
   targetURL: string;
   joinPath: boolean;
   proxyURL: string;
@@ -71,6 +76,10 @@ type DirectivePayload = {
 
 type DirectiveHeaderOp = NonNullable<NonNullable<DirectivePayload["headers"]>["ops"]>[number];
 
+type DecodedDirectiveToken =
+  | { source: "inline"; payload: DirectivePayload }
+  | { source: "redis"; redisKey: string };
+
 type RequestResult = {
   body: string;
   duration: number;
@@ -82,6 +91,8 @@ type RequestResult = {
 let headerOpID = 0;
 
 const initialEditor: EditorState = {
+  source: "inline",
+  redisKey: "team-a/openai",
   targetURL: "https://httpbin.org/anything",
   joinPath: true,
   proxyURL: "",
@@ -95,10 +106,11 @@ const initialEditor: EditorState = {
 
 export function AuthConsolePage() {
   const t = useText();
+  const { message } = AntdApp.useApp();
   const [editor, setEditor] = useState(initialEditor);
   const initialPayload = useMemo(() => buildPayload(initialEditor), []);
   const [payloadInput, setPayloadInput] = useState(() => formatPayload(initialPayload));
-  const [tokenInput, setTokenInput] = useState(() => encodeDirectiveToken(initialPayload));
+  const [tokenInput, setTokenInput] = useState(() => encodeDirectiveToken(initialEditor, initialPayload));
   const [activeSource, setActiveSource] = useState<"payload" | "token">("payload");
   const [error, setError] = useState<string | null>(null);
   const [requestMethod, setRequestMethod] = useState("POST");
@@ -115,7 +127,7 @@ export function AuthConsolePage() {
   const requestController = useRef<AbortController | null>(null);
 
   const payload = useMemo(() => buildPayload(editor), [editor]);
-  const directiveToken = encodeDirectiveToken(payload);
+  const directiveToken = encodeDirectiveToken(editor, payload);
   const sourceDirty = activeSource === "payload"
     ? payloadInput !== formatPayload(payload)
     : tokenInput !== directiveToken;
@@ -123,13 +135,18 @@ export function AuthConsolePage() {
   function updateEditor(patch: Partial<EditorState>) {
     const next = { ...editor, ...patch };
     setEditor(next);
-    syncInputs(buildPayload(next));
+    syncInputs(next, buildPayload(next));
   }
 
-  function syncInputs(nextPayload: DirectivePayload) {
+  function syncInputs(nextEditor: EditorState, nextPayload: DirectivePayload) {
     setPayloadInput(formatPayload(nextPayload));
-    setTokenInput(encodeDirectiveToken(nextPayload));
+    setTokenInput(encodeDirectiveToken(nextEditor, nextPayload));
     setError(null);
+  }
+
+  function updateDirectiveSource(source: DirectiveSource) {
+    setActiveSource(source === "inline" ? "payload" : "token");
+    updateEditor({ source });
   }
 
   function applyPayloadInput() {
@@ -143,7 +160,16 @@ export function AuthConsolePage() {
 
   function applyTokenInput() {
     try {
-      applyPayload(decodeDirectiveToken(tokenInput, t.authConsole));
+      const decoded = decodeDirectiveToken(tokenInput, t.authConsole);
+      if (decoded.source === "inline") {
+        applyPayload(decoded.payload);
+      } else {
+        const next = { ...editor, source: "redis" as const, redisKey: decoded.redisKey };
+        setEditor(next);
+        setTokenInput(encodeDirectiveToken(next, payload));
+        setActiveSource("token");
+        setError(null);
+      }
       void message.success(t.authConsole.tokenApplied);
     } catch (err) {
       setError(errorMessage(err, t.authConsole.tokenParseFailed));
@@ -151,8 +177,9 @@ export function AuthConsolePage() {
   }
 
   function applyPayload(nextPayload: DirectivePayload) {
-    setEditor(payloadToEditor(nextPayload));
-    syncInputs(nextPayload);
+    const next = { ...payloadToEditor(nextPayload), source: "inline" as const, redisKey: editor.redisKey };
+    setEditor(next);
+    syncInputs(next, nextPayload);
   }
 
   function updateHeaderOp(key: string, patch: Partial<HeaderOp>) {
@@ -165,6 +192,7 @@ export function AuthConsolePage() {
 
   async function sendRequest() {
     try {
+      if (editor.source === "redis") validateRedisKey(editor.redisKey, t.authConsole);
       const path = normalizeRequestPath(requestPath, t.authConsole);
       const headers = parseRequestHeaders(requestHeaders, t.authConsole);
       const controller = new AbortController();
@@ -248,7 +276,7 @@ export function AuthConsolePage() {
           options={[{ label: "proxy-disclosure", value: "proxy-disclosure" }]}
           style={{ width: "100%" }}
           value={record.pattern}
-          onChange={(pattern) => updateHeaderOp(record.key, { pattern })}
+          onChange={(pattern: string) => updateHeaderOp(record.key, { pattern })}
         />
       ) : (
         <Input
@@ -313,71 +341,100 @@ export function AuthConsolePage() {
         <Col xs={24} xl={13}>
           <WorkbenchPanel title={t.authConsole.structured}>
             <Form layout="vertical">
-              <Form.Item label="Target URL">
-                <Input
-                  value={editor.targetURL}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    updateEditor({ targetURL: event.target.value })
-                  }
+              <Form.Item label={t.authConsole.directiveSource}>
+                <Segmented
+                  options={[
+                    { label: "Inline", value: "inline" },
+                    { label: "Redis", value: "redis" },
+                  ]}
+                  value={editor.source}
+                  onChange={(source: DirectiveSource) => updateDirectiveSource(source)}
                 />
               </Form.Item>
-              <Flex gap="small" wrap>
-                <Form.Item label="Join Path">
-                  <Checkbox
-                    checked={editor.joinPath}
-                    onChange={(event: CheckboxChangeEvent) =>
-                      updateEditor({ joinPath: event.target.checked })
-                    }
-                  >
-                    {t.authConsole.enabled}
-                  </Checkbox>
-                </Form.Item>
-                <Form.Item className="grow-field" label="Proxy">
+              {editor.source === "redis" ? (
+                <Form.Item label={t.authConsole.redisKey}>
                   <Input
-                    allowClear
-                    placeholder="socks5://user:pass@127.0.0.1:1080"
-                    value={editor.proxyURL}
+                    placeholder="team-a/openai"
+                    status={isRedisKeyValid(editor.redisKey) ? undefined : "error"}
+                    value={editor.redisKey}
                     onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      updateEditor({ proxyURL: event.target.value })
+                      updateEditor({ redisKey: event.target.value })
                     }
                   />
                 </Form.Item>
-                <Form.Item label="Header Mode">
-                  <Select
-                    options={[
-                      { label: "Patch", value: "patch" },
-                      { label: "Replace", value: "replace" },
-                    ]}
-                    value={editor.headerMode}
-                    onChange={(headerMode: EditorState["headerMode"]) =>
-                      updateEditor({ headerMode })
-                    }
-                  />
-                </Form.Item>
-              </Flex>
+              ) : (
+                <>
+                  <Form.Item label="Target URL">
+                    <Input
+                      value={editor.targetURL}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                        updateEditor({ targetURL: event.target.value })
+                      }
+                    />
+                  </Form.Item>
+                  <Flex gap="small" wrap>
+                    <Form.Item label="Join Path">
+                      <Checkbox
+                        checked={editor.joinPath}
+                        onChange={(event: CheckboxChangeEvent) =>
+                          updateEditor({ joinPath: event.target.checked })
+                        }
+                      >
+                        {t.authConsole.enabled}
+                      </Checkbox>
+                    </Form.Item>
+                    <Form.Item className="grow-field" label="Proxy">
+                      <Input
+                        allowClear
+                        placeholder="socks5://user:pass@127.0.0.1:1080"
+                        value={editor.proxyURL}
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                          updateEditor({ proxyURL: event.target.value })
+                        }
+                      />
+                    </Form.Item>
+                    <Form.Item label="Header Mode">
+                      <Select
+                        options={[
+                          { label: "Patch", value: "patch" },
+                          { label: "Replace", value: "replace" },
+                        ]}
+                        value={editor.headerMode}
+                        onChange={(headerMode: EditorState["headerMode"]) =>
+                          updateEditor({ headerMode })
+                        }
+                      />
+                    </Form.Item>
+                  </Flex>
+                </>
+              )}
             </Form>
 
-            <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
-              <Text strong>{t.authConsole.headerOps}</Text>
-              <Button
-                icon={<PlusOutlined />}
-                onClick={() =>
-                  updateEditor({
-                    headerOps: [...editor.headerOps, newHeaderOp("=", "name", "", [])],
-                  })
-                }
-              >
-                {t.authConsole.add}
-              </Button>
-            </Flex>
-            <Table<HeaderOp>
-              columns={columns}
-              dataSource={editor.headerOps}
-              pagination={false}
-              rowKey="key"
-              scroll={{ x: 920 }}
-              size="small"
-            />
+            {editor.source === "inline" ? (
+              <>
+                <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}>
+                  <Text strong>{t.authConsole.headerOps}</Text>
+                  <Button
+                    icon={<PlusOutlined />}
+                    onClick={() =>
+                      updateEditor({
+                        headerOps: [...editor.headerOps, newHeaderOp("=", "name", "", [])],
+                      })
+                    }
+                  >
+                    {t.authConsole.add}
+                  </Button>
+                </Flex>
+                <Table<HeaderOp>
+                  columns={columns}
+                  dataSource={editor.headerOps}
+                  pagination={false}
+                  rowKey="key"
+                  scroll={{ x: 920 }}
+                  size="small"
+                />
+              </>
+            ) : null}
           </WorkbenchPanel>
         </Col>
 
@@ -385,7 +442,7 @@ export function AuthConsolePage() {
           <WorkbenchPanel title={t.authConsole.editableSources}>
             <Tabs
               activeKey={activeSource}
-              items={[
+              items={editor.source === "inline" ? [
                 {
                   key: "payload",
                   label: "Payload JSON",
@@ -402,7 +459,19 @@ export function AuthConsolePage() {
                   label: "Token",
                   children: (
                     <SourceEditor
-                      placeholder="dproxy.11..."
+                      placeholder="dproxy.12.i..."
+                      value={tokenInput}
+                      onChange={setTokenInput}
+                    />
+                  ),
+                },
+              ] : [
+                {
+                  key: "token",
+                  label: "Token",
+                  children: (
+                    <SourceEditor
+                      placeholder="dproxy.12.r..."
                       value={tokenInput}
                       onChange={setTokenInput}
                     />
@@ -423,7 +492,11 @@ export function AuthConsolePage() {
                       activeSource === "payload"
                         ? payloadInput
                         : tokenInput,
-                    ).then((ok) => reportCopyResult(ok, t.authConsole))
+                    ).then((ok) => {
+                      void (ok
+                        ? message.success(t.authConsole.copied)
+                        : message.error(t.authConsole.copyFailed));
+                    })
                   }
                 >
                   {activeSource === "payload" ? t.authConsole.copyPayload : t.authConsole.copyToken}
@@ -630,6 +703,8 @@ function buildPayload(input: EditorState): DirectivePayload {
 
 function payloadToEditor(payload: DirectivePayload): EditorState {
   return {
+    source: "inline",
+    redisKey: "",
     targetURL: payload.target.url,
     joinPath: payload.target.join_path ?? true,
     proxyURL: payload.proxy ?? "",
@@ -799,23 +874,46 @@ function readGlobClassCharacter(value: string, index: number, label: string, tex
   return [codePoint, index + (codePoint > 0xffff ? 2 : 1)];
 }
 
-function decodeDirectiveToken(value: string, text: AppText["authConsole"]): DirectivePayload {
+function decodeDirectiveToken(value: string, text: AppText["authConsole"]): DecodedDirectiveToken {
   const directiveToken = value.trim();
-  if (!directiveToken.startsWith(tokenPrefix)) {
+  const parts = directiveToken.split(".");
+  if (parts.length !== 4 || parts[0] !== tokenFamily || parts[1] !== tokenVersion ||
+      !/^[A-Za-z0-9_-]+$/.test(parts[3])) {
     throw new Error(text.tokenPrefix);
   }
-  const raw = directiveToken.slice(tokenPrefix.length);
-  if (!raw) throw new Error(text.tokenPayloadMissing);
   try {
-    const json = new TextDecoder().decode(base64URLDecode(raw));
-    return parsePayloadJSON(json, text);
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(base64URLDecode(parts[3]));
+    if (parts[2] === "i") {
+      return { source: "inline", payload: parsePayloadJSON(decoded, text) };
+    }
+    if (parts[2] === "r") {
+      return { source: "redis", redisKey: validateRedisKey(decoded, text) };
+    }
+    throw new Error(text.tokenPrefix);
   } catch (err) {
     throw new Error(errorMessage(err, text.tokenDecodeFailed));
   }
 }
 
-function encodeDirectiveToken(payload: DirectivePayload) {
-  return `${tokenPrefix}${base64URL(JSON.stringify(payload))}`;
+function encodeDirectiveToken(editor: EditorState, payload: DirectivePayload) {
+  const kind = editor.source === "inline" ? "i" : "r";
+  const value = editor.source === "inline" ? JSON.stringify(payload) : editor.redisKey;
+  return `${tokenFamily}.${tokenVersion}.${kind}.${base64URL(value)}`;
+}
+
+function validateRedisKey(value: string, text: AppText["authConsole"]) {
+  if (!isRedisKeyValid(value)) {
+    throw new Error(text.invalidRedisKey);
+  }
+  return value;
+}
+
+function isRedisKeyValid(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  return Boolean(value) && value === value.trim() && bytes.length <= 256 && ![...value].some((char) => {
+    const codePoint = char.codePointAt(0) ?? 0;
+    return codePoint === 0 || codePoint < 0x20 || codePoint === 0x7f;
+  });
 }
 
 function formatPayload(payload: DirectivePayload) {
@@ -902,10 +1000,6 @@ function newHeaderOp(
 ): HeaderOp {
   headerOpID += 1;
   return { key: `header-op-${headerOpID}`, op, selector, pattern, values };
-}
-
-function reportCopyResult(ok: boolean, text: AppText["authConsole"]) {
-  void (ok ? message.success(text.copied) : message.error(text.copyFailed));
 }
 
 async function copyText(value: string) {

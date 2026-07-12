@@ -49,6 +49,19 @@ export function ExchangeDrawer({
             <Descriptions.Item label={text.target}>
               <Text copyable>{record.target_url || "-"}</Text>
             </Descriptions.Item>
+            <Descriptions.Item label={text.directiveSource}>
+              {record.directive_source || "-"}
+            </Descriptions.Item>
+            {record.directive_key ? (
+              <Descriptions.Item label={text.directiveKey}>
+                <Text copyable>{record.directive_key}</Text>
+              </Descriptions.Item>
+            ) : null}
+            {record.directive_source === "redis" ? (
+              <Descriptions.Item label={text.directiveLookup}>
+                {record.directive_lookup_millis ?? 0} ms
+              </Descriptions.Item>
+            ) : null}
           </Descriptions>
 
           <BodyBlock captured={text.captured} title={text.requestBody} body={record.request_body} />

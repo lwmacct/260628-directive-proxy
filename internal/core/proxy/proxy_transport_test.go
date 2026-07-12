@@ -11,6 +11,8 @@ import (
 
 type noopResolver struct{}
 
+func (noopResolver) Match(*http.Request) bool { return true }
+
 func (noopResolver) Resolve(*http.Request) (*Plan, error) {
 	return nil, nil
 }

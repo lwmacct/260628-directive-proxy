@@ -104,6 +104,17 @@ func (o *observation) SetTargetURL(target *url.URL) {
 	o.mu.Unlock()
 }
 
+func (o *observation) SetDirective(source, key string, lookupMillis int64) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	o.record.DirectiveSource = source
+	o.record.DirectiveKey = key
+	o.record.DirectiveLookupMillis = lookupMillis
+	o.mu.Unlock()
+}
+
 func (o *observation) SetOutboundRequest(req *http.Request) {
 	if o == nil || req == nil {
 		return

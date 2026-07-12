@@ -44,3 +44,13 @@ proxy:
     max-conns-per-host: 0 # 单 upstream 活跃连接上限；0 表示不限制
     idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
     disable-keep-alives: false # 是否禁用上游 keep-alive
+
+  # 指令来源配置
+  directive:
+
+    # Redis 指令存储配置
+    redis:
+      url: "" # Redis URL；为空时禁用 Redis 指令读取
+      key-prefix: "dproxy:12:directive:" # Redis 指令 key 前缀
+      lookup-timeout: 500ms # 单次 Redis 指令查询超时
+      max-value-bytes: 262144 # Redis 指令 JSON 最大字节数

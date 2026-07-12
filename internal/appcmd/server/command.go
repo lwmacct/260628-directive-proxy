@@ -51,5 +51,9 @@ func commandFlags() []cli.Flag {
 		&cli.IntFlag{Name: "proxy.transport.max-conns-per-host", Usage: flagHelp.MustUsage("proxy.transport.max-conns-per-host"), Value: defaults.Proxy.Transport.MaxConnsPerHost},
 		&cli.DurationFlag{Name: "proxy.transport.idle-conn-timeout", Usage: flagHelp.MustUsage("proxy.transport.idle-conn-timeout"), Value: defaults.Proxy.Transport.IdleConnTimeout},
 		&cli.BoolFlag{Name: "proxy.transport.disable-keep-alives", Usage: flagHelp.MustUsage("proxy.transport.disable-keep-alives"), Value: defaults.Proxy.Transport.DisableKeepAlives},
+		&cli.StringFlag{Name: "proxy.directive.redis.url", Usage: flagHelp.MustUsage("proxy.directive.redis.url"), Value: defaults.Proxy.Directive.Redis.URL},
+		&cli.StringFlag{Name: "proxy.directive.redis.key-prefix", Usage: flagHelp.MustUsage("proxy.directive.redis.key-prefix"), Value: defaults.Proxy.Directive.Redis.KeyPrefix},
+		&cli.DurationFlag{Name: "proxy.directive.redis.lookup-timeout", Usage: flagHelp.MustUsage("proxy.directive.redis.lookup-timeout"), Value: defaults.Proxy.Directive.Redis.LookupTimeout},
+		&cli.Int64Flag{Name: "proxy.directive.redis.max-value-bytes", Usage: flagHelp.MustUsage("proxy.directive.redis.max-value-bytes"), Value: defaults.Proxy.Directive.Redis.MaxValueBytes},
 	}
 }

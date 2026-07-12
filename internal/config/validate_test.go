@@ -67,3 +67,24 @@ func TestValidateNormalizesAuth(t *testing.T) {
 		t.Fatalf("unexpected username: %q", validated.Server.HTTP.OIDCAuth.AllowedUsers[0])
 	}
 }
+
+func TestValidateRedisDirectiveConfig(t *testing.T) {
+	valid := DefaultConfig()
+	valid.Proxy.Directive.Redis.URL = "rediss://user:pass@redis.example.com:6380/1"
+	if _, err := Validate(valid); err != nil {
+		t.Fatalf("expected valid redis config: %v", err)
+	}
+
+	for _, mutate := range []func(*RedisDirective){
+		func(cfg *RedisDirective) { cfg.URL = "http://redis.example.com" },
+		func(cfg *RedisDirective) { cfg.URL = "redis:///0" },
+		func(cfg *RedisDirective) { cfg.LookupTimeout = -1 },
+		func(cfg *RedisDirective) { cfg.MaxValueBytes = 0 },
+	} {
+		cfg := DefaultConfig()
+		mutate(&cfg.Proxy.Directive.Redis)
+		if _, err := Validate(cfg); err != ErrInvalidDirective {
+			t.Fatalf("expected invalid directive config, got %v", err)
+		}
+	}
+}

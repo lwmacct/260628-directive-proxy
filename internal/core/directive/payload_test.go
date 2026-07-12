@@ -28,9 +28,16 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		t.Fatalf("expected token prefix: %q", encoded)
 	}
 
-	decoded, err := Decode(encoded)
+	token, err := Decode(encoded)
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
+	}
+	if token.Kind != TokenInline {
+		t.Fatalf("unexpected token kind: %q", token.Kind)
+	}
+	decoded, err := DecodePayload(token.Payload)
+	if err != nil {
+		t.Fatalf("decode payload failed: %v", err)
 	}
 	if decoded.Target.URL != input.Target.URL {
 		t.Fatalf("unexpected url: %s", decoded.Target.URL)
@@ -50,6 +57,38 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncodeDecodeRedisKeyRoundTrip(t *testing.T) {
+	encoded, err := EncodeRedisKey("team-a/生产/openai")
+	if err != nil {
+		t.Fatalf("encode redis key failed: %v", err)
+	}
+	if !strings.HasPrefix(encoded, TokenFamily+"."+TokenVersion+"."+TokenRedis+".") {
+		t.Fatalf("unexpected token: %q", encoded)
+	}
+	token, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("decode redis key failed: %v", err)
+	}
+	if token.Kind != TokenRedis || token.RedisKey != "team-a/生产/openai" {
+		t.Fatalf("unexpected decoded token: %#v", token)
+	}
+}
+
+func TestRedisKeyValidationIsMinimal(t *testing.T) {
+	valid := []string{"team-a/openai", "region:cn/model:qwen", "客户甲/openai", strings.Repeat("a", maxRedisKeyBytes)}
+	for _, key := range valid {
+		if _, err := EncodeRedisKey(key); err != nil {
+			t.Fatalf("expected key %q to be valid: %v", key, err)
+		}
+	}
+	invalid := []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("a", maxRedisKeyBytes+1)}
+	for _, key := range invalid {
+		if _, err := EncodeRedisKey(key); err == nil {
+			t.Fatalf("expected key %q to be invalid", key)
+		}
+	}
+}
+
 func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
 
@@ -61,7 +100,7 @@ func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 func TestDecodeRejectsUnknownField(t *testing.T) {
 	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"key":"secret"}`))
 
-	if _, err := Decode(encoded); err == nil {
+	if _, err := decodeInlinePayload(encoded); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
@@ -69,7 +108,7 @@ func TestDecodeRejectsUnknownField(t *testing.T) {
 func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
 	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"transport":{"proxy":"socks5://127.0.0.1:1080"}}`))
 
-	if _, err := Decode(encoded); err == nil {
+	if _, err := decodeInlinePayload(encoded); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
@@ -221,5 +260,13 @@ func TestParseProxy(t *testing.T) {
 }
 
 func encodeRawToken(raw []byte) string {
-	return TokenFamily + "." + TokenVersion + "." + base64.RawURLEncoding.EncodeToString(raw)
+	return TokenFamily + "." + TokenVersion + "." + TokenInline + "." + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func decodeInlinePayload(encoded string) (Payload, error) {
+	token, err := Decode(encoded)
+	if err != nil {
+		return Payload{}, err
+	}
+	return DecodePayload(token.Payload)
 }

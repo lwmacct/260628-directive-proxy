@@ -14,6 +14,10 @@ import (
 
 type resolverFunc func(*http.Request) (*Plan, error)
 
+func (resolverFunc) Match(*http.Request) bool {
+	return true
+}
+
 func (f resolverFunc) Resolve(req *http.Request) (*Plan, error) {
 	return f(req)
 }
@@ -72,6 +76,28 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	}
 	if len(body) != 1 || body["error"] != "directive: invalid proxy directive payload" {
 		t.Fatalf("unexpected response body: %#v", body)
+	}
+}
+
+func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
+	tests := []struct {
+		err    error
+		status int
+		body   string
+	}{
+		{ErrDirectiveNotFound, http.StatusNotFound, "directive: reference not found"},
+		{ErrDirectiveStoreUnavailable, http.StatusServiceUnavailable, "directive: store unavailable"},
+		{ErrStoredDirectiveInvalid, http.StatusInternalServerError, "directive: stored payload is invalid"},
+	}
+	for _, tt := range tests {
+		handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
+			return nil, tt.err
+		}), http.DefaultTransport, HandlerOptions{})
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+		if recorder.Code != tt.status || !strings.Contains(recorder.Body.String(), tt.body) {
+			t.Fatalf("unexpected response for %v: status=%d body=%q", tt.err, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 

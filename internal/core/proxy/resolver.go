@@ -6,10 +6,14 @@ import (
 )
 
 var (
-	ErrNoMatch          = errors.New("proxy resolver did not match request")
-	ErrInvalidDirective = errors.New("invalid proxy directive")
+	ErrNoMatch                   = errors.New("proxy resolver did not match request")
+	ErrInvalidDirective          = errors.New("invalid proxy directive")
+	ErrDirectiveNotFound         = errors.New("directive reference not found")
+	ErrDirectiveStoreUnavailable = errors.New("directive store unavailable")
+	ErrStoredDirectiveInvalid    = errors.New("stored directive is invalid")
 )
 
 type Resolver interface {
+	Match(*http.Request) bool
 	Resolve(*http.Request) (*Plan, error)
 }

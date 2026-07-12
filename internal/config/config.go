@@ -12,6 +12,7 @@ var (
 	ErrInvalidHTTP      = errors.New("invalid http config")
 	ErrInvalidAuth      = errors.New("invalid auth config")
 	ErrInvalidTransport = errors.New("invalid transport config")
+	ErrInvalidDirective = errors.New("invalid directive config")
 )
 
 type Config struct {
@@ -35,6 +36,18 @@ type ServerHTTP struct {
 
 type Proxy struct {
 	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
+	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
+}
+
+type ProxyDirective struct {
+	Redis RedisDirective `json:"redis" desc:"Redis 指令存储配置"`
+}
+
+type RedisDirective struct {
+	URL           string        `json:"url"             desc:"Redis URL；为空时禁用 Redis 指令读取"`
+	KeyPrefix     string        `json:"key-prefix"      desc:"Redis 指令 key 前缀"`
+	LookupTimeout time.Duration `json:"lookup-timeout"  desc:"单次 Redis 指令查询超时"`
+	MaxValueBytes int64         `json:"max-value-bytes" desc:"Redis 指令 JSON 最大字节数"`
 }
 
 type ProxyTransport struct {
@@ -69,6 +82,14 @@ func DefaultConfig() Config {
 			},
 		},
 		Proxy: Proxy{
+			Directive: ProxyDirective{
+				Redis: RedisDirective{
+					URL:           "",
+					KeyPrefix:     "dproxy:12:directive:",
+					LookupTimeout: 500 * time.Millisecond,
+					MaxValueBytes: 256 << 10,
+				},
+			},
 			Transport: ProxyTransport{
 				MaxIdleConns:        4096,
 				MaxIdleConnsPerHost: 2048,

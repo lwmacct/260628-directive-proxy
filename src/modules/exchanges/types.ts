@@ -15,6 +15,9 @@ export type ExchangeRecord = {
   host?: string;
   url: string;
   target_url?: string;
+  directive_source?: string;
+  directive_key?: string;
+  directive_lookup_millis?: number;
   status_code: number;
   request_headers?: Record<string, string[]>;
   outbound_request_headers?: Record<string, string[]>;

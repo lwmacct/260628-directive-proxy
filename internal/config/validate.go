@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/url"
 	"strings"
 )
 
@@ -23,6 +24,17 @@ func Validate(cfg Config) (Config, error) {
 	if cfg.Proxy.Transport.MaxIdleConns < 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost < 0 ||
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport
+	}
+	redisConfig := &cfg.Proxy.Directive.Redis
+	redisConfig.URL = strings.TrimSpace(redisConfig.URL)
+	if redisConfig.LookupTimeout < 0 || redisConfig.MaxValueBytes <= 0 {
+		return cfg, ErrInvalidDirective
+	}
+	if redisConfig.URL != "" {
+		parsed, err := url.Parse(redisConfig.URL)
+		if err != nil || (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || parsed.Host == "" {
+			return cfg, ErrInvalidDirective
+		}
 	}
 	return cfg, nil
 }

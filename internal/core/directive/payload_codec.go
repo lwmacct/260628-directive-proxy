@@ -6,26 +6,57 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
+
+const maxRedisKeyBytes = 256
+
+type Token struct {
+	Kind     string
+	Payload  []byte
+	RedisKey string
+}
 
 func Encode(payload Payload) (string, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
-	return TokenFamily + "." + TokenVersion + "." + base64.RawURLEncoding.EncodeToString(raw), nil
+	return encodeToken(TokenInline, raw), nil
 }
 
-func Decode(encoded string) (Payload, error) {
-	encoded = strings.TrimSpace(encoded)
-	rawPayload, ok := splitToken(encoded)
-	if !ok {
-		return Payload{}, ErrInvalidPayload
-	}
-	raw, err := decodeBase64(rawPayload)
+func EncodeRedisKey(key string) (string, error) {
+	key, err := normalizeRedisKey(key)
 	if err != nil {
-		return Payload{}, err
+		return "", err
 	}
+	return encodeToken(TokenRedis, []byte(key)), nil
+}
+
+func Decode(encoded string) (Token, error) {
+	parts := strings.Split(strings.TrimSpace(encoded), ".")
+	if len(parts) != 4 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[3] == "" {
+		return Token{}, ErrInvalidPayload
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[3])
+	if err != nil || len(raw) == 0 {
+		return Token{}, ErrInvalidPayload
+	}
+	switch parts[2] {
+	case TokenInline:
+		return Token{Kind: TokenInline, Payload: raw}, nil
+	case TokenRedis:
+		key, err := normalizeRedisKey(string(raw))
+		if err != nil {
+			return Token{}, err
+		}
+		return Token{Kind: TokenRedis, RedisKey: key}, nil
+	default:
+		return Token{}, ErrInvalidPayload
+	}
+}
+
+func DecodePayload(raw []byte) (Payload, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 
@@ -39,21 +70,23 @@ func Decode(encoded string) (Payload, error) {
 	return payload, nil
 }
 
-func splitToken(encoded string) (string, bool) {
-	parts := strings.Split(encoded, ".")
-	if len(parts) != 3 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[2] == "" {
-		return "", false
-	}
-	return parts[2], true
+func encodeToken(kind string, raw []byte) string {
+	return strings.Join([]string{
+		TokenFamily,
+		TokenVersion,
+		kind,
+		base64.RawURLEncoding.EncodeToString(raw),
+	}, ".")
 }
 
-func decodeBase64(raw string) ([]byte, error) {
-	if raw == "" {
-		return nil, ErrInvalidPayload
+func normalizeRedisKey(key string) (string, error) {
+	if !utf8.ValidString(key) || key != strings.TrimSpace(key) || key == "" || len(key) > maxRedisKeyBytes {
+		return "", ErrInvalidPayload
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(raw)
-	if err == nil {
-		return decoded, nil
+	for _, char := range key {
+		if char == 0 || char < 0x20 || char == 0x7f {
+			return "", ErrInvalidPayload
+		}
 	}
-	return nil, ErrInvalidPayload
+	return key, nil
 }

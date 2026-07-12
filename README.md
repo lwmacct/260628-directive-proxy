@@ -2,7 +2,7 @@
 
 `llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-项目只负责解析 `Authorization: Bearer dproxy.11...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.12...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
@@ -41,10 +41,15 @@ server:
 唯一入口是：
 
 ```http
-Authorization: Bearer dproxy.11.<base64url-json>
+Authorization: Bearer dproxy.12.i.<base64url-json>
+Authorization: Bearer dproxy.12.r.<base64url-redis-key>
 ```
 
-`dproxy.` token family 由代理保留，当前只接受 `dproxy.11.` 协议。其他 Bearer token 不会进入代理。
+`dproxy.` token family 由代理保留，当前只接受 `dproxy.12.i` 和 `dproxy.12.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
+
+- `i` 直接从 token 读取完整 directive JSON。
+- `r` 将解码后的可读 key 拼接配置的 Redis key prefix，通过一次 `GET` 读取完整 directive JSON。
+- Redis directive 完整替换本次指令，不与 token 合并、不回退、不递归引用。
 
 payload schema：
 
@@ -73,7 +78,7 @@ payload schema：
 }
 ```
 
-使用 `directive.Encode` 可以生成完整的 `dproxy.11.` token。
+使用 `directive.Encode` 可以生成 inline token，使用 `directive.EncodeRedisKey` 可以从 `team-a/openai` 这类可读 key 生成 Redis token。
 
 每条 header op 必须且只能提供 `name`、`glob` 或 `preset` 之一：
 
@@ -85,6 +90,20 @@ payload schema：
 - ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
 
 HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
+
+Redis 指令读取配置：
+
+```yaml
+proxy:
+  directive:
+    redis:
+      url: "redis://127.0.0.1:6379/0"
+      key-prefix: "dproxy:12:directive:"
+      lookup-timeout: 500ms
+      max-value-bytes: 262144
+```
+
+例如 Redis token 解码出的 key 是 `team-a/openai`，服务读取 `dproxy:12:directive:team-a/openai`。URL 为空时 inline token 仍可使用，Redis token 返回 `503`。
 
 ## 运行
 

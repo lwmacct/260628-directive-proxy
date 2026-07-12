@@ -2,7 +2,9 @@ package directive
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "11"
+	TokenVersion = "12"
+	TokenInline  = "i"
+	TokenRedis   = "r"
 )
 
 type Payload struct {

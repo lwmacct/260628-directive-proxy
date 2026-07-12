@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
 
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/redisstore"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
@@ -22,10 +24,11 @@ import (
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	exchanges *service.ExchangeService
-	observer  proxy.Observer
-	oidcAuth  *oidcauth.Auth
-	tls       *tlsRuntime
+	exchanges      *service.ExchangeService
+	observer       proxy.Observer
+	oidcAuth       *oidcauth.Auth
+	tls            *tlsRuntime
+	directiveStore *redisstore.Store
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
@@ -39,15 +42,24 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
+	var directiveStore *redisstore.Store
+	if redisConfig := cfg.Proxy.Directive.Redis; strings.TrimSpace(redisConfig.URL) != "" {
+		directiveStore, err = redisstore.New(redisConfig.URL, redisConfig.KeyPrefix)
+		if err != nil {
+			tlsRuntime.Close()
+			return nil, fmt.Errorf("configure redis directive store: %w", err)
+		}
+	}
 	return &runtime{
-		exchanges: exchanges,
-		observer:  capture.NewObserver(exchanges),
-		oidcAuth:  oidcAuth,
-		tls:       tlsRuntime,
+		exchanges:      exchanges,
+		observer:       capture.NewObserver(exchanges),
+		oidcAuth:       oidcAuth,
+		tls:            tlsRuntime,
+		directiveStore: directiveStore,
 	}, nil
 }
 
-func newProxyHandler(cfg *config.Config, observer proxy.Observer, next http.Handler) http.Handler {
+func newProxyHandler(cfg *config.Config, store directive.Store, observer proxy.Observer, next http.Handler) http.Handler {
 	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -56,7 +68,12 @@ func newProxyHandler(cfg *config.Config, observer proxy.Observer, next http.Hand
 		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
 	})
 
-	return proxy.NewHandler(directive.NewResolver(), transport, proxy.HandlerOptions{
+	redisConfig := cfg.Proxy.Directive.Redis
+	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
+		Store:         store,
+		LookupTimeout: redisConfig.LookupTimeout,
+		MaxValueBytes: redisConfig.MaxValueBytes,
+	}), transport, proxy.HandlerOptions{
 		Observer: observer,
 		Next:     next,
 	})
@@ -69,6 +86,12 @@ func (rt *runtime) Close(_ context.Context) error {
 	if rt.tls != nil {
 		rt.tls.Close()
 		rt.tls = nil
+	}
+	if rt.directiveStore != nil {
+		if err := rt.directiveStore.Close(); err != nil {
+			return err
+		}
+		rt.directiveStore = nil
 	}
 	return nil
 }

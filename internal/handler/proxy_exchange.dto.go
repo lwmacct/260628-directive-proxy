@@ -53,6 +53,9 @@ type ProxyExchangeRecordDTO struct {
 	Host                   string               `json:"host,omitempty"`
 	URL                    string               `json:"url"`
 	TargetURL              string               `json:"target_url,omitempty"`
+	DirectiveSource        string               `json:"directive_source,omitempty"`
+	DirectiveKey           string               `json:"directive_key,omitempty"`
+	DirectiveLookupMillis  int64                `json:"directive_lookup_millis,omitempty"`
 	StatusCode             int                  `json:"status_code"`
 	RequestHeaders         map[string][]string  `json:"request_headers,omitempty"`
 	OutboundRequestHeaders map[string][]string  `json:"outbound_request_headers,omitempty"`

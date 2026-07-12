@@ -1,10 +1,10 @@
-// Package directive provides the canonical dproxy.11 directive token format
+// Package directive provides the canonical dproxy.12 directive token format
 // used by the directive proxy data plane.
 //
 // The package owns:
 //
 //   - the payload schema
-//   - dproxy.11 token encoding / decoding
+//   - dproxy.12 inline and Redis token encoding / decoding
 //   - payload validation
 //   - payload-level validation
 //

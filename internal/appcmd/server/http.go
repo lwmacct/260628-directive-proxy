@@ -33,7 +33,7 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	control := newControlHTTPHandler(cfg, rt)
-	return newProxyHandler(cfg, rt.observer, control)
+	return newProxyHandler(cfg, rt.directiveStore, rt.observer, control)
 }
 
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {

@@ -31,6 +31,7 @@ type Observation interface {
 	WrapRequest(*http.Request) *http.Request
 	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
 	SetTargetURL(*url.URL)
+	SetDirective(string, string, int64)
 	SetOutboundRequest(*http.Request)
 	Finish()
 }
@@ -88,8 +89,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	d, err := h.resolver.Resolve(r)
-	if errors.Is(err, ErrNoMatch) {
+	if !h.resolver.Match(r) {
 		if h.next != nil {
 			h.next.ServeHTTP(w, r)
 			return
@@ -107,10 +107,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer observation.Finish()
 		}
 	}
+	d, err := h.resolver.Resolve(r)
+	if errors.Is(err, ErrNoMatch) {
+		if h.next != nil {
+			h.next.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 
 	if err != nil {
-		if errors.Is(err, ErrInvalidDirective) {
+		if isRequestCanceled(r) {
+			return
+		}
+		switch {
+		case errors.Is(err, ErrInvalidDirective):
 			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload")
+			return
+		case errors.Is(err, ErrDirectiveNotFound):
+			WriteProxyErrorJSON(w, http.StatusNotFound, "directive: reference not found")
+			return
+		case errors.Is(err, ErrDirectiveStoreUnavailable):
+			WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "directive: store unavailable")
+			return
+		case errors.Is(err, ErrStoredDirectiveInvalid):
+			WriteProxyErrorJSON(w, http.StatusInternalServerError, "directive: stored payload is invalid")
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
@@ -123,6 +145,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if observation != nil {
 		observation.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
+		observation.SetDirective(d.DirectiveSource, d.DirectiveKey, d.DirectiveLookupMillis)
 	}
 	ctx := ContextWithPlan(r.Context(), d)
 	if observation != nil {

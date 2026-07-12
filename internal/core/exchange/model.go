@@ -16,6 +16,9 @@ type Record struct {
 	Host                   string
 	URL                    string
 	TargetURL              string
+	DirectiveSource        string
+	DirectiveKey           string
+	DirectiveLookupMillis  int64
 	StatusCode             int
 	RequestHeaders         map[string][]string
 	OutboundRequestHeaders map[string][]string

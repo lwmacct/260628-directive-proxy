@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/redisstore"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
@@ -180,6 +183,47 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 	}
 	if record.OutboundRequestHeaders["Forwarded"][0] != "for=client.example" {
 		t.Fatalf("patch did not preserve forwarding header: %#v", record.OutboundRequestHeaders)
+	}
+	if record.DirectiveSource != "inline" || record.DirectiveKey != "" {
+		t.Fatalf("unexpected inline directive metadata: %#v", record)
+	}
+}
+
+func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
+	cfg := config.DefaultConfig()
+	redisServer := miniredis.RunT(t)
+	store, err := redisstore.New("redis://"+redisServer.Addr()+"/0", cfg.Proxy.Directive.Redis.KeyPrefix)
+	if err != nil {
+		t.Fatalf("create redis store failed: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	var upstreamSource string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamSource = r.Header.Get("X-Directive-Source")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	redisServer.Set(cfg.Proxy.Directive.Redis.KeyPrefix+"team-a/openai", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`)
+	token, err := directive.EncodeRedisKey("team-a/openai")
+	if err != nil {
+		t.Fatalf("encode redis token failed: %v", err)
+	}
+	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
+	exchanges.Configure(true, 0, -1)
+	rt := &runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges), directiveStore: store}
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+
+	newHTTPServer(&cfg, rt).Handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent || upstreamSource != "redis" {
+		t.Fatalf("unexpected proxy result: status=%d source=%q body=%s", recorder.Code, upstreamSource, recorder.Body.String())
+	}
+	record := exchanges.Snapshot(1).Items[0]
+	if record.DirectiveSource != "redis" || record.DirectiveKey != "team-a/openai" {
+		t.Fatalf("unexpected redis directive metadata: %#v", record)
 	}
 }
 

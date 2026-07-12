@@ -3,11 +3,14 @@ package proxy
 import "net/url"
 
 type Plan struct {
-	Target     *url.URL
-	Proxy      *url.URL
-	HeaderMode HeaderMode
-	HeaderOps  []HeaderOp
-	JoinPath   bool
+	Target                *url.URL
+	Proxy                 *url.URL
+	HeaderMode            HeaderMode
+	HeaderOps             []HeaderOp
+	JoinPath              bool
+	DirectiveSource       string
+	DirectiveKey          string
+	DirectiveLookupMillis int64
 }
 
 type HeaderMode string
