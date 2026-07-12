@@ -22,8 +22,9 @@ server:
   http:
     oidc-auth:
       issuer: https://2008.s.lwmacct.com:20088
-      client-id: dproxy-local
-      external-url: http://localhost:23199
+      client-id: dproxy
+      external-urls:
+        - http://localhost:23199
       allowed-users:
         - lwmacct
       session-ttl: 24h
@@ -33,7 +34,7 @@ server:
 
 登录成功后，`oidcauth` 包将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
 
-生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-url`。OIDC callback 固定由它派生为 `<external-url>/oidcauth/callback`。默认值指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
+生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定由每个 origin 派生为 `<external-url>/oidcauth/callback`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。默认值指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
 
 ## Directive Token
 

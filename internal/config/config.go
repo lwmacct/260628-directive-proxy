@@ -52,8 +52,8 @@ func DefaultConfig() Config {
 				Listen: ":23198",
 				OIDCAuth: dexgithub.Config{
 					Issuer:       "https://2008.s.lwmacct.com:20088",
-					ClientID:     "23199",
-					ExternalURL:  "http://localhost:23199",
+					ClientID:     "dproxy",
+					ExternalURLs: []string{"http://localhost:23199"},
 					AllowedUsers: []string{"lwmacct"},
 					SessionTTL:   24 * time.Hour,
 				},

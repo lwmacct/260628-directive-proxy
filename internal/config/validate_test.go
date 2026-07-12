@@ -30,8 +30,11 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 	}{
 		{name: "http issuer", mutate: func(cfg *dexgithub.Config) { cfg.Issuer = "http://auth.example.com" }},
 		{name: "missing client", mutate: func(cfg *dexgithub.Config) { cfg.ClientID = "" }},
-		{name: "remote http external URL", mutate: func(cfg *dexgithub.Config) { cfg.ExternalURL = "http://tool.example.com" }},
-		{name: "external URL path", mutate: func(cfg *dexgithub.Config) { cfg.ExternalURL = "https://tool.example.com/app" }},
+		{name: "remote http external URL", mutate: func(cfg *dexgithub.Config) { cfg.ExternalURLs = []string{"http://tool.example.com"} }},
+		{name: "external URL path", mutate: func(cfg *dexgithub.Config) { cfg.ExternalURLs = []string{"https://tool.example.com/app"} }},
+		{name: "duplicate external URL host", mutate: func(cfg *dexgithub.Config) {
+			cfg.ExternalURLs = []string{"https://tool.example.com", "https://tool.example.com/"}
+		}},
 		{name: "missing users", mutate: func(cfg *dexgithub.Config) { cfg.AllowedUsers = nil }},
 		{name: "empty user", mutate: func(cfg *dexgithub.Config) { cfg.AllowedUsers = []string{" "} }},
 		{name: "duplicate users", mutate: func(cfg *dexgithub.Config) { cfg.AllowedUsers = []string{"lwmacct", " LwMacct "} }},

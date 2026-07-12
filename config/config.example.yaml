@@ -18,9 +18,12 @@ server:
     # Control API OIDC 认证配置
     oidc-auth:
       issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
-      client-id: "23199" # Dex OIDC client ID
+      client-id: "dproxy" # Dex OIDC client ID
       client-secret: "" # Dex confidential client secret；public client 留空
-      external-url: "http://localhost:23199" # 浏览器访问应用的外部 origin
+
+      # 允许浏览器访问应用的可信 origin
+      external-urls:
+        - http://localhost:23199
 
       # 允许访问应用的 GitHub 用户名
       allowed-users:

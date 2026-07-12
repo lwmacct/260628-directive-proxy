@@ -35,7 +35,7 @@ func commandFlags() []cli.Flag {
 		&cli.StringFlag{Name: "http.oidc-auth.issuer", Usage: flagHelp.MustUsage("http.oidc-auth.issuer"), Value: defaults.Server.HTTP.OIDCAuth.Issuer},
 		&cli.StringFlag{Name: "http.oidc-auth.client-id", Usage: flagHelp.MustUsage("http.oidc-auth.client-id"), Value: defaults.Server.HTTP.OIDCAuth.ClientID},
 		&cli.StringFlag{Name: "http.oidc-auth.client-secret", Usage: flagHelp.MustUsage("http.oidc-auth.client-secret"), Value: defaults.Server.HTTP.OIDCAuth.ClientSecret},
-		&cli.StringFlag{Name: "http.oidc-auth.external-url", Usage: flagHelp.MustUsage("http.oidc-auth.external-url"), Value: defaults.Server.HTTP.OIDCAuth.ExternalURL},
+		&cli.StringSliceFlag{Name: "http.oidc-auth.external-urls", Usage: flagHelp.MustUsage("http.oidc-auth.external-urls"), Value: defaults.Server.HTTP.OIDCAuth.ExternalURLs},
 		&cli.StringSliceFlag{Name: "http.oidc-auth.allowed-users", Usage: flagHelp.MustUsage("http.oidc-auth.allowed-users"), Value: defaults.Server.HTTP.OIDCAuth.AllowedUsers},
 		&cli.DurationFlag{Name: "http.oidc-auth.session-ttl", Usage: flagHelp.MustUsage("http.oidc-auth.session-ttl"), Value: defaults.Server.HTTP.OIDCAuth.SessionTTL},
 		&cli.BoolFlag{Name: "http.tls.enabled", Usage: flagHelp.MustUsage("http.tls.enabled"), Value: defaults.Server.HTTP.TLS.Enabled},
