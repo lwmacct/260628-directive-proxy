@@ -61,10 +61,19 @@ func applyRewrite(r *httputil.ProxyRequest, d *Plan) {
 		r.Out.Header = cloneEndToEndHeaders(r.In.Header)
 	}
 	applyRequestHeaderOps(r.Out, d.HeaderOps)
+	stripDproxyHeaders(r.Out.Header)
 	stripHopByHopHeaders(r.Out.Header)
 	copyHeaders(r.Out.Header, transportHeaders)
 	if replaceHeaders {
 		suppressDefaultUserAgent(r.Out.Header)
+	}
+}
+
+func stripDproxyHeaders(headers http.Header) {
+	for name := range headers {
+		if strings.HasPrefix(strings.ToLower(name), "x-dproxy-") {
+			delete(headers, name)
+		}
 	}
 }
 

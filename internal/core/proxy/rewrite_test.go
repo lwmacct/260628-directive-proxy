@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -235,6 +236,35 @@ func TestApplyRewritePatchPreservesProxyDisclosureHeadersByDefault(t *testing.T)
 		if got := req.Out.Header.Get(name); got != "preserve" {
 			t.Fatalf("expected %s to be preserved, got %q", name, got)
 		}
+	}
+}
+
+func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
+	target, _ := url.Parse("https://example.com/base")
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in.Header.Set("X-Dproxy-Inbound", "drop")
+	in.Header["x-dproxy-lowercase"] = []string{"drop"}
+	in.Header.Set("X-Upstream", "keep")
+	out := in.Clone(in.Context())
+	req := &httputil.ProxyRequest{In: in, Out: out}
+
+	applyRewrite(req, &Plan{
+		Target:   target,
+		JoinPath: true,
+		HeaderOps: []HeaderOp{{
+			Action:   HeaderSet,
+			Selector: exactSelector("X-Dproxy-Injected"),
+			Values:   []string{"drop"},
+		}},
+	})
+
+	for name := range req.Out.Header {
+		if strings.HasPrefix(strings.ToLower(name), "x-dproxy-") {
+			t.Fatalf("dproxy header reached outbound request: %s", name)
+		}
+	}
+	if got := req.Out.Header.Get("X-Upstream"); got != "keep" {
+		t.Fatalf("unexpected unrelated header: %q", got)
 	}
 }
 

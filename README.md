@@ -71,8 +71,9 @@ payload schema：
         "name": "Authorization",
         "values": ["Bearer upstream-token"]
       },
-      { "op": "-", "glob": "M-Runtime-*" },
-      { "op": "=", "glob": "X-Tenant-*", "values": ["tenant-a"] }
+      { "op": "=", "name": "X-Dproxy-key1", "values": ["value1"] },
+      { "op": "=", "name": "X-Dproxy-key2", "values": ["value2"] },
+      { "op": "=", "name": "X-Upstream-Tenant", "values": ["tenant-a"] }
     ]
   }
 }
@@ -89,7 +90,7 @@ payload schema：
 - Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
 - ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
 
-HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
+HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。所有 `X-Dproxy-*` header 也会在出站前无条件移除，即使 header op 尝试写入也不会发送给上游。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
 HTTP RemoteSpec：
 
