@@ -49,7 +49,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
 
   const logout = useCallback(async () => {
     const response = await fetch("/oidcauth/logout", { method: "POST" });
-    if (!response.ok && response.status !== 401) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     setState({ status: "signed-out" });
   }, []);
 
