@@ -25,14 +25,15 @@ func TestExchangeServiceRetainsAndPublishesCompletedRecords(t *testing.T) {
 	if !enabled || capture.ID != 1 || capture.MaxBodyBytes != 16 {
 		t.Fatalf("unexpected capture: %#v enabled=%t", capture, enabled)
 	}
-	record := exchange.Record{ID: capture.ID, Method: "POST", RequestHeaders: map[string][]string{"X-Test": {"one"}}}
+	record := exchange.Record{ID: capture.ID, Method: "POST", RequestHeaders: map[string][]string{"X-Test": {"one"}}, OutboundRequestHeaders: map[string][]string{"X-Outbound": {"two"}}}
 	if err := service.Complete(context.Background(), record); err != nil {
 		t.Fatalf("complete failed: %v", err)
 	}
 
 	record.RequestHeaders["X-Test"][0] = "mutated"
+	record.OutboundRequestHeaders["X-Outbound"][0] = "mutated"
 	snapshot := service.Snapshot(0)
-	if snapshot.Total != 1 || len(snapshot.Items) != 1 || snapshot.Items[0].RequestHeaders["X-Test"][0] != "one" {
+	if snapshot.Total != 1 || len(snapshot.Items) != 1 || snapshot.Items[0].RequestHeaders["X-Test"][0] != "one" || snapshot.Items[0].OutboundRequestHeaders["X-Outbound"][0] != "two" {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 	if published.ID != capture.ID || published.Method != "POST" {

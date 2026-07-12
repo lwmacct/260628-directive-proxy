@@ -28,9 +28,12 @@ const (
 type HeaderSelectorKind string
 
 const (
-	HeaderSelectorExact HeaderSelectorKind = "exact"
-	HeaderSelectorGlob  HeaderSelectorKind = "glob"
+	HeaderSelectorExact  HeaderSelectorKind = "exact"
+	HeaderSelectorGlob   HeaderSelectorKind = "glob"
+	HeaderSelectorPreset HeaderSelectorKind = "preset"
 )
+
+const HeaderPresetProxyDisclosure = "proxy-disclosure"
 
 type HeaderSelector struct {
 	Kind    HeaderSelectorKind

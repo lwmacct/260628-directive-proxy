@@ -17,6 +17,7 @@ export type ExchangeRecord = {
   target_url?: string;
   status_code: number;
   request_headers?: Record<string, string[]>;
+  outbound_request_headers?: Record<string, string[]>;
   response_headers?: Record<string, string[]>;
   request_body: BodySnapshot;
   response_body: BodySnapshot;

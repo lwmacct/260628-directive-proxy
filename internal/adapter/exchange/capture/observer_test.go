@@ -43,6 +43,10 @@ func TestObserverCapturesAndRedactsHTTPExchange(t *testing.T) {
 	_, _ = wrappedResponse.Write([]byte("world"))
 	target, _ := url.Parse("https://api.example.test/v1/chat")
 	observation.SetTargetURL(target)
+	outboundRequest := httptest.NewRequest(http.MethodPost, target.String(), nil)
+	outboundRequest.Header.Set("Authorization", "Bearer upstream-secret")
+	outboundRequest.Header.Set("X-Outbound", "visible")
+	observation.SetOutboundRequest(outboundRequest)
 	observation.Finish()
 
 	record := collector.record
@@ -54,5 +58,8 @@ func TestObserverCapturesAndRedactsHTTPExchange(t *testing.T) {
 	}
 	if record.RequestHeaders["Authorization"][0] != "<redacted>" || record.ResponseHeaders["Set-Cookie"][0] != "<redacted>" {
 		t.Fatalf("sensitive headers were not redacted: %#v %#v", record.RequestHeaders, record.ResponseHeaders)
+	}
+	if record.OutboundRequestHeaders["Authorization"][0] != "<redacted>" || record.OutboundRequestHeaders["X-Outbound"][0] != "visible" {
+		t.Fatalf("unexpected outbound headers: %#v", record.OutboundRequestHeaders)
 	}
 }

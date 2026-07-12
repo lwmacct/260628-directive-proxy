@@ -45,19 +45,20 @@ type ProxyExchangeSnapshotDTO struct {
 }
 
 type ProxyExchangeRecordDTO struct {
-	ID              uint64               `json:"id"`
-	StartedAt       time.Time            `json:"started_at"`
-	CompletedAt     time.Time            `json:"completed_at"`
-	DurationMillis  int64                `json:"duration_millis"`
-	Method          string               `json:"method"`
-	Host            string               `json:"host,omitempty"`
-	URL             string               `json:"url"`
-	TargetURL       string               `json:"target_url,omitempty"`
-	StatusCode      int                  `json:"status_code"`
-	RequestHeaders  map[string][]string  `json:"request_headers,omitempty"`
-	ResponseHeaders map[string][]string  `json:"response_headers,omitempty"`
-	RequestBody     ProxyExchangeBodyDTO `json:"request_body"`
-	ResponseBody    ProxyExchangeBodyDTO `json:"response_body"`
+	ID                     uint64               `json:"id"`
+	StartedAt              time.Time            `json:"started_at"`
+	CompletedAt            time.Time            `json:"completed_at"`
+	DurationMillis         int64                `json:"duration_millis"`
+	Method                 string               `json:"method"`
+	Host                   string               `json:"host,omitempty"`
+	URL                    string               `json:"url"`
+	TargetURL              string               `json:"target_url,omitempty"`
+	StatusCode             int                  `json:"status_code"`
+	RequestHeaders         map[string][]string  `json:"request_headers,omitempty"`
+	OutboundRequestHeaders map[string][]string  `json:"outbound_request_headers,omitempty"`
+	ResponseHeaders        map[string][]string  `json:"response_headers,omitempty"`
+	RequestBody            ProxyExchangeBodyDTO `json:"request_body"`
+	ResponseBody           ProxyExchangeBodyDTO `json:"response_body"`
 }
 
 type ProxyExchangeBodyDTO struct {

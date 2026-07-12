@@ -13,6 +13,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		Headers: &HeaderSection{
 			Mode: "replace",
 			Ops: []HeaderOp{
+				{Op: "-", Preset: "proxy-disclosure"},
 				{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
 				{Op: "=", Name: "X-Test", Values: []string{"a"}},
 			},
@@ -40,10 +41,11 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if decoded.Headers == nil || decoded.Headers.Mode != "replace" {
 		t.Fatalf("unexpected header mode: %#v", decoded.Headers)
 	}
-	if len(decoded.Headers.Ops) != 2 ||
-		decoded.Headers.Ops[0].Name != "Authorization" ||
-		len(decoded.Headers.Ops[0].Values) != 1 ||
-		decoded.Headers.Ops[0].Values[0] != "Bearer secret" {
+	if len(decoded.Headers.Ops) != 3 ||
+		decoded.Headers.Ops[0].Preset != "proxy-disclosure" ||
+		decoded.Headers.Ops[1].Name != "Authorization" ||
+		len(decoded.Headers.Ops[1].Values) != 1 ||
+		decoded.Headers.Ops[1].Values[0] != "Bearer secret" {
 		t.Fatalf("unexpected headers: %#v", decoded.Headers)
 	}
 }
@@ -127,6 +129,22 @@ func TestValidateRejectsHeaderOpWithBothNameAndGlob(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsUnknownOrNonRemovePreset(t *testing.T) {
+	for _, op := range []HeaderOp{
+		{Op: "-", Preset: "unknown"},
+		{Op: "=", Preset: "proxy-disclosure", Values: []string{"value"}},
+		{Op: "-", Name: "X-Test", Preset: "proxy-disclosure"},
+	} {
+		err := Validate(Payload{
+			Target:  TargetSection{URL: "https://api.example.com/v1"},
+			Headers: &HeaderSection{Ops: []HeaderOp{op}},
+		})
+		if err == nil {
+			t.Fatalf("expected validation error for %#v", op)
+		}
 	}
 }
 

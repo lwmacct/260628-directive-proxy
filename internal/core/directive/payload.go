@@ -25,5 +25,6 @@ type HeaderOp struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name,omitempty"`
 	Glob   string   `json:"glob,omitempty"`
+	Preset string   `json:"preset,omitempty"`
 	Values []string `json:"values,omitempty"`
 }

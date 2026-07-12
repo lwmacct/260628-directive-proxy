@@ -104,6 +104,15 @@ func (o *observation) SetTargetURL(target *url.URL) {
 	o.mu.Unlock()
 }
 
+func (o *observation) SetOutboundRequest(req *http.Request) {
+	if o == nil || req == nil {
+		return
+	}
+	o.mu.Lock()
+	o.record.OutboundRequestHeaders = redactHeaders(req.Header)
+	o.mu.Unlock()
+}
+
 func (o *observation) Finish() {
 	if o == nil || o.collector == nil {
 		return

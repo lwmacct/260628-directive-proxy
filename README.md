@@ -58,6 +58,10 @@ payload schema：
     "mode": "patch",
     "ops": [
       {
+        "op": "-",
+        "preset": "proxy-disclosure"
+      },
+      {
         "op": "=",
         "name": "Authorization",
         "values": ["Bearer upstream-token"]
@@ -71,15 +75,16 @@ payload schema：
 
 使用 `directive.Encode` 可以生成完整的 `dproxy.11.` token。
 
-每条 header op 必须且只能提供 `name` 或 `glob`：
+每条 header op 必须且只能提供 `name`、`glob` 或 `preset` 之一：
 
 - `name` 执行大小写不敏感的精确匹配，Set/Add 可以创建 header。
 - `glob` 使用 Go `path.Match` 语法执行大小写不敏感的全名匹配，只影响该操作执行时已经存在的普通 header。
+- `preset` 当前只接受 `proxy-disclosure`，且只支持 Remove。该预设匹配 `X-Forwarded-*` 以及常见的 forwarding、代理链和客户端地址 header。
 - Glob 支持 `*`、`?`、字符类和转义，不匹配特殊的 `Host`。
 - Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
-- ops 按数组顺序执行。`replace` 模式从空 header 集合开始，因此 Glob 只能匹配前序 op 创建的 header。
+- ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
 
-directive 被接受后，入站 `Authorization` 会在转发前移除。如果上游需要自己的 `Authorization`，需要通过 directive 的 header ops 显式写入。
+HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
 ## 运行
 

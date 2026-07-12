@@ -8,6 +8,7 @@ func utilEmptyExchangeSnapshot() exchange.Snapshot {
 
 func utilCloneExchangeRecord(record exchange.Record) exchange.Record {
 	record.RequestHeaders = utilCloneExchangeHeaders(record.RequestHeaders)
+	record.OutboundRequestHeaders = utilCloneExchangeHeaders(record.OutboundRequestHeaders)
 	record.ResponseHeaders = utilCloneExchangeHeaders(record.ResponseHeaders)
 	return record
 }

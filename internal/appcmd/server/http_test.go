@@ -157,6 +157,7 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", strings.NewReader("hello"))
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Forwarded", "for=client.example")
 	response := httptest.NewRecorder()
 	newHTTPServer(&cfg, rt).Handler.ServeHTTP(response, req)
 
@@ -173,6 +174,12 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 	}
 	if record.RequestHeaders["Authorization"][0] != "<redacted>" {
 		t.Fatalf("authorization was not redacted: %#v", record.RequestHeaders)
+	}
+	if _, exists := record.OutboundRequestHeaders["Authorization"]; exists {
+		t.Fatalf("directive authorization was forwarded: %#v", record.OutboundRequestHeaders)
+	}
+	if record.OutboundRequestHeaders["Forwarded"][0] != "for=client.example" {
+		t.Fatalf("patch did not preserve forwarding header: %#v", record.OutboundRequestHeaders)
 	}
 }
 

@@ -54,6 +54,7 @@ export function ExchangeDrawer({
           <BodyBlock captured={text.captured} title={text.requestBody} body={record.request_body} />
           <BodyBlock captured={text.captured} title={text.responseBody} body={record.response_body} />
           <JSONBlock title={text.requestHeaders} value={record.request_headers} />
+          <JSONBlock title={text.outboundRequestHeaders} value={record.outbound_request_headers} />
           <JSONBlock title={text.responseHeaders} value={record.response_headers} />
         </Space>
       ) : null}

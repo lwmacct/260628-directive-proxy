@@ -18,19 +18,20 @@ func ToProxyExchangeSnapshotDTO(snapshot exchange.Snapshot) ProxyExchangeSnapsho
 
 func ToProxyExchangeRecordDTO(record exchange.Record) ProxyExchangeRecordDTO {
 	return ProxyExchangeRecordDTO{
-		ID:              record.ID,
-		StartedAt:       record.StartedAt,
-		CompletedAt:     record.CompletedAt,
-		DurationMillis:  record.DurationMillis,
-		Method:          record.Method,
-		Host:            record.Host,
-		URL:             record.URL,
-		TargetURL:       record.TargetURL,
-		StatusCode:      record.StatusCode,
-		RequestHeaders:  record.RequestHeaders,
-		ResponseHeaders: record.ResponseHeaders,
-		RequestBody:     ToProxyExchangeBodyDTO(record.RequestBody),
-		ResponseBody:    ToProxyExchangeBodyDTO(record.ResponseBody),
+		ID:                     record.ID,
+		StartedAt:              record.StartedAt,
+		CompletedAt:            record.CompletedAt,
+		DurationMillis:         record.DurationMillis,
+		Method:                 record.Method,
+		Host:                   record.Host,
+		URL:                    record.URL,
+		TargetURL:              record.TargetURL,
+		StatusCode:             record.StatusCode,
+		RequestHeaders:         record.RequestHeaders,
+		OutboundRequestHeaders: record.OutboundRequestHeaders,
+		ResponseHeaders:        record.ResponseHeaders,
+		RequestBody:            ToProxyExchangeBodyDTO(record.RequestBody),
+		ResponseBody:           ToProxyExchangeBodyDTO(record.ResponseBody),
 	}
 }
 

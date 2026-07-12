@@ -23,7 +23,8 @@
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - `dproxy.11.` 的前两段是协议族和版本标识；payload 不再重复携带 `version` 或 `kind`。
-- header op 必须且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
+- header op 必须且只能使用 `name`、`glob` 或 `preset` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
+- Preset 当前只接受仅用于 Remove 的 `proxy-disclosure`；preset 是有序 op，不是隐式清理策略。
 - `Host` 只接受 exact selector；Remove 删除完整 header，不接受 `values`。
 - malformed 或不支持版本的 dproxy family token 返回 `proxy.ErrInvalidDirective`。
 - 未识别到 dproxy family token 返回 `proxy.ErrNoMatch`，不会启动代理请求生命周期。

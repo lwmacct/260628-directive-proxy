@@ -38,7 +38,7 @@ const tokenPrefix = "dproxy.11.";
 type HeaderOp = {
   key: string;
   op: "=" | "+" | "-";
-  selector: "name" | "glob";
+  selector: "name" | "glob" | "preset";
   pattern: string;
   values: string[];
 };
@@ -63,6 +63,7 @@ type DirectivePayload = {
       op: "=" | "+" | "-";
       name?: string;
       glob?: string;
+      preset?: "proxy-disclosure";
       values?: string[];
     }>;
   };
@@ -86,6 +87,7 @@ const initialEditor: EditorState = {
   proxyURL: "",
   headerMode: "patch",
   headerOps: [
+    newHeaderOp("-", "preset", "proxy-disclosure", []),
     newHeaderOp("=", "name", "Authorization", ["Bearer upstream-token"]),
     newHeaderOp("=", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
   ],
@@ -205,7 +207,10 @@ export function AuthConsolePage() {
       width: 104,
       render: (_, record) => (
         <Select
-          options={[
+          disabled={record.selector === "preset"}
+          options={record.selector === "preset" ? [
+            { label: t.authConsole.remove, value: "-" },
+          ] : [
             { label: t.authConsole.set, value: "=" },
             { label: "Add", value: "+" },
             { label: t.authConsole.remove, value: "-" },
@@ -218,16 +223,19 @@ export function AuthConsolePage() {
     {
       title: t.authConsole.match,
       dataIndex: "selector",
-      width: 132,
+      width: 220,
       render: (_, record) => (
         <Segmented
           options={[
             { label: t.authConsole.exact, value: "name" },
             { label: "Glob", value: "glob" },
+            { label: t.authConsole.preset, value: "preset" },
           ]}
           value={record.selector}
           onChange={(selector: HeaderOp["selector"]) =>
-            updateHeaderOp(record.key, { selector })
+            updateHeaderOp(record.key, selector === "preset"
+              ? { selector, op: "-", pattern: "proxy-disclosure", values: [] }
+              : { selector, pattern: "" })
           }
         />
       ),
@@ -235,7 +243,14 @@ export function AuthConsolePage() {
     {
       title: t.authConsole.selector,
       dataIndex: "pattern",
-      render: (_, record) => (
+      render: (_, record) => record.selector === "preset" ? (
+        <Select
+          options={[{ label: "proxy-disclosure", value: "proxy-disclosure" }]}
+          style={{ width: "100%" }}
+          value={record.pattern}
+          onChange={(pattern) => updateHeaderOp(record.key, { pattern })}
+        />
+      ) : (
         <Input
           placeholder={record.selector === "glob" ? "X-Tenant-*" : "Authorization"}
           value={record.pattern}
@@ -360,7 +375,7 @@ export function AuthConsolePage() {
               dataSource={editor.headerOps}
               pagination={false}
               rowKey="key"
-              scroll={{ x: 760 }}
+              scroll={{ x: 920 }}
               size="small"
             />
           </WorkbenchPanel>
@@ -594,7 +609,11 @@ function buildPayload(input: EditorState): DirectivePayload {
   const ops = input.headerOps.flatMap<DirectiveHeaderOp>((item) => {
     const pattern = item.pattern.trim();
     if (!pattern) return [];
-    const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
+    const selector = item.selector === "name"
+      ? { name: pattern }
+      : item.selector === "glob"
+        ? { glob: pattern }
+        : { preset: pattern as "proxy-disclosure" };
     return [{
       op: item.op,
       ...selector,
@@ -618,8 +637,8 @@ function payloadToEditor(payload: DirectivePayload): EditorState {
     headerOps: (payload.headers?.ops ?? []).map((item) =>
       newHeaderOp(
         item.op,
-        item.glob === undefined ? "name" : "glob",
-        item.name ?? item.glob ?? "",
+        item.preset !== undefined ? "preset" : item.glob !== undefined ? "glob" : "name",
+        item.name ?? item.glob ?? item.preset ?? "",
         item.values ?? [],
       ),
     ),
@@ -678,7 +697,7 @@ function validatePayload(value: unknown, text: AppText["authConsole"]): Directiv
 function validateHeaderOp(value: unknown, index: number, text: AppText["authConsole"]) {
   const label = `headers.ops[${index}]`;
   if (!isRecord(value)) throw new Error(text.mustBe(label, "object"));
-  assertKnownKeys(value, ["op", "name", "glob", "values"], label, text);
+  assertKnownKeys(value, ["op", "name", "glob", "preset", "values"], label, text);
   if (!["=", "+", "-"].includes(String(value.op))) {
     throw new Error(text.onlyValues(`${label}.op`, "=, +, or -"));
   }
@@ -688,9 +707,13 @@ function validateHeaderOp(value: unknown, index: number, text: AppText["authCons
   if (value.glob !== undefined && typeof value.glob !== "string") {
     throw new Error(text.mustBe(`${label}.glob`, "string"));
   }
+  if (value.preset !== undefined && typeof value.preset !== "string") {
+    throw new Error(text.mustBe(`${label}.preset`, "string"));
+  }
   const hasName = typeof value.name === "string" && Boolean(value.name.trim());
   const hasGlob = typeof value.glob === "string" && Boolean(value.glob.trim());
-  if (hasName === hasGlob) {
+  const hasPreset = typeof value.preset === "string" && Boolean(value.preset.trim());
+  if ([hasName, hasGlob, hasPreset].filter(Boolean).length !== 1) {
     throw new Error(text.exactlyOneSelector(label));
   }
   if (hasName && !isValidHeaderName((value.name as string).trim())) {
@@ -698,6 +721,9 @@ function validateHeaderOp(value: unknown, index: number, text: AppText["authCons
   }
   if (hasGlob) {
     assertValidGlob((value.glob as string).trim(), `${label}.glob`, text);
+  }
+  if (hasPreset && value.preset !== "proxy-disclosure") {
+    throw new Error(text.onlyValues(`${label}.preset`, "proxy-disclosure"));
   }
   if (value.values !== undefined &&
       (!Array.isArray(value.values) || value.values.some((item) => typeof item !== "string"))) {
@@ -710,14 +736,17 @@ function validateHeaderOp(value: unknown, index: number, text: AppText["authCons
   if (value.op !== "-" && !values?.length) {
     throw new Error(text.setNeedsValues(label));
   }
-  const pattern = ((hasName ? value.name : value.glob) as string).trim();
+  if (hasPreset && value.op !== "-") {
+    throw new Error(text.presetOnlyRemove(label));
+  }
+  const pattern = ((hasName ? value.name : hasGlob ? value.glob : value.preset) as string).trim();
   if (hasName && pattern.toLowerCase() === "host" &&
       (value.op === "+" || (values?.length ?? 0) > 1)) {
     throw new Error(text.hostValues(label));
   }
   return {
     op: value.op as HeaderOp["op"],
-    ...(hasName ? { name: pattern } : { glob: pattern }),
+    ...(hasName ? { name: pattern } : hasGlob ? { glob: pattern } : { preset: "proxy-disclosure" as const }),
     ...(values?.length ? { values } : {}),
   };
 }

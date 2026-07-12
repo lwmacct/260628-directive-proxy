@@ -31,8 +31,11 @@ type Observation interface {
 	WrapRequest(*http.Request) *http.Request
 	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
 	SetTargetURL(*url.URL)
+	SetOutboundRequest(*http.Request)
 	Finish()
 }
+
+type observationContextKey struct{}
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
 	proxy := &httputil.ReverseProxy{
@@ -43,6 +46,9 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 			applyRewrite(r, d)
 			if d != nil && d.Proxy != nil {
 				r.Out = withRequestProxy(r.Out, d.Proxy)
+			}
+			if observation, ok := r.In.Context().Value(observationContextKey{}).(Observation); ok {
+				observation.SetOutboundRequest(r.Out)
 			}
 		},
 		ErrorHandler: handleProxyError,
@@ -119,6 +125,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		observation.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
 	}
 	ctx := ContextWithPlan(r.Context(), d)
+	if observation != nil {
+		ctx = context.WithValue(ctx, observationContextKey{}, observation)
+	}
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 func WriteProxyErrorJSON(w http.ResponseWriter, status int, message string) {

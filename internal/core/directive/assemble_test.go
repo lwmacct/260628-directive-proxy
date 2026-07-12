@@ -66,6 +66,21 @@ func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 	}
 }
 
+func TestToPlanBuildsProxyDisclosurePresetSelector(t *testing.T) {
+	plan, err := ToPlan(Payload{
+		Target: TargetSection{URL: "https://api.example.com/base"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "-", Preset: "proxy-disclosure"},
+		}},
+	}, AssembleOptions{})
+	if err != nil {
+		t.Fatalf("assemble failed: %v", err)
+	}
+	if len(plan.HeaderOps) != 1 || plan.HeaderOps[0].Selector.Kind != "preset" || plan.HeaderOps[0].Selector.Pattern != "proxy-disclosure" {
+		t.Fatalf("unexpected header ops: %#v", plan.HeaderOps)
+	}
+}
+
 func TestToPlanAllowsJoinPathFalse(t *testing.T) {
 	joinPath := false
 	plan, err := ToPlan(Payload{

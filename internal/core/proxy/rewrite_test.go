@@ -217,12 +217,32 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 	}
 }
 
-func TestApplyRewriteStripsProxyDisclosureHeaders(t *testing.T) {
+func TestApplyRewritePatchPreservesProxyDisclosureHeadersByDefault(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
 	for _, name := range proxyDisclosureHeaders {
-		in.Header.Set(name, "leak")
+		in.Header.Set(name, "preserve")
 	}
+	out := in.Clone(in.Context())
+	req := &httputil.ProxyRequest{In: in, Out: out}
+
+	applyRewrite(req, &Plan{
+		Target:   target,
+		JoinPath: true,
+	})
+
+	for _, name := range proxyDisclosureHeaders {
+		if got := req.Out.Header.Get(name); got != "preserve" {
+			t.Fatalf("expected %s to be preserved, got %q", name, got)
+		}
+	}
+}
+
+func TestApplyRewriteProxyDisclosurePresetIsOrdered(t *testing.T) {
+	target, _ := url.Parse("https://example.com/base")
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in.Header.Set("True-Client-IP", "drop")
+	in.Header.Set("X-Forwarded-Custom", "drop")
 	in.Header.Set("X-Inbound", "keep")
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
@@ -230,37 +250,69 @@ func TestApplyRewriteStripsProxyDisclosureHeaders(t *testing.T) {
 	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-	})
-
-	for _, name := range proxyDisclosureHeaders {
-		if got := req.Out.Header.Get(name); got != "" {
-			t.Fatalf("expected %s to be stripped, got %q", name, got)
-		}
-	}
-	if got := req.Out.Header.Get("X-Inbound"); got != "keep" {
-		t.Fatalf("expected unrelated inbound header to remain, got %q", got)
-	}
-}
-
-func TestApplyRewriteCanExplicitlySetProxyDisclosureHeader(t *testing.T) {
-	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
-	in.Header.Set("True-Client-IP", "drop")
-	out := in.Clone(in.Context())
-	req := &httputil.ProxyRequest{In: in, Out: out}
-
-	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
-		HeaderOps: []HeaderOp{{
-			Action:   HeaderSet,
-			Selector: exactSelector("True-Client-IP"),
-			Values:   []string{"explicit"},
-		}},
+		HeaderOps: []HeaderOp{
+			{Action: HeaderRemove, Selector: presetSelector(HeaderPresetProxyDisclosure)},
+			{Action: HeaderSet, Selector: exactSelector("True-Client-IP"), Values: []string{"explicit"}},
+		},
 	})
 
 	if got := req.Out.Header.Get("True-Client-IP"); got != "explicit" {
 		t.Fatalf("unexpected explicit proxy disclosure header: %q", got)
+	}
+	if got := req.Out.Header.Get("X-Forwarded-Custom"); got != "" {
+		t.Fatalf("expected forwarding prefix to be removed, got %q", got)
+	}
+	if got := req.Out.Header.Get("X-Inbound"); got != "keep" {
+		t.Fatalf("unexpected unrelated header: %q", got)
+	}
+}
+
+func TestApplyRewritePatchRemovesHopByHopHeaders(t *testing.T) {
+	target, _ := url.Parse("https://example.com/base")
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in.Header.Set("Connection", "X-Connection-Only")
+	in.Header.Set("X-Connection-Only", "drop")
+	in.Header.Set("Keep-Alive", "timeout=5")
+	in.Header.Set("X-End-To-End", "keep")
+	out := in.Clone(in.Context())
+	out.Header = make(http.Header)
+	req := &httputil.ProxyRequest{In: in, Out: out}
+
+	applyRewrite(req, &Plan{Target: target, JoinPath: true})
+
+	for _, name := range []string{"Connection", "X-Connection-Only", "Keep-Alive"} {
+		if got := req.Out.Header.Get(name); got != "" {
+			t.Fatalf("expected hop-by-hop header %s to be removed, got %q", name, got)
+		}
+	}
+	if got := req.Out.Header.Get("X-End-To-End"); got != "keep" {
+		t.Fatalf("unexpected end-to-end header: %q", got)
+	}
+}
+
+func TestApplyRewritePreservesTrustedTransportHeadersAndRejectsDirectiveInjection(t *testing.T) {
+	target, _ := url.Parse("https://example.com/base")
+	in := httptest.NewRequest(http.MethodGet, "http://proxy.local/stream", nil)
+	out := in.Clone(in.Context())
+	out.Header = http.Header{"Connection": {"Upgrade"}, "Upgrade": {"websocket"}}
+	req := &httputil.ProxyRequest{In: in, Out: out}
+
+	applyRewrite(req, &Plan{
+		Target: target,
+		HeaderOps: []HeaderOp{
+			{Action: HeaderSet, Selector: exactSelector("Connection"), Values: []string{"X-Injected"}},
+			{Action: HeaderSet, Selector: exactSelector("X-Injected"), Values: []string{"unsafe"}},
+		},
+	})
+
+	if got := req.Out.Header.Get("Connection"); got != "Upgrade" {
+		t.Fatalf("unexpected trusted Connection header: %q", got)
+	}
+	if got := req.Out.Header.Get("Upgrade"); got != "websocket" {
+		t.Fatalf("unexpected trusted Upgrade header: %q", got)
+	}
+	if got := req.Out.Header.Get("X-Injected"); got != "" {
+		t.Fatalf("connection-scoped header was injected: %q", got)
 	}
 }
 
@@ -294,4 +346,8 @@ func exactSelector(pattern string) HeaderSelector {
 
 func globSelector(pattern string) HeaderSelector {
 	return HeaderSelector{Kind: HeaderSelectorGlob, Pattern: pattern}
+}
+
+func presetSelector(pattern string) HeaderSelector {
+	return HeaderSelector{Kind: HeaderSelectorPreset, Pattern: pattern}
 }

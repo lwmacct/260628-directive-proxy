@@ -33,23 +33,36 @@ var proxyDisclosureHeaders = []string{
 	"CDN-Loop",
 }
 
+var hopByHopHeaders = []string{
+	"Connection",
+	"Proxy-Connection",
+	"Keep-Alive",
+	"Proxy-Authenticate",
+	"Proxy-Authorization",
+	"Te",
+	"Trailer",
+	"Transfer-Encoding",
+	"Upgrade",
+}
+
 func applyRewrite(r *httputil.ProxyRequest, d *Plan) {
 	if r == nil || d == nil || d.Target == nil {
 		return
 	}
 
+	transportHeaders := trustedTransportHeaders(r.Out.Header)
 	r.Out.URL = BuildOutboundURL(d.Target, r.In.URL, d.JoinPath)
 	r.Out.Host = ""
-	if r.Out.Header == nil {
-		r.Out.Header = make(http.Header)
-	}
 	replaceHeaders := d.HeaderMode == HeaderModeReplace
 	if replaceHeaders {
 		r.Out.Header = make(http.Header)
 		r.Out.Host = ""
+	} else {
+		r.Out.Header = cloneEndToEndHeaders(r.In.Header)
 	}
-	stripProxyDisclosureHeaders(r.Out.Header)
 	applyRequestHeaderOps(r.Out, d.HeaderOps)
+	stripHopByHopHeaders(r.Out.Header)
+	copyHeaders(r.Out.Header, transportHeaders)
 	if replaceHeaders {
 		suppressDefaultUserAgent(r.Out.Header)
 	}
@@ -101,6 +114,9 @@ func matchingHeaderNames(headers http.Header, selector HeaderSelector) []string 
 	if selector.Kind == HeaderSelectorExact {
 		return []string{http.CanonicalHeaderKey(pattern)}
 	}
+	if selector.Kind == HeaderSelectorPreset {
+		return matchingPresetHeaderNames(headers, pattern)
+	}
 	if selector.Kind != HeaderSelectorGlob {
 		return nil
 	}
@@ -118,6 +134,32 @@ func matchingHeaderNames(headers http.Header, selector HeaderSelector) []string 
 	}
 	sort.Strings(names)
 	return names
+}
+
+func matchingPresetHeaderNames(headers http.Header, preset string) []string {
+	if preset != HeaderPresetProxyDisclosure {
+		return nil
+	}
+	names := make([]string, 0, len(headers))
+	for name := range headers {
+		if isProxyDisclosureHeader(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func isProxyDisclosureHeader(name string) bool {
+	if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
+		return true
+	}
+	for _, disclosureHeader := range proxyDisclosureHeaders {
+		if strings.EqualFold(name, disclosureHeader) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyHeaderOp(headers http.Header, headerName string, op HeaderOp) {
@@ -139,12 +181,39 @@ func applyHeaderOp(headers http.Header, headerName string, op HeaderOp) {
 	}
 }
 
-func stripProxyDisclosureHeaders(headers http.Header) {
+func cloneEndToEndHeaders(in http.Header) http.Header {
+	headers := in.Clone()
 	if headers == nil {
-		return
+		headers = make(http.Header)
 	}
-	for _, name := range proxyDisclosureHeaders {
+	stripHopByHopHeaders(headers)
+	return headers
+}
+
+func stripHopByHopHeaders(headers http.Header) {
+	for _, value := range headers.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			headers.Del(strings.TrimSpace(name))
+		}
+	}
+	for _, name := range hopByHopHeaders {
 		headers.Del(name)
+	}
+}
+
+func trustedTransportHeaders(headers http.Header) http.Header {
+	trusted := make(http.Header)
+	for _, name := range []string{"Connection", "Upgrade", "Te"} {
+		for _, value := range headers.Values(name) {
+			trusted.Add(name, value)
+		}
+	}
+	return trusted
+}
+
+func copyHeaders(dst, src http.Header) {
+	for name, values := range src {
+		dst[name] = append([]string(nil), values...)
 	}
 }
 

@@ -231,6 +231,56 @@ func TestHandlerPassesThroughUpstreamErrorResponse(t *testing.T) {
 	}
 }
 
+func TestHandlerPatchHeaderPolicySurvivesReverseProxyPreprocessing(t *testing.T) {
+	target, err := url.Parse("https://api.example.com")
+	if err != nil {
+		t.Fatalf("parse target failed: %v", err)
+	}
+	for _, tt := range []struct {
+		name          string
+		headerOps     []HeaderOp
+		wantForwarded string
+	}{
+		{name: "preserves without preset", wantForwarded: "for=client.example"},
+		{
+			name: "removes with preset",
+			headerOps: []HeaderOp{{
+				Action:   HeaderRemove,
+				Selector: HeaderSelector{Kind: HeaderSelectorPreset, Pattern: HeaderPresetProxyDisclosure},
+			}},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := NewHandler(
+				resolverFunc(func(*http.Request) (*Plan, error) {
+					return &Plan{Target: target, JoinPath: true, HeaderOps: tt.headerOps}, nil
+				}),
+				roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					if got := req.Header.Get("Forwarded"); got != tt.wantForwarded {
+						t.Fatalf("unexpected outbound Forwarded header: %q", got)
+					}
+					return &http.Response{
+						StatusCode: http.StatusNoContent,
+						Header:     make(http.Header),
+						Body:       http.NoBody,
+						Request:    req,
+					}, nil
+				}),
+				HandlerOptions{},
+			)
+			req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+			req.Header.Set("Forwarded", "for=client.example")
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, req)
+
+			if recorder.Code != http.StatusNoContent {
+				t.Fatalf("unexpected response status: %d", recorder.Code)
+			}
+		})
+	}
+}
+
 func TestHandleProxyErrorSkipsResponseWhenRequestIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

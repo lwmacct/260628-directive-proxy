@@ -112,16 +112,29 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 		action := proxy.HeaderAction(actionRaw)
 		name := strings.TrimSpace(rawOp.Name)
 		glob := strings.TrimSpace(rawOp.Glob)
-		if (name == "") == (glob == "") {
+		preset := strings.TrimSpace(rawOp.Preset)
+		selectorCount := 0
+		for _, value := range []string{name, glob, preset} {
+			if value != "" {
+				selectorCount++
+			}
+		}
+		if selectorCount != 1 {
 			return nil, ErrInvalidPayload
 		}
 		selector := proxy.HeaderSelector{Kind: proxy.HeaderSelectorExact, Pattern: name}
-		if glob != "" {
+		switch {
+		case glob != "":
 			if _, err := path.Match(strings.ToLower(glob), ""); err != nil {
 				return nil, ErrInvalidPayload
 			}
 			selector = proxy.HeaderSelector{Kind: proxy.HeaderSelectorGlob, Pattern: glob}
-		} else if !isValidHeaderName(name) {
+		case preset != "":
+			if preset != proxy.HeaderPresetProxyDisclosure || action != proxy.HeaderRemove {
+				return nil, ErrInvalidPayload
+			}
+			selector = proxy.HeaderSelector{Kind: proxy.HeaderSelectorPreset, Pattern: preset}
+		case !isValidHeaderName(name):
 			return nil, ErrInvalidPayload
 		}
 		switch action {
