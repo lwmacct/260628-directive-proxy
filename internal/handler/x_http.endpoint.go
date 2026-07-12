@@ -24,5 +24,6 @@ func (e *Endpoint) Handler() http.Handler {
 
 func (e *Endpoint) Register(api huma.API) {
 	RegisterHealth(api)
+	RegisterDirective(api)
 	RegisterProxyExchange(api, e.services.Exchanges)
 }

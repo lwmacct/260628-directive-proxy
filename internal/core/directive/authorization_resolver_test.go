@@ -58,12 +58,12 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dproxy.13.i.payload", want: true},
+		{name: "current version", authorization: "Bearer dproxy.14.i.payload", want: true},
 		{name: "unsupported version", authorization: "Bearer dproxy.12.payload", want: true},
 		{name: "malformed family token", authorization: "Bearer dproxy.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dproxy.13.i.payload", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dproxy.14.i.payload", want: true},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dproxy.13.i.payload", want: false},
+		{name: "other scheme", authorization: "Basic dproxy.14.i.payload", want: false},
 		{name: "missing", want: false},
 	}
 
@@ -108,16 +108,11 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T) {
 	const decodedSecret = "decoded-auth-secret"
 
-	raw, err := Encode(Payload{
-		Target: TargetSection{URL: decodedSecret},
-	})
-	if err != nil {
-		t.Fatalf("encode failed: %v", err)
-	}
+	raw := encodeToken(TokenInline, []byte(`{"target":{"url":"`+decodedSecret+`"}}`))
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
-	_, err = NewResolver().Resolve(req)
+	_, err := NewResolver().Resolve(req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}

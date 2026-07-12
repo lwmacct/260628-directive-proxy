@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"unicode/utf8"
 )
@@ -20,6 +21,9 @@ type Token struct {
 }
 
 func Encode(payload Payload) (string, error) {
+	if err := Validate(payload); err != nil {
+		return "", err
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -111,7 +115,7 @@ func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 			return RemoteSpec{}, ErrInvalidPayload
 		}
 	case RemoteTypeRedis:
-		if (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || spec.Key == "" || len(spec.Headers) > 0 {
+		if (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || spec.Key == "" || len(spec.Headers) > 0 || len(spec.RequestHeaders) > 0 {
 			return RemoteSpec{}, ErrInvalidPayload
 		}
 	default:
@@ -137,6 +141,16 @@ func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 		spec.Headers = normalizedHeaders
 	} else {
 		spec.Headers = nil
+	}
+	for index, pattern := range spec.RequestHeaders {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" || strings.ContainsAny(pattern, "\x00\r\n") {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+		if _, err := path.Match(strings.ToLower(pattern), "x-header"); err != nil {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+		spec.RequestHeaders[index] = pattern
 	}
 	return spec, nil
 }

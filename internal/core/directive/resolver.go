@@ -24,15 +24,19 @@ type RemoteReader interface {
 }
 
 type ResolverOptions struct {
-	RemoteReader  RemoteReader
-	LookupTimeout time.Duration
-	MaxValueBytes int64
+	RemoteReader   RemoteReader
+	LookupTimeout  time.Duration
+	MaxValueBytes  int64
+	MaxTokenBytes  int64
+	MaxInlineBytes int64
 }
 
 type Resolver struct {
-	remoteReader  RemoteReader
-	lookupTimeout time.Duration
-	maxValueBytes int64
+	remoteReader   RemoteReader
+	lookupTimeout  time.Duration
+	maxValueBytes  int64
+	maxTokenBytes  int64
+	maxInlineBytes int64
 }
 
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
@@ -41,9 +45,11 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 		configured = opts[0]
 	}
 	return &Resolver{
-		remoteReader:  configured.RemoteReader,
-		lookupTimeout: configured.LookupTimeout,
-		maxValueBytes: configured.MaxValueBytes,
+		remoteReader:   configured.RemoteReader,
+		lookupTimeout:  configured.LookupTimeout,
+		maxValueBytes:  configured.MaxValueBytes,
+		maxTokenBytes:  configured.MaxTokenBytes,
+		maxInlineBytes: configured.MaxInlineBytes,
 	}
 }
 
@@ -57,6 +63,9 @@ func (r *Resolver) Resolve(req *http.Request) (*proxy.Plan, error) {
 	if !ok {
 		return nil, proxy.ErrNoMatch
 	}
+	if r != nil && r.maxTokenBytes > 0 && int64(len(raw)) > r.maxTokenBytes {
+		return nil, proxy.ErrDirectiveTokenTooLarge
+	}
 	token, err := Decode(raw)
 	if err != nil {
 		return nil, proxy.ErrInvalidDirective
@@ -64,6 +73,9 @@ func (r *Resolver) Resolve(req *http.Request) (*proxy.Plan, error) {
 
 	startedAt := time.Now()
 	payloadRaw := token.Payload
+	if token.Kind == TokenInline && r != nil && r.maxInlineBytes > 0 && int64(len(payloadRaw)) > r.maxInlineBytes {
+		return nil, proxy.ErrDirectiveTokenTooLarge
+	}
 	if token.Kind == TokenRemote {
 		if r == nil || r.remoteReader == nil {
 			return nil, proxy.ErrRemoteDirectiveUnavailable

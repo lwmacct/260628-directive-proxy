@@ -70,7 +70,7 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	slog.Error("proxy error", "error", err, "path", requestPath(r))
-	WriteProxyErrorJSON(w, http.StatusBadGateway, "upstream: request failed")
+	WriteProxyErrorJSON(w, http.StatusBadGateway, "upstream_request_failed", "upstream: request failed")
 }
 
 func isRequestCanceled(r *http.Request) bool {
@@ -123,27 +123,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch {
 		case errors.Is(err, ErrInvalidDirective):
-			WriteProxyErrorJSON(w, http.StatusBadRequest, "directive: invalid proxy directive payload")
+			WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_directive", "directive: invalid proxy directive payload")
+			return
+		case errors.Is(err, ErrDirectiveTokenTooLarge):
+			WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large")
 			return
 		case errors.Is(err, ErrDirectiveNotFound):
-			WriteProxyErrorJSON(w, http.StatusNotFound, "directive: reference not found")
+			WriteProxyErrorJSON(w, http.StatusNotFound, "directive_not_found", "directive: reference not found")
 			return
 		case errors.Is(err, ErrRemoteDirectiveUnavailable):
-			WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "directive: remote resolver unavailable")
+			WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable")
 			return
 		case errors.Is(err, ErrDirectiveMetadataTooLarge):
-			WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "directive: request metadata is too large")
+			WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "request_metadata_too_large", "directive: request metadata is too large")
 			return
 		case errors.Is(err, ErrRemoteDirectiveInvalid):
-			WriteProxyErrorJSON(w, http.StatusBadGateway, "directive: remote payload is invalid")
+			WriteProxyErrorJSON(w, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid")
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
-		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed")
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
 	if d == nil || d.Target == nil {
-		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver: resolve proxy plan failed")
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
 	if observation != nil {
@@ -156,8 +159,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
-func WriteProxyErrorJSON(w http.ResponseWriter, status int, message string) {
-	writeProxyErrorJSONBody(w, status, proxyErrorJSONBody(message))
+func WriteProxyErrorJSON(w http.ResponseWriter, status int, code, message string) {
+	writeProxyErrorJSONBody(w, status, proxyErrorJSONBody(code, message))
 }
 
 func writeProxyErrorJSONBody(w http.ResponseWriter, status int, body []byte) {
@@ -167,8 +170,15 @@ func writeProxyErrorJSONBody(w http.ResponseWriter, status int, body []byte) {
 	_, _ = w.Write(body)
 }
 
-func proxyErrorJSONBody(message string) []byte {
-	body := map[string]string{"error": message}
+func proxyErrorJSONBody(code, message string) []byte {
+	body := struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}{}
+	body.Error.Code = code
+	body.Error.Message = message
 	data, err := json.Marshal(body)
 	if err != nil {
 		return []byte("{}\n")

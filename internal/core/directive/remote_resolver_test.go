@@ -93,3 +93,23 @@ func TestResolverRemoteFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestResolverRejectsOversizedTokenAndInlinePayload(t *testing.T) {
+	token, err := Encode(Payload{Target: TargetSection{URL: "https://api.example.com"}})
+	if err != nil {
+		t.Fatalf("encode token: %v", err)
+	}
+	request := func() *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req
+	}
+	for _, opts := range []ResolverOptions{
+		{MaxTokenBytes: int64(len(token) - 1)},
+		{MaxInlineBytes: 1},
+	} {
+		if _, err := NewResolver(opts).Resolve(request()); !errors.Is(err, proxy.ErrDirectiveTokenTooLarge) {
+			t.Fatalf("unexpected size error: %v", err)
+		}
+	}
+}

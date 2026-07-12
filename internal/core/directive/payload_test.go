@@ -65,6 +65,7 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 		Headers: map[string]string{
 			"authorization": "Bearer policy-token",
 		},
+		RequestHeaders: []string{"Content-Type", "X-Tenant-*"},
 	}
 	encoded, err := EncodeRemote(input)
 	if err != nil {
@@ -78,7 +79,8 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 		t.Fatalf("decode remote failed: %v", err)
 	}
 	if token.Kind != TokenRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
-		token.Remote.Key != input.Key || token.Remote.Headers["Authorization"] != "Bearer policy-token" {
+		token.Remote.Key != input.Key || token.Remote.Headers["Authorization"] != "Bearer policy-token" ||
+		len(token.Remote.RequestHeaders) != 2 {
 		t.Fatalf("unexpected decoded token: %#v", token)
 	}
 }
@@ -103,6 +105,8 @@ func TestRemoteSpecValidation(t *testing.T) {
 		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: map[string]string{"Host": "other.example.com"}},
 		{Type: RemoteTypeRedis, URL: "http://redis.example.com", Key: "key"},
 		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", Headers: map[string]string{"X-Test": "value"}},
+		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", RequestHeaders: []string{"X-Tenant"}},
+		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", RequestHeaders: []string{"[invalid"}},
 	}
 	for _, spec := range invalidSpecs {
 		if _, err := EncodeRemote(spec); err == nil {

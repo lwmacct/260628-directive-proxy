@@ -70,9 +70,11 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer
 
 	remoteConfig := cfg.Proxy.Directive.Remote
 	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
-		RemoteReader:  reader,
-		LookupTimeout: remoteConfig.Timeout,
-		MaxValueBytes: remoteConfig.MaxResponseBytes,
+		RemoteReader:   reader,
+		LookupTimeout:  remoteConfig.Timeout,
+		MaxValueBytes:  remoteConfig.MaxResponseBytes,
+		MaxTokenBytes:  cfg.Proxy.Directive.MaxTokenBytes,
+		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
 	}), transport, proxy.HandlerOptions{
 		Observer: observer,
 		Next:     next,

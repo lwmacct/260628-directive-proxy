@@ -2,7 +2,7 @@
 
 `llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
 
-项目只负责解析 `Authorization: Bearer dproxy.13...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.14...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
@@ -41,11 +41,11 @@ server:
 唯一入口是：
 
 ```http
-Authorization: Bearer dproxy.13.i.<base64url-directive-json>
-Authorization: Bearer dproxy.13.r.<base64url-remote-spec-json>
+Authorization: Bearer dproxy.14.i.<base64url-directive-json>
+Authorization: Bearer dproxy.14.r.<base64url-remote-spec-json>
 ```
 
-`dproxy.` token family 由代理保留，当前只接受 `dproxy.13.i` 和 `dproxy.13.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
+`dproxy.` token family 由代理保留，当前只接受 `dproxy.14.i` 和 `dproxy.14.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
 
 - `i` 直接从 token 读取完整 directive JSON。
 - `r` 从 token 读取自包含的 HTTP 或 Redis `RemoteSpec`，远端响应就是完整 directive JSON。
@@ -100,7 +100,8 @@ HTTP RemoteSpec：
   "key": "team-a/openai",
   "headers": {
     "Authorization": "Bearer policy-token"
-  }
+  },
+  "request_headers": ["Content-Type", "X-Tenant", "X-Region-*"]
 }
 ```
 
@@ -119,7 +120,7 @@ HTTP RemoteSpec：
 }
 ```
 
-原请求中的 dproxy `Authorization` 与 hop-by-hop headers 不会发给 resolver。HTTP resolver 使用独立直连 transport，不读取环境代理、不跟随重定向；`200` body 是完整 directive，`204/404` 表示未找到。
+`request_headers` 使用大小写不敏感的精确名称或 glob。默认不向 resolver 披露任何原请求 header；dproxy `Authorization` 与 hop-by-hop headers 即使被选择也不会发送。HTTP resolver 使用独立直连 transport，不读取环境代理、不跟随重定向；`200` body 是完整 directive，`204/404` 表示未找到。
 
 Redis RemoteSpec：
 
@@ -138,6 +139,8 @@ Redis RemoteSpec：
 ```yaml
 proxy:
   directive:
+    max-token-bytes: 65536
+    max-inline-bytes: 49152
     remote:
       timeout: 1s
       max-request-bytes: 131072
@@ -146,6 +149,16 @@ proxy:
       redis-client-idle-timeout: 10m
       redis-pool-size: 4
 ```
+
+已认证的 Control API 提供唯一的协议编解码与校验实现，Web 工作台也使用这些端点：
+
+```text
+POST /api/directives/encode
+POST /api/directives/decode
+POST /api/directives/validate
+```
+
+data-plane 错误使用 `{ "error": { "code": "...", "message": "..." } }`，客户端应依赖稳定 `code`，不要匹配文案。
 
 ## 运行
 

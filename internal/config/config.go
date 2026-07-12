@@ -32,6 +32,7 @@ type ServerHTTP struct {
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
 	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control API 最大请求体字节数，0 表示不限制"`
+	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
 }
 
 type Proxy struct {
@@ -40,7 +41,9 @@ type Proxy struct {
 }
 
 type ProxyDirective struct {
-	Remote RemoteDirective `json:"remote" desc:"远程指令解析资源限制"`
+	MaxTokenBytes  int64           `json:"max-token-bytes"  desc:"directive token 最大字节数"`
+	MaxInlineBytes int64           `json:"max-inline-bytes" desc:"inline directive JSON 最大字节数"`
+	Remote         RemoteDirective `json:"remote"           desc:"远程指令解析资源限制"`
 }
 
 type RemoteDirective struct {
@@ -76,6 +79,7 @@ func DefaultConfig() Config {
 				WriteTimeout:    0,
 				IdleTimeout:     120 * time.Second,
 				MaxAPIBodyBytes: 1 << 20,
+				MaxHeaderBytes:  128 << 10,
 				TLS: tlsreload.Config{
 					Enabled:  false,
 					CertFile: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
@@ -85,6 +89,8 @@ func DefaultConfig() Config {
 		},
 		Proxy: Proxy{
 			Directive: ProxyDirective{
+				MaxTokenBytes:  64 << 10,
+				MaxInlineBytes: 48 << 10,
 				Remote: RemoteDirective{
 					Timeout:                  time.Second,
 					MaxRequestBytes:          128 << 10,

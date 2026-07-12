@@ -14,6 +14,13 @@ import (
 
 type resolverFunc func(*http.Request) (*Plan, error)
 
+type errorResponse struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 func (resolverFunc) Match(*http.Request) bool {
 	return true
 }
@@ -70,11 +77,11 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
-	var body map[string]string
+	var body errorResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if len(body) != 1 || body["error"] != "directive: invalid proxy directive payload" {
+	if body.Error.Code != "invalid_directive" || body.Error.Message != "directive: invalid proxy directive payload" {
 		t.Fatalf("unexpected response body: %#v", body)
 	}
 }
@@ -83,12 +90,14 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 	tests := []struct {
 		err    error
 		status int
+		code   string
 		body   string
 	}{
-		{ErrDirectiveNotFound, http.StatusNotFound, "directive: reference not found"},
-		{ErrRemoteDirectiveUnavailable, http.StatusServiceUnavailable, "directive: remote resolver unavailable"},
-		{ErrDirectiveMetadataTooLarge, http.StatusRequestHeaderFieldsTooLarge, "directive: request metadata is too large"},
-		{ErrRemoteDirectiveInvalid, http.StatusBadGateway, "directive: remote payload is invalid"},
+		{ErrDirectiveNotFound, http.StatusNotFound, "directive_not_found", "directive: reference not found"},
+		{ErrRemoteDirectiveUnavailable, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable"},
+		{ErrDirectiveMetadataTooLarge, http.StatusRequestHeaderFieldsTooLarge, "request_metadata_too_large", "directive: request metadata is too large"},
+		{ErrDirectiveTokenTooLarge, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large"},
+		{ErrRemoteDirectiveInvalid, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid"},
 	}
 	for _, tt := range tests {
 		handler := NewHandler(resolverFunc(func(*http.Request) (*Plan, error) {
@@ -96,7 +105,11 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 		}), http.DefaultTransport, HandlerOptions{})
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-		if recorder.Code != tt.status || !strings.Contains(recorder.Body.String(), tt.body) {
+		var body errorResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode error response: %v", err)
+		}
+		if recorder.Code != tt.status || body.Error.Code != tt.code || body.Error.Message != tt.body {
 			t.Fatalf("unexpected response for %v: status=%d body=%q", tt.err, recorder.Code, recorder.Body.String())
 		}
 	}
@@ -116,11 +129,11 @@ func TestHandlerReturnsInternalErrorWhenDirectiveTargetMissing(t *testing.T) {
 		t.Fatalf("unexpected status: %d", recorder.Code)
 	}
 
-	var body map[string]string
+	var body errorResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if got := body["error"]; got != "resolver: resolve proxy plan failed" {
+	if got := body.Error.Message; got != "resolver: resolve proxy plan failed" {
 		t.Fatalf("unexpected response body: %#v", body)
 	}
 }
@@ -149,11 +162,11 @@ func TestHandlerDoesNotExposeResolverErrorText(t *testing.T) {
 	if strings.Contains(body, rawAuthorization) || strings.Contains(body, decodedSecret) {
 		t.Fatalf("response leaked authorization content: %q", body)
 	}
-	var parsed map[string]string
+	var parsed errorResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if len(parsed) != 1 || parsed["error"] != "resolver: resolve proxy plan failed" {
+	if parsed.Error.Code != "resolver_failed" || parsed.Error.Message != "resolver: resolve proxy plan failed" {
 		t.Fatalf("unexpected response body: %#v", parsed)
 	}
 }
@@ -195,11 +208,11 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 	if got := recorder.Header().Get("Location"); got != "" {
 		t.Fatalf("unexpected location header: %q", got)
 	}
-	var parsed map[string]string
+	var parsed errorResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("unmarshal body failed: %v", err)
 	}
-	if len(parsed) != 1 || parsed["error"] != "upstream: request failed" {
+	if parsed.Error.Code != "upstream_request_failed" || parsed.Error.Message != "upstream: request failed" {
 		t.Fatalf("unexpected response body: %#v", parsed)
 	}
 }

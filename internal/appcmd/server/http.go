@@ -22,6 +22,7 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 		ReadTimeout:       httpCfg.ReadTimeout,
 		WriteTimeout:      httpCfg.WriteTimeout,
 		IdleTimeout:       httpCfg.IdleTimeout,
+		MaxHeaderBytes:    httpCfg.MaxHeaderBytes,
 	}
 
 	if rt.tls == nil || rt.tls.config == nil {

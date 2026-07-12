@@ -29,13 +29,11 @@ import {
 } from "antd";
 import type { TableColumnsType } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
-import { useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { apiFetch } from "../../app/auth";
 import { useText, type Text as AppText } from "../../shared/i18n";
 
 const { Text } = Typography;
-const tokenFamily = "dproxy";
-const tokenVersion = "13";
-
 type DirectiveSource = "inline" | "http" | "redis";
 
 type ResolverHeader = {
@@ -58,6 +56,7 @@ type EditorState = {
   httpURL: string;
   redisURL: string;
   resolverHeaders: ResolverHeader[];
+  resolverRequestHeaders: string[];
   targetURL: string;
   joinPath: boolean;
   proxyURL: string;
@@ -85,15 +84,21 @@ type DirectivePayload = {
 
 type DirectiveHeaderOp = NonNullable<NonNullable<DirectivePayload["headers"]>["ops"]>[number];
 
-type DecodedDirectiveToken =
-  | { source: "inline"; payload: DirectivePayload }
-  | { source: "http" | "redis"; spec: RemoteSpec };
-
 type RemoteSpec = {
   type: "http" | "redis";
   url: string;
   key?: string;
   headers?: Record<string, string>;
+  request_headers?: string[];
+};
+
+type DirectiveDocument =
+  | { kind: "inline"; payload: DirectivePayload }
+  | { kind: "remote"; remote: RemoteSpec };
+
+type DirectiveCodecResponse = {
+  token: string;
+  document: DirectiveDocument;
 };
 
 type RequestResult = {
@@ -113,6 +118,7 @@ const initialEditor: EditorState = {
   httpURL: "https://policy.example.com/v1/resolve",
   redisURL: "rediss://user:password@redis.example.com:6380/1",
   resolverHeaders: [newResolverHeader("Authorization", "Bearer policy-token")],
+  resolverRequestHeaders: ["Content-Type", "X-Tenant"],
   targetURL: "https://httpbin.org/anything",
   joinPath: true,
   proxyURL: "",
@@ -130,7 +136,8 @@ export function AuthConsolePage() {
   const [editor, setEditor] = useState(initialEditor);
   const initialPayload = useMemo(() => buildPayload(initialEditor), []);
   const [payloadInput, setPayloadInput] = useState(() => formatPayload(initialPayload));
-  const [tokenInput, setTokenInput] = useState(() => encodeDirectiveToken(initialEditor, initialPayload));
+  const [tokenInput, setTokenInput] = useState("");
+  const [directiveToken, setDirectiveToken] = useState("");
   const [activeSource, setActiveSource] = useState<"payload" | "token">("payload");
   const [error, setError] = useState<string | null>(null);
   const [requestMethod, setRequestMethod] = useState("POST");
@@ -147,20 +154,39 @@ export function AuthConsolePage() {
   const requestController = useRef<AbortController | null>(null);
 
   const payload = useMemo(() => buildPayload(editor), [editor]);
-  const directiveToken = encodeDirectiveToken(editor, payload);
   const sourceDirty = activeSource === "payload"
     ? payloadInput !== formatPayload(payload)
     : tokenInput !== directiveToken;
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void encodeDirectiveDocument(editor, payload, controller.signal)
+        .then((result) => {
+          setDirectiveToken(result.token);
+          setTokenInput(result.token);
+        })
+        .catch((err: unknown) => {
+          if (!(err instanceof DOMException && err.name === "AbortError")) {
+            setDirectiveToken("");
+          }
+        });
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [editor, payload]);
+
   function updateEditor(patch: Partial<EditorState>) {
     const next = { ...editor, ...patch };
+    setDirectiveToken("");
     setEditor(next);
-    syncInputs(next, buildPayload(next));
+    syncInputs(buildPayload(next));
   }
 
-  function syncInputs(nextEditor: EditorState, nextPayload: DirectivePayload) {
+  function syncInputs(nextPayload: DirectivePayload) {
     setPayloadInput(formatPayload(nextPayload));
-    setTokenInput(encodeDirectiveToken(nextEditor, nextPayload));
     setError(null);
   }
 
@@ -169,24 +195,30 @@ export function AuthConsolePage() {
     updateEditor({ source });
   }
 
-  function applyPayloadInput() {
+  async function applyPayloadInput() {
     try {
-      applyPayload(parsePayloadJSON(payloadInput, t.authConsole));
+      const parsed: unknown = JSON.parse(payloadInput);
+      const result = await directiveCodecRequest("encode", { kind: "inline", payload: parsed as DirectivePayload });
+      if (result.document.kind !== "inline") throw new Error(t.authConsole.payloadParseFailed);
+      applyPayload(result.document.payload);
+      setDirectiveToken(result.token);
+      setTokenInput(result.token);
       void message.success(t.authConsole.payloadApplied);
     } catch (err) {
       setError(errorMessage(err, t.authConsole.payloadParseFailed));
     }
   }
 
-  function applyTokenInput() {
+  async function applyTokenInput() {
     try {
-      const decoded = decodeDirectiveToken(tokenInput, t.authConsole);
-      if (decoded.source === "inline") {
-        applyPayload(decoded.payload);
+      const decoded = await directiveCodecRequest("decode", { token: tokenInput });
+      if (decoded.document.kind === "inline") {
+        applyPayload(decoded.document.payload);
       } else {
-        const next = remoteSpecToEditor(editor, decoded.spec);
+        const next = remoteSpecToEditor(editor, decoded.document.remote);
         setEditor(next);
-        setTokenInput(encodeDirectiveToken(next, payload));
+        setTokenInput(decoded.token);
+        setDirectiveToken(decoded.token);
         setActiveSource("token");
         setError(null);
       }
@@ -199,7 +231,7 @@ export function AuthConsolePage() {
   function applyPayload(nextPayload: DirectivePayload) {
     const next = { ...editor, ...payloadToEditor(nextPayload), source: "inline" as const };
     setEditor(next);
-    syncInputs(next, nextPayload);
+    syncInputs(nextPayload);
   }
 
   function updateHeaderOp(key: string, patch: Partial<HeaderOp>) {
@@ -212,7 +244,7 @@ export function AuthConsolePage() {
 
   async function sendRequest() {
     try {
-      if (editor.source !== "inline") validateRemoteSpec(buildRemoteSpec(editor), t.authConsole);
+      if (!directiveToken) throw new Error(t.authConsole.directiveNotReady);
       const path = normalizeRequestPath(requestPath, t.authConsole);
       const headers = parseRequestHeaders(requestHeaders, t.authConsole);
       const controller = new AbortController();
@@ -443,8 +475,18 @@ export function AuthConsolePage() {
                     />
                   </Form.Item>
                   {editor.source === "http" ? (
-                    <Form.Item label={t.authConsole.resolverHeaders}>
-                      <Flex gap="small" vertical>
+                    <>
+                      <Form.Item label={t.authConsole.resolverRequestHeaders}>
+                        <Select
+                          mode="tags"
+                          open={false}
+                          placeholder="Content-Type, X-Tenant-*"
+                          value={editor.resolverRequestHeaders}
+                          onChange={(resolverRequestHeaders: string[]) => updateEditor({ resolverRequestHeaders })}
+                        />
+                      </Form.Item>
+                      <Form.Item label={t.authConsole.resolverHeaders}>
+                        <Flex gap="small" vertical>
                         {editor.resolverHeaders.map((header) => (
                           <Flex gap="small" key={header.key} wrap>
                             <Input
@@ -488,8 +530,9 @@ export function AuthConsolePage() {
                         >
                           {t.authConsole.addResolverHeader}
                         </Button>
-                      </Flex>
-                    </Form.Item>
+                        </Flex>
+                      </Form.Item>
+                    </>
                   ) : null}
                 </>
               )}
@@ -544,7 +587,7 @@ export function AuthConsolePage() {
                   label: "Token",
                   children: (
                     <SourceEditor
-                      placeholder="dproxy.13.i..."
+                      placeholder="dproxy.14.i..."
                       value={tokenInput}
                       onChange={setTokenInput}
                     />
@@ -556,7 +599,7 @@ export function AuthConsolePage() {
                   label: "Token",
                   children: (
                     <SourceEditor
-                      placeholder="dproxy.13.r..."
+                      placeholder="dproxy.14.r..."
                       value={tokenInput}
                       onChange={setTokenInput}
                     />
@@ -803,189 +846,6 @@ function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetUR
   };
 }
 
-function parsePayloadJSON(value: string, text: AppText["authConsole"]): DirectivePayload {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error(text.invalidJSON("Payload"));
-  }
-  return validatePayload(parsed, text);
-}
-
-function validatePayload(value: unknown, text: AppText["authConsole"]): DirectivePayload {
-  if (!isRecord(value)) throw new Error(text.mustBe("Payload", "JSON object"));
-  assertKnownKeys(value, ["target", "proxy", "headers"], "Payload", text);
-  if (!isRecord(value.target)) throw new Error(text.mustBe("target", "object"));
-  assertKnownKeys(value.target, ["url", "join_path"], "target", text);
-  if (typeof value.target.url !== "string" || !value.target.url.trim()) {
-    throw new Error(text.nonEmptyString("target.url"));
-  }
-  if (value.target.join_path !== undefined && typeof value.target.join_path !== "boolean") {
-    throw new Error(text.mustBe("target.join_path", "boolean"));
-  }
-  if (value.proxy !== undefined && typeof value.proxy !== "string") {
-    throw new Error(text.mustBe("proxy", "string"));
-  }
-
-  let headers: DirectivePayload["headers"];
-  if (value.headers !== undefined) {
-    if (!isRecord(value.headers)) throw new Error(text.mustBe("headers", "object"));
-    assertKnownKeys(value.headers, ["mode", "ops"], "headers", text);
-    if (value.headers.mode !== undefined && !["patch", "replace"].includes(String(value.headers.mode))) {
-      throw new Error(text.onlyValues("headers.mode", "patch or replace"));
-    }
-    if (value.headers.ops !== undefined && !Array.isArray(value.headers.ops)) {
-      throw new Error(text.mustBe("headers.ops", "array"));
-    }
-    const ops = (value.headers.ops ?? []).map((item, index) => validateHeaderOp(item, index, text));
-    headers = { mode: value.headers.mode as "patch" | "replace" | undefined, ops };
-  }
-
-  return {
-    target: {
-      url: value.target.url.trim(),
-      ...(value.target.join_path === false ? { join_path: false } : {}),
-    },
-    ...(value.proxy?.trim() ? { proxy: value.proxy.trim() } : {}),
-    ...(headers ? { headers } : {}),
-  };
-}
-
-function validateHeaderOp(value: unknown, index: number, text: AppText["authConsole"]) {
-  const label = `headers.ops[${index}]`;
-  if (!isRecord(value)) throw new Error(text.mustBe(label, "object"));
-  assertKnownKeys(value, ["op", "name", "glob", "preset", "values"], label, text);
-  if (!["=", "+", "-"].includes(String(value.op))) {
-    throw new Error(text.onlyValues(`${label}.op`, "=, +, or -"));
-  }
-  if (value.name !== undefined && typeof value.name !== "string") {
-    throw new Error(text.mustBe(`${label}.name`, "string"));
-  }
-  if (value.glob !== undefined && typeof value.glob !== "string") {
-    throw new Error(text.mustBe(`${label}.glob`, "string"));
-  }
-  if (value.preset !== undefined && typeof value.preset !== "string") {
-    throw new Error(text.mustBe(`${label}.preset`, "string"));
-  }
-  const hasName = typeof value.name === "string" && Boolean(value.name.trim());
-  const hasGlob = typeof value.glob === "string" && Boolean(value.glob.trim());
-  const hasPreset = typeof value.preset === "string" && Boolean(value.preset.trim());
-  if ([hasName, hasGlob, hasPreset].filter(Boolean).length !== 1) {
-    throw new Error(text.exactlyOneSelector(label));
-  }
-  if (hasName && !isValidHeaderName((value.name as string).trim())) {
-    throw new Error(text.invalidHeaderName(`${label}.name`));
-  }
-  if (hasGlob) {
-    assertValidGlob((value.glob as string).trim(), `${label}.glob`, text);
-  }
-  if (hasPreset && value.preset !== "proxy-disclosure") {
-    throw new Error(text.onlyValues(`${label}.preset`, "proxy-disclosure"));
-  }
-  if (value.values !== undefined &&
-      (!Array.isArray(value.values) || value.values.some((item) => typeof item !== "string"))) {
-    throw new Error(text.mustBe(`${label}.values`, "string array"));
-  }
-  const values = value.values as string[] | undefined;
-  if (value.op === "-" && values?.length) {
-    throw new Error(text.removeHasValues(label));
-  }
-  if (value.op !== "-" && !values?.length) {
-    throw new Error(text.setNeedsValues(label));
-  }
-  if (hasPreset && value.op !== "-") {
-    throw new Error(text.presetOnlyRemove(label));
-  }
-  const pattern = ((hasName ? value.name : hasGlob ? value.glob : value.preset) as string).trim();
-  if (hasName && pattern.toLowerCase() === "host" &&
-      (value.op === "+" || (values?.length ?? 0) > 1)) {
-    throw new Error(text.hostValues(label));
-  }
-  return {
-    op: value.op as HeaderOp["op"],
-    ...(hasName ? { name: pattern } : hasGlob ? { glob: pattern } : { preset: "proxy-disclosure" as const }),
-    ...(values?.length ? { values } : {}),
-  };
-}
-
-function isValidHeaderName(value: string) {
-  return /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value);
-}
-
-function assertValidGlob(value: string, label: string, text: AppText["authConsole"]) {
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (character === "\\") {
-      index += 1;
-      if (index >= value.length) throw new Error(text.invalidGlob(label));
-      continue;
-    }
-    if (character !== "[") continue;
-
-    index += 1;
-    if (value[index] === "^") index += 1;
-    let ranges = 0;
-    while (index < value.length && value[index] !== "]") {
-      const [low, nextIndex] = readGlobClassCharacter(value, index, label, text);
-      index = nextIndex;
-      if (value[index] === "-") {
-        const [high, rangeEnd] = readGlobClassCharacter(value, index + 1, label, text);
-        if (high < low) throw new Error(text.invalidGlob(label));
-        index = rangeEnd;
-      }
-      ranges += 1;
-    }
-    if (ranges === 0 || value[index] !== "]") {
-      throw new Error(text.invalidGlob(label));
-    }
-  }
-}
-
-function readGlobClassCharacter(value: string, index: number, label: string, text: AppText["authConsole"]): [number, number] {
-  if (index >= value.length || value[index] === "-" || value[index] === "]") {
-    throw new Error(text.invalidGlob(label));
-  }
-  if (value[index] === "\\") {
-    index += 1;
-    if (index >= value.length) throw new Error(text.invalidGlob(label));
-  }
-  const codePoint = value.codePointAt(index);
-  if (codePoint === undefined || codePoint === "/".codePointAt(0)) {
-    throw new Error(text.invalidGlob(label));
-  }
-  return [codePoint, index + (codePoint > 0xffff ? 2 : 1)];
-}
-
-function decodeDirectiveToken(value: string, text: AppText["authConsole"]): DecodedDirectiveToken {
-  const directiveToken = value.trim();
-  const parts = directiveToken.split(".");
-  if (parts.length !== 4 || parts[0] !== tokenFamily || parts[1] !== tokenVersion ||
-      !/^[A-Za-z0-9_-]+$/.test(parts[3])) {
-    throw new Error(text.tokenPrefix);
-  }
-  try {
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(base64URLDecode(parts[3]));
-    if (parts[2] === "i") {
-      return { source: "inline", payload: parsePayloadJSON(decoded, text) };
-    }
-    if (parts[2] === "r") {
-      const parsed: unknown = JSON.parse(decoded);
-      const spec = validateRemoteSpec(parsed, text);
-      return { source: spec.type, spec };
-    }
-    throw new Error(text.tokenPrefix);
-  } catch (err) {
-    throw new Error(errorMessage(err, text.tokenDecodeFailed));
-  }
-}
-
-function encodeDirectiveToken(editor: EditorState, payload: DirectivePayload) {
-  const kind = editor.source === "inline" ? "i" : "r";
-  const value = editor.source === "inline" ? JSON.stringify(payload) : JSON.stringify(buildRemoteSpec(editor));
-  return `${tokenFamily}.${tokenVersion}.${kind}.${base64URL(value)}`;
-}
-
 function buildRemoteSpec(editor: EditorState): RemoteSpec {
   const headers = Object.fromEntries(editor.resolverHeaders.flatMap((header) => {
     const name = header.name.trim();
@@ -996,51 +856,10 @@ function buildRemoteSpec(editor: EditorState): RemoteSpec {
     url: (editor.source === "redis" ? editor.redisURL : editor.httpURL).trim(),
     ...(editor.remoteKey ? { key: editor.remoteKey } : {}),
     ...(editor.source === "http" && Object.keys(headers).length ? { headers } : {}),
+    ...(editor.source === "http" && editor.resolverRequestHeaders.length
+      ? { request_headers: editor.resolverRequestHeaders }
+      : {}),
   };
-}
-
-function validateRemoteSpec(value: unknown, text: AppText["authConsole"]): RemoteSpec {
-  if (!isRecord(value)) throw new Error(text.mustBe("RemoteSpec", "JSON object"));
-  assertKnownKeys(value, ["type", "url", "key", "headers"], "RemoteSpec", text);
-  if (value.type !== "http" && value.type !== "redis") {
-    throw new Error(text.onlyValues("RemoteSpec.type", "http, redis"));
-  }
-  if (typeof value.url !== "string") throw new Error(text.nonEmptyString("RemoteSpec.url"));
-  let parsedURL: URL;
-  try {
-    parsedURL = new URL(value.url);
-  } catch {
-    throw new Error(text.invalidRemoteURL);
-  }
-  if ((value.type === "http" && !["http:", "https:"].includes(parsedURL.protocol)) ||
-      (value.type === "http" && Boolean(parsedURL.username || parsedURL.password)) ||
-      (value.type === "redis" && !["redis:", "rediss:"].includes(parsedURL.protocol))) {
-    throw new Error(text.invalidRemoteURL);
-  }
-  const key = value.key ?? "";
-  if (typeof key !== "string" || (key !== "" && !isRemoteKeyValid(key)) ||
-      (value.type === "redis" && key === "")) {
-    throw new Error(text.invalidRedisKey);
-  }
-  let headers: Record<string, string> | undefined;
-  if (value.headers !== undefined) {
-    if (value.type !== "http" || !isRecord(value.headers)) {
-      throw new Error(text.mustBe("RemoteSpec.headers", "string map"));
-    }
-    headers = {};
-    const forbidden = new Set([
-      "host", "content-length", "content-type", "connection", "proxy-connection", "keep-alive",
-      "transfer-encoding", "upgrade", "trailer", "te",
-    ]);
-    for (const [name, headerValue] of Object.entries(value.headers)) {
-      if (!isValidHeaderName(name) || forbidden.has(name.toLowerCase()) ||
-          typeof headerValue !== "string" || /[\r\n]/.test(headerValue)) {
-        throw new Error(text.invalidResolverHeader);
-      }
-      headers[name] = headerValue;
-    }
-  }
-  return { type: value.type, url: value.url.trim(), ...(key ? { key } : {}), ...(headers ? { headers } : {}) };
 }
 
 function remoteSpecToEditor(editor: EditorState, spec: RemoteSpec): EditorState {
@@ -1051,6 +870,7 @@ function remoteSpecToEditor(editor: EditorState, spec: RemoteSpec): EditorState 
     ...(spec.type === "http" ? {
       httpURL: spec.url,
       resolverHeaders: Object.entries(spec.headers ?? {}).map(([name, value]) => newResolverHeader(name, value)),
+      resolverRequestHeaders: spec.request_headers ?? [],
     } : { redisURL: spec.url }),
   };
 }
@@ -1067,27 +887,39 @@ function formatPayload(payload: DirectivePayload) {
   return JSON.stringify(payload, null, 2);
 }
 
-function base64URL(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function base64URLDecode(value: string) {
-  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
-  const binary = atob(padded);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function assertKnownKeys(value: Record<string, unknown>, keys: string[], label: string, text: AppText["authConsole"]) {
-  const unknown = Object.keys(value).find((key) => !keys.includes(key));
-  if (unknown) throw new Error(text.unknownField(label, unknown));
+function encodeDirectiveDocument(editor: EditorState, payload: DirectivePayload, signal?: AbortSignal) {
+  const document: DirectiveDocument = editor.source === "inline"
+    ? { kind: "inline", payload }
+    : { kind: "remote", remote: buildRemoteSpec(editor) };
+  return directiveCodecRequest("encode", document, signal);
+}
+
+async function directiveCodecRequest(
+  action: "encode" | "decode",
+  body: DirectiveDocument | { token: string },
+  signal?: AbortSignal,
+): Promise<DirectiveCodecResponse> {
+  const response = await apiFetch(`/api/directives/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    let message = `Directive ${action} failed (${response.status})`;
+    try {
+      const errorBody = await response.json() as { detail?: string };
+      if (errorBody.detail) message = errorBody.detail;
+    } catch {
+      // Keep the status-based message when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<DirectiveCodecResponse>;
 }
 
 function normalizeRequestPath(value: string, text: AppText["authConsole"]) {

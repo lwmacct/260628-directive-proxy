@@ -23,6 +23,14 @@ func TestValidateRejectsMissingHTTPListen(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidHTTPHeaderLimit(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.HTTP.MaxHeaderBytes = 0
+	if _, err := Validate(cfg); err != ErrInvalidHTTP {
+		t.Fatalf("expected invalid HTTP config, got %v", err)
+	}
+}
+
 func TestValidateRejectsInvalidAuth(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -79,6 +87,17 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 	} {
 		cfg := DefaultConfig()
 		mutate(&cfg.Proxy.Directive.Remote)
+		if _, err := Validate(cfg); err != ErrInvalidDirective {
+			t.Fatalf("expected invalid directive config, got %v", err)
+		}
+	}
+	for _, mutate := range []func(*ProxyDirective){
+		func(cfg *ProxyDirective) { cfg.MaxTokenBytes = 0 },
+		func(cfg *ProxyDirective) { cfg.MaxInlineBytes = 0 },
+		func(cfg *ProxyDirective) { cfg.MaxInlineBytes = cfg.MaxTokenBytes + 1 },
+	} {
+		cfg := DefaultConfig()
+		mutate(&cfg.Proxy.Directive)
 		if _, err := Validate(cfg); err != ErrInvalidDirective {
 			t.Fatalf("expected invalid directive config, got %v", err)
 		}

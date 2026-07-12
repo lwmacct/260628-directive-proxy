@@ -41,15 +41,16 @@ func TestReaderCallsHTTPResolverWithRequestMetadata(t *testing.T) {
 	t.Cleanup(func() { _ = reader.Close() })
 	req := httptest.NewRequest(http.MethodPost, "https://relay.example.com/v1/chat?region=cn", nil)
 	req.Host = "relay.example.com"
-	req.Header.Set("Authorization", "Bearer dproxy.13.r.secret")
+	req.Header.Set("Authorization", "Bearer dproxy.14.r.secret")
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "X-Hop")
 	req.Header.Set("X-Hop", "drop")
 
 	raw, err := reader.Read(context.Background(), directive.RemoteSpec{
-		Type: directive.RemoteTypeHTTP,
-		URL:  resolver.URL,
-		Key:  "team-a/openai",
+		Type:           directive.RemoteTypeHTTP,
+		URL:            resolver.URL,
+		Key:            "team-a/openai",
+		RequestHeaders: []string{"Authorization", "X-Hop", "X-Tenant"},
 		Headers: map[string]string{
 			"Authorization": "Bearer policy-token",
 		},
@@ -66,6 +67,28 @@ func TestReaderCallsHTTPResolverWithRequestMetadata(t *testing.T) {
 	}
 	if got.Request.Headers["X-Tenant"][0] != "team-a" || got.Request.Headers["Authorization"] != nil || got.Request.Headers["X-Hop"] != nil {
 		t.Fatalf("unexpected forwarded headers: %#v", got.Request.Headers)
+	}
+}
+
+func TestReaderDoesNotDiscloseRequestHeadersByDefault(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got resolveRequest
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if len(got.Request.Headers) != 0 {
+			t.Errorf("unexpected disclosed headers: %#v", got.Request.Headers)
+		}
+		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+	}))
+	defer resolver.Close()
+	reader := New(testOptions())
+	t.Cleanup(func() { _ = reader.Close() })
+	req := httptest.NewRequest(http.MethodGet, "http://relay.local/", nil)
+	req.Header.Set("Cookie", "session=secret")
+	req.Header.Set("X-API-Key", "secret")
+	if _, err := reader.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: resolver.URL}, req); err != nil {
+		t.Fatalf("resolve failed: %v", err)
 	}
 }
 

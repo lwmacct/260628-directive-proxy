@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -90,7 +91,7 @@ func (r *Reader) readHTTP(ctx context.Context, spec directive.RemoteSpec, req *h
 			Method:  req.Method,
 			URL:     requestURL(req),
 			Host:    req.Host,
-			Headers: resolutionHeaders(req.Header),
+			Headers: resolutionHeaders(req.Header, spec.RequestHeaders),
 		},
 	})
 	if err != nil {
@@ -157,7 +158,10 @@ func (r *Reader) Close() error {
 	return nil
 }
 
-func resolutionHeaders(in http.Header) map[string][]string {
+func resolutionHeaders(in http.Header, selectors []string) map[string][]string {
+	if len(selectors) == 0 {
+		return nil
+	}
 	headers := in.Clone()
 	for _, value := range headers.Values("Connection") {
 		for _, name := range strings.Split(value, ",") {
@@ -170,7 +174,23 @@ func resolutionHeaders(in http.Header) map[string][]string {
 	} {
 		headers.Del(name)
 	}
+	for name := range headers {
+		if !matchesHeaderSelector(name, selectors) {
+			headers.Del(name)
+		}
+	}
 	return headers
+}
+
+func matchesHeaderSelector(name string, selectors []string) bool {
+	name = strings.ToLower(name)
+	for _, selector := range selectors {
+		matched, _ := path.Match(strings.ToLower(selector), name)
+		if matched {
+			return true
+		}
+	}
+	return false
 }
 
 func requestURL(req *http.Request) string {

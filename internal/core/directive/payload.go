@@ -2,7 +2,7 @@ package directive
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "13"
+	TokenVersion = "14"
 	TokenInline  = "i"
 	TokenRemote  = "r"
 )
@@ -13,10 +13,11 @@ const (
 )
 
 type RemoteSpec struct {
-	Type    string            `json:"type"`
-	URL     string            `json:"url"`
-	Key     string            `json:"key,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
+	Type           string            `json:"type"`
+	URL            string            `json:"url"`
+	Key            string            `json:"key,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	RequestHeaders []string          `json:"request_headers,omitempty"`
 }
 
 type Payload struct {
