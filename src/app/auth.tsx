@@ -1,6 +1,8 @@
 import {
+  WorkbenchAccessDeniedPage,
   WorkbenchOAuthSignInPage,
 } from "@lwmacct/260627-antd-workbench";
+import { GithubOutlined } from "@ant-design/icons";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useText } from "../shared/i18n";
 import { loadSession, type AuthIdentity, type SessionState } from "./session";
@@ -16,11 +18,12 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const authStateEvent = "dproxy:auth-state";
+type AuthStateEvent = "refresh" | "signed-out";
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   const response = await fetch(input, init);
   if (response.status === 401) dispatchAuthState("signed-out");
-  if (response.status === 403) dispatchAuthState("forbidden");
+  if (response.status === 403) dispatchAuthState("refresh");
   return response;
 }
 
@@ -33,6 +36,7 @@ export function useAuth() {
 export function AuthBoundary({ children, initialSession }: { children: ReactNode; initialSession: SessionState }) {
   const t = useText();
   const [state, setState] = useState<AuthState>(initialSession);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   const retrySession = useCallback(async () => {
     setState(await loadSession());
@@ -40,17 +44,28 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
 
   useEffect(() => {
     const update = (event: Event) => {
-      const status = (event as CustomEvent<"signed-out" | "forbidden">).detail;
-      setState({ status });
+      const status = (event as CustomEvent<AuthStateEvent>).detail;
+      if (status === "signed-out") setState({ status });
+      else void retrySession();
     };
     window.addEventListener(authStateEvent, update);
     return () => window.removeEventListener(authStateEvent, update);
-  }, []);
+  }, [retrySession]);
 
   const logout = useCallback(async () => {
-    const response = await fetch("/oidcauth/logout", { method: "POST" });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    setState({ status: "signed-out" });
+    setLogoutLoading(true);
+    try {
+      const response = await fetch("/oidcauth/logout", { method: "POST" });
+      if (!response.ok) {
+        setState({ status: "unavailable" });
+        return;
+      }
+      setState({ status: "signed-out" });
+    } catch {
+      setState({ status: "unavailable" });
+    } finally {
+      setLogoutLoading(false);
+    }
   }, []);
 
   const login = useCallback(() => {
@@ -62,9 +77,26 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
   }, []);
 
   const value = useMemo(
-    () => state.status === "authenticated" ? { identity: state.identity, logout } : null,
+    () => state.status === "authenticated" && state.access === "granted" ? { identity: state.identity, logout } : null,
     [logout, state],
   );
+
+  if (state.status === "authenticated" && state.access === "denied") {
+    return (
+      <WorkbenchAccessDeniedPage
+        brand={{ mark: "D", name: "LLM Relay DProxy" }}
+        identity={{
+          avatarUrl: state.identity.avatar_url,
+          displayName: state.identity.name,
+          provider: state.identity.provider,
+          providerIcon: state.identity.provider === "github" ? <GithubOutlined /> : undefined,
+          username: state.identity.username,
+        }}
+        logoutLoading={logoutLoading}
+        onLogout={() => void logout()}
+      />
+    );
+  }
 
   if (!value) {
     return (
@@ -75,7 +107,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
           name: "LLM Relay DProxy",
         }}
         hint={state.status === "signed-out" ? t.auth.authorizedOnly : undefined}
-        error={state.status === "unavailable" ? t.auth.unavailable : state.status === "forbidden" ? t.auth.forbidden : undefined}
+        error={state.status === "unavailable" ? t.auth.unavailable : undefined}
         pendingProvider={state.status === "signing-in" ? state.provider : undefined}
         providers={[{ label: "GitHub", provider: "github" }]}
         retry={state.status === "unavailable"}
@@ -87,6 +119,6 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-function dispatchAuthState(status: "signed-out" | "forbidden") {
+function dispatchAuthState(status: AuthStateEvent) {
   window.dispatchEvent(new CustomEvent(authStateEvent, { detail: status }));
 }

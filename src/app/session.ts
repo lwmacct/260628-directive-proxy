@@ -9,9 +9,8 @@ export type AuthIdentity = {
 };
 
 export type SessionState =
-  | { status: "authenticated"; identity: AuthIdentity }
+  | { status: "authenticated"; access: "denied" | "granted"; identity: AuthIdentity }
   | { status: "signed-out" }
-  | { status: "forbidden" }
   | { status: "unavailable" };
 
 type SessionResponse = Exclude<SessionState, { status: "unavailable" }>;
@@ -29,8 +28,8 @@ export async function loadSession(): Promise<SessionState> {
 
 function isSessionResponse(value: unknown): value is SessionResponse {
   if (!value || typeof value !== "object" || !("status" in value)) return false;
-  if (value.status === "signed-out" || value.status === "forbidden") return true;
-  if (value.status !== "authenticated" || !("identity" in value)) return false;
+  if (value.status === "signed-out") return true;
+  if (value.status !== "authenticated" || !("access" in value) || (value.access !== "granted" && value.access !== "denied") || !("identity" in value)) return false;
   const identity = value.identity;
   return Boolean(
     identity

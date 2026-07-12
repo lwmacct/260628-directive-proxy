@@ -41,7 +41,7 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
 	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
 	if rt.oidcAuth != nil {
-		protectedAPI = rt.oidcAuth.RequireUser(protectedAPI)
+		protectedAPI = rt.oidcAuth.RequireAccess(protectedAPI)
 		mux.Handle("/oidcauth/", noStore(rt.oidcAuth.Handler()))
 	}
 	mux.Handle(httpAPIPrefix+"/", protectedAPI)

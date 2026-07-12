@@ -7,7 +7,7 @@ const zh = {
   },
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
-    unavailable: "暂时无法连接认证服务", forbidden: "此账号没有访问权限",
+    unavailable: "暂时无法连接认证服务",
   },
   appearance: { panel: "主题与界面" },
   exchanges: {
@@ -52,7 +52,7 @@ const en: Text = {
   },
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
-    unavailable: "Unable to connect to the authentication service", forbidden: "This account does not have access",
+    unavailable: "Unable to connect to the authentication service",
   },
   appearance: { panel: "Theme and interface" },
   exchanges: {
