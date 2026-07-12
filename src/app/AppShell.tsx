@@ -10,6 +10,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { ConsoleLayout } from "../modules/console/ConsoleLayout";
 import { SettingsLayout } from "../modules/settings/SettingsLayout";
 import { SettingsPage } from "../modules/settings/SettingsPage";
+import { DISPLAY_VERSION } from "../shared/appConfig";
 import { useText } from "../shared/i18n";
 import { useAuth } from "./auth";
 
@@ -53,7 +54,7 @@ export function AppShell() {
       brand={{
         mark: "D",
         name: "LLM Relay DProxy",
-        subtitle: "Directive proxy control plane",
+        version: DISPLAY_VERSION,
       }}
       flushContent
       nav={nav}
