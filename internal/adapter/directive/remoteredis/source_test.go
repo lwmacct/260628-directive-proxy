@@ -42,7 +42,7 @@ func TestSourceReadsExactKey(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	spec := directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "team-a/openai"}
 	for range 2 {
-		raw, err := source.Read(context.Background(), spec, nil)
+		raw, err := source.Read(context.Background(), spec)
 		if err != nil || string(raw) != `{"target":{"url":"https://api.example.com"}}` {
 			t.Fatalf("unexpected Redis result: raw=%s err=%v", raw, err)
 		}
@@ -57,7 +57,7 @@ func TestSourceReturnsNotFound(t *testing.T) {
 	enableRedisJSON(t, server)
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
-	_, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "missing"}, nil)
+	_, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "missing"})
 	if !errors.Is(err, directive.ErrRemoteNotFound) {
 		t.Fatalf("unexpected missing document error: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSourceClassifiesWrongTypeAsInvalid(t *testing.T) {
 		Type: directive.RemoteTypeRedis,
 		URL:  "redis://" + server.Addr() + "/0",
 		Key:  "legacy-string",
-	}, nil)
+	})
 	if !errors.Is(err, directive.ErrRemoteInvalid) {
 		t.Fatalf("unexpected wrong type error: %v", err)
 	}

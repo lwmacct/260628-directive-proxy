@@ -3,7 +3,6 @@ package remoteredis
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -32,7 +31,7 @@ func New(opts Options) *Source {
 	}
 }
 
-func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, _ *http.Request) ([]byte, error) {
+func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec) ([]byte, error) {
 	client, release, err := s.clients.acquire(spec.URL)
 	if err != nil {
 		return nil, err

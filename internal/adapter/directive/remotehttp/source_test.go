@@ -17,7 +17,7 @@ func testSource() *Source {
 }
 
 func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
-	var got ResolveRequest
+	var got resolveRequest
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer policy-token" || r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("unexpected resolver request: method=%s headers=%#v", r.Method, r.Header)
@@ -56,7 +56,7 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 
 func TestSourceDoesNotDiscloseHeadersByDefault(t *testing.T) {
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var got ResolveRequest
+		var got resolveRequest
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Errorf("decode request: %v", err)
 		}

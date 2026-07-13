@@ -27,13 +27,13 @@ type Source struct {
 	maxResponseBytes int64
 }
 
-type ResolveRequest struct {
+type resolveRequest struct {
 	Protocol string          `json:"protocol"`
 	Key      string          `json:"key,omitempty"`
-	Request  RequestMetadata `json:"request"`
+	Request  requestMetadata `json:"request"`
 }
 
-type RequestMetadata struct {
+type requestMetadata struct {
 	Method  string              `json:"method"`
 	URL     string              `json:"url"`
 	Host    string              `json:"host"`
@@ -61,10 +61,10 @@ func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.
 	if req == nil {
 		return nil, directive.ErrRemoteInvalid
 	}
-	body, err := json.Marshal(ResolveRequest{
+	body, err := json.Marshal(resolveRequest{
 		Protocol: "dproxy.resolve.v1",
 		Key:      spec.Key,
-		Request: RequestMetadata{
+		Request: requestMetadata{
 			Method:  req.Method,
 			URL:     requestURL(req),
 			Host:    req.Host,

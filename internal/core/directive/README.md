@@ -45,6 +45,6 @@
 
 远端实现按 adapter 分离：
 
-- `internal/adapter/directive/remote/http`: HTTP resolver 协议与 transport
-- `internal/adapter/directive/remote/redis`: Redis JSON 读取与动态 client cache
-- `internal/appcmd/server/directive_remote.go`: 在组合根按 `RemoteSpec.type` 分派 adapter
+- `internal/adapter/directive/remotehttp`: HTTP resolver 协议与 transport
+- `internal/adapter/directive/remoteredis`: Redis JSON 读取与动态 client cache
+- `internal/appcmd/server/directive_remote.go`: 在组合根实现统一 `RemoteReader` 端口，并按 `RemoteSpec.type` 适配和分派具体 reader

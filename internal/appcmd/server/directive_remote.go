@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	remotehttp "github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote/http"
-	remoteredis "github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote/redis"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remotehttp"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remoteredis"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 )
@@ -41,7 +41,7 @@ func (r *directiveRemoteReader) Read(ctx context.Context, spec directive.RemoteS
 	case directive.RemoteTypeHTTP:
 		return r.http.Read(ctx, spec, req)
 	case directive.RemoteTypeRedis:
-		return r.redis.Read(ctx, spec, req)
+		return r.redis.Read(ctx, spec)
 	default:
 		return nil, directive.ErrRemoteUnavailable
 	}
