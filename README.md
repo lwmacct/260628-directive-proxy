@@ -128,7 +128,7 @@ Redis RemoteSpec：
 ```json
 {
   "type": "redis",
-  "url": "rediss://user:password@redis.example.com:6380/1",
+  "url": "redis://user:password@redis.example.com:6379/1",
   "key": "dproxy:directive:team-a/openai"
 }
 ```

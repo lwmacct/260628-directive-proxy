@@ -116,7 +116,7 @@ const initialEditor: EditorState = {
   source: "inline",
   remoteKey: "team-a/openai",
   httpURL: "https://policy.example.com/v1/resolve",
-  redisURL: "rediss://user:password@redis.example.com:6380/1",
+  redisURL: "redis://user:password@redis.example.com:6379/1",
   resolverHeaders: [newResolverHeader("Authorization", "Bearer policy-token")],
   resolverRequestHeaders: ["Content-Type", "X-Tenant"],
   targetURL: "https://httpbin.org/anything",
@@ -455,7 +455,7 @@ export function AuthConsolePage() {
                     <Input
                       placeholder={editor.source === "http"
                         ? "https://policy.example.com/v1/resolve"
-                        : "rediss://user:password@redis.example.com:6380/1"}
+                        : "redis://user:password@redis.example.com:6379/1"}
                       value={editor.source === "http" ? editor.httpURL : editor.redisURL}
                       onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         updateEditor(editor.source === "http"
