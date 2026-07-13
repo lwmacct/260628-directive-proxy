@@ -132,7 +132,7 @@ func (r *Reader) readRedis(ctx context.Context, spec directive.RemoteSpec) ([]by
 		return nil, err
 	}
 	defer release()
-	value, err := client.Get(ctx, spec.Key).Bytes()
+	value, err := client.Do(ctx, "JSON.GET", spec.Key).Text()
 	if err == redis.Nil {
 		return nil, directive.ErrRemoteNotFound
 	}
@@ -142,7 +142,7 @@ func (r *Reader) readRedis(ctx context.Context, spec directive.RemoteSpec) ([]by
 	if r.maxResponseBytes > 0 && int64(len(value)) > r.maxResponseBytes {
 		return nil, fmt.Errorf("%w: response exceeds limit", directive.ErrRemoteInvalid)
 	}
-	return value, nil
+	return []byte(value), nil
 }
 
 func (r *Reader) Close() error {

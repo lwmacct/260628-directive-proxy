@@ -133,7 +133,12 @@ Redis RemoteSpec：
 }
 ```
 
-服务对 token 指定的 Redis URL 建立动态 client，并执行精确的 `GET key`，不添加 prefix。client 按连接 URL 指纹进行有界复用；directive value 不缓存。remote token 可包含连接凭据，必须按密钥处理，避免写入日志或公开配置。
+服务要求 Redis 8+，对 token 指定的 Redis URL 建立动态 client，并执行精确的 `JSON.GET key` 读取根 JSON 文档，不添加 prefix。每个 key 必须通过 `JSON.SET key $ <directive-json>` 存储完整 directive 对象；旧的 String key 不会被兼容读取。client 按连接 URL 指纹进行有界复用；directive value 不缓存。remote token 可包含连接凭据，必须按密钥处理，避免写入日志或公开配置。
+
+```shell
+redis-cli JSON.SET 'dproxy:directive:team-a/openai' '$' \
+  '{"target":{"url":"https://api.example.com"}}'
+```
 
 全局配置只限制远端解析使用的资源：
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	miniredisServer "github.com/alicebob/miniredis/v2/server"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 )
@@ -22,6 +23,24 @@ func testOptions() Options {
 		RedisClientCacheCapacity: 2,
 		RedisClientIdleTimeout:   time.Minute,
 		RedisPoolSize:            2,
+	}
+}
+
+func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
+	t.Helper()
+	if err := redisServer.Server().Register("JSON.GET", func(peer *miniredisServer.Peer, _ string, args []string) {
+		if len(args) != 1 {
+			peer.WriteError("ERR wrong number of arguments for 'json.get' command")
+			return
+		}
+		value, err := redisServer.Get(args[0])
+		if err != nil {
+			peer.WriteNull()
+			return
+		}
+		peer.WriteBulk(value)
+	}); err != nil {
+		t.Fatalf("register JSON.GET: %v", err)
 	}
 }
 
@@ -124,6 +143,7 @@ func TestReaderHTTPStatusAndLimits(t *testing.T) {
 
 func TestReaderReadsExactRedisKeyAndReusesClient(t *testing.T) {
 	server := miniredis.RunT(t)
+	enableRedisJSON(t, server)
 	server.Set("team-a/openai", `{"target":{"url":"https://api.example.com"}}`)
 	reader := New(testOptions())
 	t.Cleanup(func() { _ = reader.Close() })
@@ -139,6 +159,22 @@ func TestReaderReadsExactRedisKeyAndReusesClient(t *testing.T) {
 	reader.redisClients.mu.Unlock()
 	if entries != 1 {
 		t.Fatalf("expected one cached Redis client, got %d", entries)
+	}
+}
+
+func TestReaderReturnsNotFoundForMissingRedisJSONDocument(t *testing.T) {
+	server := miniredis.RunT(t)
+	enableRedisJSON(t, server)
+	reader := New(testOptions())
+	t.Cleanup(func() { _ = reader.Close() })
+
+	_, err := reader.Read(context.Background(), directive.RemoteSpec{
+		Type: directive.RemoteTypeRedis,
+		URL:  "redis://" + server.Addr() + "/0",
+		Key:  "missing",
+	}, nil)
+	if !errors.Is(err, directive.ErrRemoteNotFound) {
+		t.Fatalf("unexpected missing document error: %v", err)
 	}
 }
 

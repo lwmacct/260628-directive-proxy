@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	miniredisServer "github.com/alicebob/miniredis/v2/server"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
@@ -17,6 +18,24 @@ import (
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
 )
+
+func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
+	t.Helper()
+	if err := redisServer.Server().Register("JSON.GET", func(peer *miniredisServer.Peer, _ string, args []string) {
+		if len(args) != 1 {
+			peer.WriteError("ERR wrong number of arguments for 'json.get' command")
+			return
+		}
+		value, err := redisServer.Get(args[0])
+		if err != nil {
+			peer.WriteNull()
+			return
+		}
+		peer.WriteBulk(value)
+	}); err != nil {
+		t.Fatalf("register JSON.GET: %v", err)
+	}
+}
 
 func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	cfg := config.DefaultConfig()
@@ -192,6 +211,7 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	cfg := config.DefaultConfig()
 	redisServer := miniredis.RunT(t)
+	enableRedisJSON(t, redisServer)
 	reader := newTestDirectiveReader(t, cfg)
 
 	var upstreamSource string

@@ -25,7 +25,8 @@
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - `dproxy.14.` 后的 `i`/`r` 明确区分 inline directive 与自包含 RemoteSpec。
 - HTTP RemoteSpec 默认不披露原请求 header，只有 `request_headers` 显式选择的 header 才会发送给 resolver。
-- HTTP/Redis 返回值必须是完整 payload，不做合并、回退、value 缓存或递归引用。
+- HTTP 返回体和 Redis 8+ JSON 根文档必须是完整 payload，不做合并、回退、value 缓存或递归引用。
+- Redis directive 只使用 `JSON.GET key` 读取根文档；String key 不兼容，由写入方使用 `JSON.SET key $` 管理。
 - header op 必须且只能使用 `name`、`glob` 或 `preset` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
 - Preset 当前只接受仅用于 Remove 的 `proxy-disclosure`；preset 是有序 op，不是隐式清理策略。
 - `Host` 只接受 exact selector；Remove 删除完整 header，不接受 `values`。
