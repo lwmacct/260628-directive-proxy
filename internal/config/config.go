@@ -43,10 +43,16 @@ type Proxy struct {
 }
 
 type ProxyDirective struct {
-	MaxTokenBytes  int64               `json:"max-token-bytes"  desc:"directive token 最大字节数"`
-	MaxInlineBytes int64               `json:"max-inline-bytes" desc:"inline directive JSON 最大字节数"`
-	SourceAccess   sourceaccess.Config `json:"source-access"   desc:"Directive 入口来源白名单"`
-	Remote         RemoteDirective     `json:"remote"           desc:"远程指令解析资源限制"`
+	MaxTokenBytes  int64                 `json:"max-token-bytes"  desc:"directive token 最大字节数"`
+	MaxInlineBytes int64                 `json:"max-inline-bytes" desc:"inline directive JSON 最大字节数"`
+	SourceAccess   DirectiveSourceAccess `json:"source-access"   desc:"Directive 入口来源白名单"`
+	Remote         RemoteDirective       `json:"remote"           desc:"远程指令解析资源限制"`
+}
+
+type DirectiveSourceAccess struct {
+	AllowedSources []string               `json:"allowed-sources"  desc:"允许访问的来源 IP、CIDR 或域名列表"`
+	TrustedProxies []string               `json:"trusted-proxies" desc:"可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头"`
+	DNS            sourceaccess.DNSConfig `json:"dns"             desc:"域名来源规则的 DNS 缓存配置"`
 }
 
 type RemoteDirective struct {
@@ -75,6 +81,8 @@ type ProxyTransport struct {
 }
 
 func DefaultConfig() Config {
+	sourceDNS := sourceaccess.DefaultDNSConfig()
+	sourceDNS.StaleTTL = 10 * time.Minute
 	return Config{
 		Server: Server{
 			HTTP: ServerHTTP{
@@ -102,14 +110,9 @@ func DefaultConfig() Config {
 			Directive: ProxyDirective{
 				MaxTokenBytes:  64 << 10,
 				MaxInlineBytes: 48 << 10,
-				SourceAccess: sourceaccess.Config{
+				SourceAccess: DirectiveSourceAccess{
 					AllowedSources: []string{"127.0.0.1", "::1"},
-					DNS: sourceaccess.DNSConfig{
-						LookupTimeout: 2 * time.Second,
-						SuccessTTL:    time.Minute,
-						FailureTTL:    10 * time.Second,
-						StaleTTL:      10 * time.Minute,
-					},
+					DNS:            sourceDNS,
 				},
 				Remote: RemoteDirective{
 					Timeout:          time.Second,

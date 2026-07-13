@@ -68,6 +68,7 @@ proxy:
         success-ttl: 1m0s # 域名成功解析结果缓存时间
         failure-ttl: 10s # 域名解析失败结果缓存时间
         stale-ttl: 10m0s # 解析失败后允许继续使用旧成功结果的最长时间
+        max-hosts: 1024 # DNS 缓存的最大域名数量
 
     # 远程指令解析资源限制
     remote:

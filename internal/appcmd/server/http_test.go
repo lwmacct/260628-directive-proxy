@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -443,12 +445,31 @@ func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) 
 
 func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Config, value runtime) *runtime {
 	t.Helper()
-	access, err := sourceaccess.New(cfg.Proxy.Directive.SourceAccess, sourceaccess.Options{})
+	access, engine, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
 	if err != nil {
 		t.Fatalf("configure test source access: %v", err)
 	}
+	t.Cleanup(engine.Close)
 	value.sourceAccess = access
+	value.sourceEngine = engine
 	return &value
+}
+
+func TestRuntimeCloseClosesSourceEngine(t *testing.T) {
+	cfg := config.DefaultConfig()
+	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
+	engine := rt.sourceEngine
+	policy, err := sourceaccess.CompileSources([]string{"127.0.0.1"})
+	if err != nil {
+		t.Fatalf("compile test policy: %v", err)
+	}
+	if err := rt.Close(context.Background()); err != nil {
+		t.Fatalf("close runtime: %v", err)
+	}
+	result := engine.Evaluate(context.Background(), policy, netip.MustParseAddr("127.0.0.1"))
+	if result.Decision.Reason != sourceaccess.ReasonEngineClosed || rt.sourceEngine != nil || rt.sourceAccess != nil {
+		t.Fatalf("source engine remained available after close: %#v", result)
+	}
 }
 
 func TestNoStoreDisablesCaching(t *testing.T) {

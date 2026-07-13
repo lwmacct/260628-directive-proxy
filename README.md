@@ -56,6 +56,7 @@ proxy:
         success-ttl: 1m
         failure-ttl: 10s
         stale-ttl: 10m
+        max-hosts: 1024
 ```
 
 `allowed-sources` 接受精确 IP、CIDR 或域名，并按 OR 关系匹配。域名通过正向 A/AAAA 解析后与客户端 IP 比较，不检查请求 Host，也不执行 PTR 反查。解析结果按请求惰性缓存；刷新失败时只在 `stale-ttl` 窗口内继续使用旧的成功结果。

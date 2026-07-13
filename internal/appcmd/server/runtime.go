@@ -11,6 +11,7 @@ import (
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
@@ -26,7 +27,8 @@ type runtime struct {
 	exchanges       *service.ExchangeService
 	observer        proxy.Observer
 	oidcAuth        *oidcauth.Auth
-	sourceAccess    *sourceaccess.Access
+	sourceAccess    *sourcehttp.Guard
+	sourceEngine    *sourceaccess.Engine
 	tls             *tlsRuntime
 	directiveReader *directiveRemoteReader
 }
@@ -36,13 +38,14 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
-	sourceAccess, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
+	sourceAccess, sourceEngine, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
 	if err != nil {
 		tlsRuntime.Close()
 		return nil, fmt.Errorf("configure source access: %w", err)
 	}
 	oidcAuth, err := dexgithub.New(ctx, cfg.Server.HTTP.OIDCAuth, dexgithub.Options{})
 	if err != nil {
+		sourceEngine.Close()
 		tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
@@ -54,21 +57,43 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		observer:        capture.NewObserver(exchanges),
 		oidcAuth:        oidcAuth,
 		sourceAccess:    sourceAccess,
+		sourceEngine:    sourceEngine,
 		tls:             tlsRuntime,
 		directiveReader: directiveReader,
 	}, nil
 }
 
-func newDirectiveSourceAccess(cfg sourceaccess.Config) (*sourceaccess.Access, error) {
-	return sourceaccess.New(cfg, sourceaccess.Options{
-		DeniedHandler: func(w http.ResponseWriter, _ *http.Request, decision sourceaccess.Decision) {
-			code := decision.Reason
+func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {
+	policy, err := sourceaccess.CompileSources(cfg.AllowedSources)
+	if err != nil || policy.Len() == 0 {
+		return nil, nil, config.ErrInvalidAccess
+	}
+	engine, err := sourceaccess.NewEngine(sourceaccess.EngineConfig{DNS: cfg.DNS}, sourceaccess.EngineOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	extractor, err := sourcehttp.NewExtractor(sourcehttp.Config{
+		TrustedProxies: cfg.TrustedProxies,
+		Headers:        sourcehttp.DefaultHeaders(),
+	})
+	if err != nil {
+		engine.Close()
+		return nil, nil, err
+	}
+	guard, err := sourcehttp.NewGuard(extractor, engine.Bind(policy), sourcehttp.GuardOptions{
+		DeniedHandler: func(w http.ResponseWriter, _ *http.Request, result sourceaccess.Result) {
+			code := result.Decision.Reason
 			if code == "" {
 				code = sourceaccess.ReasonSourceNotAllowed
 			}
-			proxy.WriteProxyErrorJSON(w, http.StatusForbidden, code, "directive: source access denied")
+			proxy.WriteProxyErrorJSON(w, http.StatusForbidden, string(code), "directive: source access denied")
 		},
 	})
+	if err != nil {
+		engine.Close()
+		return nil, nil, err
+	}
+	return guard, engine, nil
 }
 
 func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer proxy.Observer) http.Handler {
@@ -94,6 +119,11 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer
 func (rt *runtime) Close(_ context.Context) error {
 	if rt == nil {
 		return nil
+	}
+	if rt.sourceEngine != nil {
+		rt.sourceEngine.Close()
+		rt.sourceEngine = nil
+		rt.sourceAccess = nil
 	}
 	if rt.tls != nil {
 		rt.tls.Close()

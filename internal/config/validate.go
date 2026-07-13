@@ -1,6 +1,11 @@
 package config
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
+)
 
 func Validate(cfg Config) (Config, error) {
 	if strings.TrimSpace(cfg.Server.HTTP.Listen) == "" {
@@ -21,7 +26,7 @@ func Validate(cfg Config) (Config, error) {
 		return cfg, ErrInvalidAuth
 	}
 	cfg.Server.HTTP.OIDCAuth = validatedAuth
-	validatedAccess, err := cfg.Proxy.Directive.SourceAccess.Validate()
+	validatedAccess, err := validateDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
 	if err != nil {
 		return cfg, ErrInvalidAccess
 	}
@@ -37,5 +42,26 @@ func Validate(cfg Config) (Config, error) {
 		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 {
 		return cfg, ErrInvalidDirective
 	}
+	return cfg, nil
+}
+
+func validateDirectiveSourceAccess(cfg DirectiveSourceAccess) (DirectiveSourceAccess, error) {
+	policy, err := sourceaccess.CompileSources(cfg.AllowedSources)
+	if err != nil || policy.Len() == 0 || cfg.DNS.Validate() != nil {
+		return cfg, ErrInvalidAccess
+	}
+	rules := policy.Rules()
+	cfg.AllowedSources = make([]string, len(rules))
+	for index, rule := range rules {
+		cfg.AllowedSources[index] = rule.Value
+	}
+	httpConfig, err := (sourcehttp.Config{
+		TrustedProxies: cfg.TrustedProxies,
+		Headers:        sourcehttp.DefaultHeaders(),
+	}).Validate()
+	if err != nil {
+		return cfg, ErrInvalidAccess
+	}
+	cfg.TrustedProxies = httpConfig.TrustedProxies
 	return cfg, nil
 }

@@ -60,6 +60,7 @@ func commandFlags() []cli.Flag {
 		&cli.DurationFlag{Name: "proxy.directive.source-access.dns.success-ttl", Usage: flagHelp.MustUsage("proxy.directive.source-access.dns.success-ttl"), Value: defaults.Proxy.Directive.SourceAccess.DNS.SuccessTTL},
 		&cli.DurationFlag{Name: "proxy.directive.source-access.dns.failure-ttl", Usage: flagHelp.MustUsage("proxy.directive.source-access.dns.failure-ttl"), Value: defaults.Proxy.Directive.SourceAccess.DNS.FailureTTL},
 		&cli.DurationFlag{Name: "proxy.directive.source-access.dns.stale-ttl", Usage: flagHelp.MustUsage("proxy.directive.source-access.dns.stale-ttl"), Value: defaults.Proxy.Directive.SourceAccess.DNS.StaleTTL},
+		&cli.IntFlag{Name: "proxy.directive.source-access.dns.max-hosts", Usage: flagHelp.MustUsage("proxy.directive.source-access.dns.max-hosts"), Value: defaults.Proxy.Directive.SourceAccess.DNS.MaxHosts},
 		&cli.DurationFlag{Name: "proxy.directive.remote.timeout", Usage: flagHelp.MustUsage("proxy.directive.remote.timeout"), Value: defaults.Proxy.Directive.Remote.Timeout},
 		&cli.Int64Flag{Name: "proxy.directive.remote.http.max-request-bytes", Usage: flagHelp.MustUsage("proxy.directive.remote.http.max-request-bytes"), Value: defaults.Proxy.Directive.Remote.HTTP.MaxRequestBytes},
 		&cli.Int64Flag{Name: "proxy.directive.remote.max-response-bytes", Usage: flagHelp.MustUsage("proxy.directive.remote.max-response-bytes"), Value: defaults.Proxy.Directive.Remote.MaxResponseBytes},

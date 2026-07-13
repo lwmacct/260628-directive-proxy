@@ -41,8 +41,8 @@ github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626 h1:gHyEFXJ6rPEljJSt7Gv++1
 github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626/go.mod h1:vcBuL7xMgFha98wyMcmTck3z6IADiP7pspe4PRUq0Cg=
 github.com/lwmacct/260711-go-pkg-oidcauth v0.6.260712 h1:RZKzIK9pWo9Its9j7xR+jhVfqpwplxaAx80qK9dFq60=
 github.com/lwmacct/260711-go-pkg-oidcauth v0.6.260712/go.mod h1:Y8rqThIWEjAHShQjKfTmdq6/EFy/7A3z364Xtvl/mS8=
-github.com/lwmacct/260713-go-pkg-sourceaccess v0.2.260713 h1:LfGX2dNS8yy69BnpbZOJxjisafQTeM2RFwxbl6Q7iH0=
-github.com/lwmacct/260713-go-pkg-sourceaccess v0.2.260713/go.mod h1:nHau3a0kI/Bu2f2Jxt9EMBP0p6UWmS5U10HxqwHPi9g=
+github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713 h1:C3eRbK0JFIa9qcZUupaczKHFnyJfyGLxOM99sAcMqI4=
+github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713/go.mod h1:nHau3a0kI/Bu2f2Jxt9EMBP0p6UWmS5U10HxqwHPi9g=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/redis/go-redis/v9 v9.17.3 h1:fN29NdNrE17KttK5Ndf20buqfDZwGNgoUr9qjl1DQx4=

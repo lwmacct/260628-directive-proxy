@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
 func TestDefaultConfigUsesSingleHTTPListen(t *testing.T) {
@@ -78,11 +77,12 @@ func TestValidateNormalizesAuth(t *testing.T) {
 }
 
 func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
-	tests := []func(*sourceaccess.Config){
-		func(cfg *sourceaccess.Config) { cfg.AllowedSources = nil },
-		func(cfg *sourceaccess.Config) { cfg.AllowedSources = []string{"bad_name.example"} },
-		func(cfg *sourceaccess.Config) { cfg.TrustedProxies = []string{"proxy.example.com"} },
-		func(cfg *sourceaccess.Config) { cfg.DNS.LookupTimeout = -1 },
+	tests := []func(*DirectiveSourceAccess){
+		func(cfg *DirectiveSourceAccess) { cfg.AllowedSources = nil },
+		func(cfg *DirectiveSourceAccess) { cfg.AllowedSources = []string{"bad_name.example"} },
+		func(cfg *DirectiveSourceAccess) { cfg.TrustedProxies = []string{"proxy.example.com"} },
+		func(cfg *DirectiveSourceAccess) { cfg.DNS.LookupTimeout = -1 },
+		func(cfg *DirectiveSourceAccess) { cfg.DNS.MaxHosts = 0 },
 	}
 	for _, mutate := range tests {
 		cfg := DefaultConfig()
