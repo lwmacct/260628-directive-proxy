@@ -3,7 +3,7 @@ package directive_test
 import (
 	"fmt"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 )
 
 func ExampleEncode() {

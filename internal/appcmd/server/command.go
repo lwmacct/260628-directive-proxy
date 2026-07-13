@@ -7,7 +7,7 @@ import (
 	"github.com/lwmacct/251207-go-pkg-version/pkg/version"
 	"github.com/urfave/cli/v3"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/config"
 )
 
 var (

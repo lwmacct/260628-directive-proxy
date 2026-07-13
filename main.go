@@ -11,7 +11,7 @@ import (
 	"github.com/lwmacct/251207-go-pkg-version/pkg/version"
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/appcmd/server"
+	"github.com/lwmacct/260628-directive-proxy/internal/appcmd/server"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func main() {
 
 	cmd := &cli.Command{
 		Name:            "app",
-		Usage:           "llm relay directive proxy",
+		Usage:           "directive-driven HTTP reverse proxy",
 		Version:         version.AppVersion,
 		Flags:           []cli.Flag{cfgm.ConfigFlag()},
 		Commands:        []*cli.Command{server.Command, version.Command},

@@ -6,7 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
+	"github.com/lwmacct/260628-directive-proxy/internal/service"
 )
 
 type proxyExchangeHandler struct {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
 type remoteReaderFunc func(context.Context, RemoteSpec, *http.Request) ([]byte, error)
@@ -26,12 +26,12 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		}),
 		LookupTimeout: time.Second,
 	})
-	spec := RemoteSpec{Type: RemoteTypeHTTP, URL: "https://policy.example.com/v1/resolve?secret=hidden", Key: "team-a/openai"}
+	spec := RemoteSpec{Type: RemoteTypeHTTP, URL: "https://policy.example.com/v1/resolve?secret=hidden", Key: "team-a/service-a"}
 	token, err := EncodeRemote(spec)
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resolution, err := resolver.Resolve(req)
@@ -52,7 +52,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 }
 
 func TestResolverRemoteFailures(t *testing.T) {
-	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "redis://redis.example.com:6379/0", Key: "team-a/openai"})
+	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"})
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}

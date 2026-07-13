@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
 var (

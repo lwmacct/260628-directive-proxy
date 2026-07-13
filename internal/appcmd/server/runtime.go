@@ -13,12 +13,12 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
+	"github.com/lwmacct/260628-directive-proxy/internal/adapter/exchange/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/service"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12

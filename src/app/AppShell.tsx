@@ -53,7 +53,7 @@ export function AppShell() {
       }
       brand={{
         mark: "D",
-        name: "LLM Relay DProxy",
+        name: "Directive Proxy",
         version: DISPLAY_VERSION,
       }}
       flushContent

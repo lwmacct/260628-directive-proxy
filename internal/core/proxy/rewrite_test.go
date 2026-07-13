@@ -89,7 +89,7 @@ func TestGlobSelectorNeverMatchesHost(t *testing.T) {
 
 func TestApplyRewrite(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
@@ -103,7 +103,7 @@ func TestApplyRewrite(t *testing.T) {
 		}},
 	})
 
-	if req.Out.URL.String() != "https://example.com/base/v1/chat" {
+	if req.Out.URL.String() != "https://example.com/base/v1/resources" {
 		t.Fatalf("unexpected url: %s", req.Out.URL.String())
 	}
 	if got := req.Out.Header.Get("Authorization"); got != "Bearer abc" {
@@ -113,7 +113,7 @@ func TestApplyRewrite(t *testing.T) {
 
 func TestApplyRewriteWithoutJoinPathUsesTargetPathAsIs(t *testing.T) {
 	target, _ := url.Parse("https://example.com/ip?source=proxy")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?client=1", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources?client=1", nil)
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
@@ -138,23 +138,23 @@ func TestBuildOutboundURL(t *testing.T) {
 		{
 			name:     "joins paths and keeps inbound query",
 			target:   "https://example.com/base",
-			inbound:  "http://proxy.local/v1/chat?client=1",
+			inbound:  "http://proxy.local/v1/resources?client=1",
 			joinPath: true,
-			want:     "https://example.com/base/v1/chat?client=1",
+			want:     "https://example.com/base/v1/resources?client=1",
 		},
 		{
 			name:     "uses target as-is without join",
 			target:   "https://example.com/ip?source=proxy",
-			inbound:  "http://proxy.local/v1/chat?client=1",
+			inbound:  "http://proxy.local/v1/resources?client=1",
 			joinPath: false,
 			want:     "https://example.com/ip?source=proxy",
 		},
 		{
 			name:     "preserves trailing slash",
 			target:   "https://example.com/base/",
-			inbound:  "http://proxy.local/v1/chat",
+			inbound:  "http://proxy.local/v1/resources",
 			joinPath: true,
-			want:     "https://example.com/base/v1/chat",
+			want:     "https://example.com/base/v1/resources",
 		},
 		{
 			name:     "preserves escaped path segments",
@@ -166,9 +166,9 @@ func TestBuildOutboundURL(t *testing.T) {
 		{
 			name:     "joins target and inbound query",
 			target:   "https://example.com/base?source=proxy",
-			inbound:  "http://proxy.local/v1/chat?client=1",
+			inbound:  "http://proxy.local/v1/resources?client=1",
 			joinPath: true,
-			want:     "https://example.com/base/v1/chat?source=proxy&client=1",
+			want:     "https://example.com/base/v1/resources?source=proxy&client=1",
 		},
 	}
 
@@ -191,7 +191,7 @@ func TestBuildOutboundURL(t *testing.T) {
 
 func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in.Header.Set("X-Inbound", "drop")
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
@@ -220,7 +220,7 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 
 func TestApplyRewritePatchPreservesProxyDisclosureHeadersByDefault(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	for _, name := range proxyDisclosureHeaders {
 		in.Header.Set(name, "preserve")
 	}
@@ -241,7 +241,7 @@ func TestApplyRewritePatchPreservesProxyDisclosureHeadersByDefault(t *testing.T)
 
 func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in.Header.Set("X-Dproxy-Inbound", "drop")
 	in.Header["x-dproxy-lowercase"] = []string{"drop"}
 	in.Header.Set("X-Upstream", "keep")
@@ -270,7 +270,7 @@ func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
 
 func TestApplyRewriteProxyDisclosurePresetIsOrdered(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in.Header.Set("True-Client-IP", "drop")
 	in.Header.Set("X-Forwarded-Custom", "drop")
 	in.Header.Set("X-Inbound", "keep")
@@ -299,7 +299,7 @@ func TestApplyRewriteProxyDisclosurePresetIsOrdered(t *testing.T) {
 
 func TestApplyRewritePatchRemovesHopByHopHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in.Header.Set("Connection", "X-Connection-Only")
 	in.Header.Set("X-Connection-Only", "drop")
 	in.Header.Set("Keep-Alive", "timeout=5")
@@ -348,7 +348,7 @@ func TestApplyRewritePreservesTrustedTransportHeadersAndRejectsDirectiveInjectio
 
 func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 

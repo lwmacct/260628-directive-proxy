@@ -11,7 +11,7 @@ import (
 
 func TestDirectiveCodecEndpoints(t *testing.T) {
 	handler := NewEndpoint(Services{}).Handler()
-	encodeBody := []byte(`{"kind":"remote","remote":{"type":"http","url":"https://policy.example.com/v1/resolve","key":"team-a/openai","headers":{"authorization":"Bearer secret"},"request_headers":["Content-Type","X-Tenant-*"]}}`)
+	encodeBody := []byte(`{"kind":"remote","remote":{"type":"http","url":"https://policy.example.com/v1/resolve","key":"team-a/service-a","headers":{"authorization":"Bearer secret"},"request_headers":["Content-Type","X-Tenant-*"]}}`)
 	encodeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(encodeResponse, httptest.NewRequest(http.MethodPost, "/directives/encode", bytes.NewReader(encodeBody)))
 	if encodeResponse.Code != http.StatusOK {

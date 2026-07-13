@@ -17,7 +17,7 @@ func utilOptionalInt64(value *int64) int64 {
 }
 
 func utilHTTPConfig() huma.Config {
-	config := huma.DefaultConfig("LLM Relay Directive Proxy", "1.0.0")
+	config := huma.DefaultConfig("Directive Proxy", "1.0.0")
 	config.OpenAPIPath = "/openapi.json"
 	config.DocsPath = "/docs"
 	config.SchemasPath = "/schemas"

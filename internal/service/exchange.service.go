@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 )
 
 type ExchangeService struct {

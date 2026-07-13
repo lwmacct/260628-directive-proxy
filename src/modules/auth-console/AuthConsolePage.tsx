@@ -114,7 +114,7 @@ let resolverHeaderID = 0;
 
 const initialEditor: EditorState = {
   source: "inline",
-  remoteKey: "team-a/openai",
+  remoteKey: "team-a/service-a",
   httpURL: "https://policy.example.com/v1/resolve",
   redisURL: "redis://user:password@redis.example.com:6379/1",
   resolverHeaders: [newResolverHeader("Authorization", "Bearer policy-token")],
@@ -141,12 +141,12 @@ export function AuthConsolePage() {
   const [activeSource, setActiveSource] = useState<"payload" | "token">("payload");
   const [error, setError] = useState<string | null>(null);
   const [requestMethod, setRequestMethod] = useState("POST");
-  const [requestPath, setRequestPath] = useState("/v1/chat/completions");
+  const [requestPath, setRequestPath] = useState("/v1/resources");
   const [requestHeaders, setRequestHeaders] = useState(
     '{\n  "Content-Type": "application/json"\n}',
   );
   const [requestBody, setRequestBody] = useState(
-    '{\n  "model": "example-model",\n  "messages": [\n    { "role": "user", "content": "Hello" }\n  ]\n}',
+    '{\n  "message": "Hello",\n  "metadata": {\n    "source": "workbench"\n  }\n}',
   );
   const [requestLoading, setRequestLoading] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -466,7 +466,7 @@ export function AuthConsolePage() {
                   </Form.Item>
                   <Form.Item label={editor.source === "http" ? t.authConsole.optionalRemoteKey : t.authConsole.redisKey}>
                     <Input
-                      placeholder="team-a/openai"
+                      placeholder="team-a/service-a"
                       status={editor.source === "redis" && !isRemoteKeyValid(editor.remoteKey) ? "error" : undefined}
                       value={editor.remoteKey}
                       onChange={(event: ChangeEvent<HTMLInputElement>) =>
@@ -712,7 +712,7 @@ function RequestPanel(props: {
         />
         <Input
           className="request-path"
-          placeholder="/v1/chat/completions"
+          placeholder="/v1/resources"
           value={props.path}
           onChange={(event: ChangeEvent<HTMLInputElement>) =>
             props.onPathChange(event.target.value)

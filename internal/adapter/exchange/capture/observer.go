@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
 type Observer struct {

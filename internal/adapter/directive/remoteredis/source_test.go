@@ -9,7 +9,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 )
 
 func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
@@ -37,10 +37,10 @@ func newTestSource() *Source {
 func TestSourceReadsExactKey(t *testing.T) {
 	server := miniredis.RunT(t)
 	enableRedisJSON(t, server)
-	server.Set("team-a/openai", `{"target":{"url":"https://api.example.com"}}`)
+	server.Set("team-a/service-a", `{"target":{"url":"https://api.example.com"}}`)
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
-	spec := directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "team-a/openai"}
+	spec := directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "team-a/service-a"}
 	for range 2 {
 		raw, err := source.Read(context.Background(), spec)
 		if err != nil || string(raw) != `{"target":{"url":"https://api.example.com"}}` {

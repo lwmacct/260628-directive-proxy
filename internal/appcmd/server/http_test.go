@@ -13,11 +13,11 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/service"
+	"github.com/lwmacct/260628-directive-proxy/internal/adapter/exchange/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/service"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
@@ -73,7 +73,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 		t.Fatalf("unexpected root health status: %d", rootHealthRecorder.Code)
 	}
 
-	proxyReq := httptest.NewRequest(http.MethodPost, "http://service.local/api/chat/completions", nil)
+	proxyReq := httptest.NewRequest(http.MethodPost, "http://service.local/api/resources", nil)
 	proxyReq.RemoteAddr = "127.0.0.1:1234"
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
 	proxyRecorder := httptest.NewRecorder()
@@ -81,7 +81,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	if proxyRecorder.Code != http.StatusAccepted {
 		t.Fatalf("unexpected proxy status: %d", proxyRecorder.Code)
 	}
-	if proxyPath != "/api/chat/completions" {
+	if proxyPath != "/api/resources" {
 		t.Fatalf("proxy path was modified: %q", proxyPath)
 	}
 
@@ -180,7 +180,7 @@ func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
 		t.Fatalf("encode directive failed: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", strings.NewReader("hello"))
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("hello"))
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Forwarded", "for=client.example")
@@ -224,11 +224,11 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	redisServer.Set("team-a/openai", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`)
+	redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`)
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
 		Type: directive.RemoteTypeRedis,
 		URL:  "redis://" + redisServer.Addr() + "/0",
-		Key:  "team-a/openai",
+		Key:  "team-a/service-a",
 	})
 	if err != nil {
 		t.Fatalf("encode redis token failed: %v", err)
@@ -236,7 +236,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
 	exchanges.Configure(true, 0, -1)
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges), directiveReader: reader})
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
@@ -247,7 +247,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		t.Fatalf("unexpected proxy result: status=%d source=%q body=%s", recorder.Code, upstreamSource, recorder.Body.String())
 	}
 	record := exchanges.Snapshot(1).Items[0]
-	if record.DirectiveMode != "remote" || record.DirectiveBackend != "redis" || record.DirectiveKey != "team-a/openai" ||
+	if record.DirectiveMode != "remote" || record.DirectiveBackend != "redis" || record.DirectiveKey != "team-a/service-a" ||
 		record.DirectiveEndpoint != "redis://"+redisServer.Addr()+"/0" {
 		t.Fatalf("unexpected redis directive metadata: %#v", record)
 	}
@@ -269,7 +269,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 			Key      string `json:"key"`
 		}
 		if r.Header.Get("Authorization") != "Bearer policy-token" || json.NewDecoder(r.Body).Decode(&body) != nil ||
-			body.Protocol != "dproxy.resolve.v1" || body.Key != "team-a/openai" {
+			body.Protocol != "dproxy.resolve.v1" || body.Key != "team-a/service-a" {
 			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
 		}
 		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["http"]}]}}`)
@@ -278,7 +278,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP,
 		URL:  resolver.URL,
-		Key:  "team-a/openai",
+		Key:  "team-a/service-a",
 		Headers: map[string]string{
 			"Authorization": "Bearer policy-token",
 		},
@@ -286,7 +286,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode HTTP token failed: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
@@ -308,7 +308,7 @@ func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	srv := newHTTPServer(&cfg, rt)
 
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer dproxy.11.payload")
 	recorder := httptest.NewRecorder()
@@ -381,7 +381,7 @@ func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode directive: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "198.51.100.7:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
@@ -397,7 +397,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "198.51.100.7:1234"
 	req.Header.Set("Authorization", "Bearer dproxy.11.payload")
 	recorder := httptest.NewRecorder()
@@ -422,7 +422,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode directive: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
 	req.Header.Set("X-Forwarded-For", "198.51.100.7")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -440,7 +440,7 @@ func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
 	req.Header.Set("Forwarded", `for="unterminated`)
 	req.Header.Set("X-Forwarded-For", "198.51.100.7")
@@ -457,7 +457,7 @@ func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer dproxy.11.payload")
 	recorder := httptest.NewRecorder()

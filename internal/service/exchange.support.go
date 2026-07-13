@@ -1,6 +1,6 @@
 package service
 
-import "github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
+import "github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 
 func utilEmptyExchangeSnapshot() exchange.Snapshot {
 	return exchange.Snapshot{Items: []exchange.Record{}}

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remotehttp"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remoteredis"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directive/remotehttp"
+	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directive/remoteredis"
+	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 )
 
 type directiveRemoteReader struct {

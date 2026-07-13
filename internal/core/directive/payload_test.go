@@ -58,7 +58,7 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	input := RemoteSpec{
 		Type: RemoteTypeHTTP,
 		URL:  "https://policy.example.com/v1/resolve",
-		Key:  "team-a/生产/openai",
+		Key:  "team-a/生产/service-a",
 		Headers: map[string]string{
 			"authorization": "Bearer policy-token",
 		},
@@ -83,7 +83,7 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 }
 
 func TestRemoteSpecValidation(t *testing.T) {
-	valid := []string{"team-a/openai", "region:cn/model:qwen", "客户甲/openai", strings.Repeat("a", maxRemoteKeyBytes)}
+	valid := []string{"team-a/service-a", "region:cn/service:primary", "客户甲/服务一", strings.Repeat("a", maxRemoteKeyBytes)}
 	for _, key := range valid {
 		if _, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "rediss://user:pass@redis.example.com:6380/1", Key: key}); err != nil {
 			t.Fatalf("expected key %q to be valid: %v", key, err)

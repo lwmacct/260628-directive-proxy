@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 )
 
 func testSource() *Source {
@@ -30,23 +30,23 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	defer resolver.Close()
 	source := testSource()
 	t.Cleanup(func() { _ = source.Close() })
-	req := httptest.NewRequest(http.MethodPost, "https://relay.example.com/v1/chat?region=cn", nil)
-	req.Host = "relay.example.com"
+	req := httptest.NewRequest(http.MethodPost, "https://gateway.example.com/v1/resources?region=cn", nil)
+	req.Host = "gateway.example.com"
 	req.Header.Set("Authorization", "Bearer dproxy.14.r.secret")
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "X-Hop")
 	req.Header.Set("X-Hop", "drop")
 
 	raw, err := source.Read(context.Background(), directive.RemoteSpec{
-		Type: directive.RemoteTypeHTTP, URL: resolver.URL, Key: "team-a/openai",
+		Type: directive.RemoteTypeHTTP, URL: resolver.URL, Key: "team-a/service-a",
 		RequestHeaders: []string{"Authorization", "X-Hop", "X-Tenant"},
 		Headers:        map[string]string{"Authorization": "Bearer policy-token"},
 	}, req)
 	if err != nil || string(raw) != `{"target":{"url":"https://api.example.com/v1"}}` {
 		t.Fatalf("unexpected response: raw=%s err=%v", raw, err)
 	}
-	if got.Protocol != "dproxy.resolve.v1" || got.Key != "team-a/openai" || got.Request.Method != http.MethodPost ||
-		got.Request.URL != "https://relay.example.com/v1/chat?region=cn" || got.Request.Host != "relay.example.com" {
+	if got.Protocol != "dproxy.resolve.v1" || got.Key != "team-a/service-a" || got.Request.Method != http.MethodPost ||
+		got.Request.URL != "https://gateway.example.com/v1/resources?region=cn" || got.Request.Host != "gateway.example.com" {
 		t.Fatalf("unexpected metadata: %#v", got)
 	}
 	if got.Request.Headers["X-Tenant"][0] != "team-a" || got.Request.Headers["Authorization"] != nil || got.Request.Headers["X-Hop"] != nil {
@@ -68,7 +68,7 @@ func TestSourceDoesNotDiscloseHeadersByDefault(t *testing.T) {
 	defer resolver.Close()
 	source := testSource()
 	t.Cleanup(func() { _ = source.Close() })
-	req := httptest.NewRequest(http.MethodGet, "http://relay.local/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)
 	req.Header.Set("Cookie", "session=secret")
 	if _, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: resolver.URL}, req); err != nil {
 		t.Fatalf("resolve failed: %v", err)
@@ -95,7 +95,7 @@ func TestSourceStatusAndLimits(t *testing.T) {
 			defer server.Close()
 			source := New(Options{Timeout: time.Second, MaxRequestBytes: 1024, MaxResponseBytes: 8})
 			defer func() { _ = source.Close() }()
-			_, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: server.URL}, httptest.NewRequest(http.MethodGet, "http://relay.local/", nil))
+			_, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: server.URL}, httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil))
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("unexpected error: got %v want %v", err, tt.wantErr)
 			}

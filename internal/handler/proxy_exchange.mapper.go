@@ -1,6 +1,6 @@
 package handler
 
-import "github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
+import "github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 
 func ToProxyExchangeSnapshotDTO(snapshot exchange.Snapshot) ProxyExchangeSnapshotDTO {
 	items := make([]ProxyExchangeRecordDTO, 0, len(snapshot.Items))

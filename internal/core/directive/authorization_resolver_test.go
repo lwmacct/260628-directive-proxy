@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
@@ -21,7 +21,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}
-	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
 	resolution, err := NewResolver().Resolve(req)
@@ -44,7 +44,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 }
 
 func TestResolverReturnsNoMatchForNonDirectiveBearerToken(t *testing.T) {
-	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer opaque-upstream-token")
 
 	_, err := NewResolver().Resolve(req)
@@ -70,7 +70,7 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+			req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 			if tt.authorization != "" {
 				req.Header.Set("Authorization", tt.authorization)
 			}
@@ -93,7 +93,7 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 }
 
 func TestResolverReturnsInvalidDirectiveForUnsupportedDirectiveVersion(t *testing.T) {
-	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+".10.payload")
 
 	_, err := NewResolver().Resolve(req)
@@ -103,7 +103,7 @@ func TestResolverReturnsInvalidDirectiveForUnsupportedDirectiveVersion(t *testin
 }
 
 func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T) {
-	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+"."+TokenVersion+".not-valid-base64url")
 
 	_, err := NewResolver().Resolve(req)
@@ -116,7 +116,7 @@ func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T
 	const decodedSecret = "decoded-auth-secret"
 
 	raw := encodeToken(TokenInline, []byte(`{"target":{"url":"`+decodedSecret+`"}}`))
-	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
 	_, err := NewResolver().Resolve(req)

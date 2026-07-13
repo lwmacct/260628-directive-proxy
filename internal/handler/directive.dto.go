@@ -1,6 +1,6 @@
 package handler
 
-import "github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+import "github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 
 type DirectiveDocumentDTO = directive.Document
 

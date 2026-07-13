@@ -188,7 +188,7 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 		HandlerOptions{},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/v1/chat", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", rawAuthorization)
 	recorder := httptest.NewRecorder()
 
@@ -304,7 +304,7 @@ func TestHandlerPatchHeaderPolicySurvivesReverseProxyPreprocessing(t *testing.T)
 				}),
 				HandlerOptions{},
 			)
-			req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+			req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 			req.Header.Set("Forwarded", "for=client.example")
 			recorder := httptest.NewRecorder()
 

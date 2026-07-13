@@ -1,4 +1,4 @@
-module github.com/lwmacct/260628-llm-relay-dproxy
+module github.com/lwmacct/260628-directive-proxy
 
 go 1.26.4
 

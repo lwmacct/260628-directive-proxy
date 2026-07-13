@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/handler"
+	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/handler"
 )
 
 const httpAPIPrefix = "/api"

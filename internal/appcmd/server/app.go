@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/config"
 )
 
 type App struct {

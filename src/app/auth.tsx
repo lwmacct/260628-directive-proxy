@@ -84,7 +84,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
   if (state.status === "authenticated" && state.access === "denied") {
     return (
       <WorkbenchAccessDeniedPage
-        brand={{ mark: "D", name: "LLM Relay DProxy" }}
+        brand={{ mark: "D", name: "Directive Proxy" }}
         identity={{
           avatarUrl: state.identity.avatar_url,
           displayName: state.identity.name,
@@ -104,7 +104,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
         brand={{
           description: t.auth.signInDescription,
           mark: "D",
-          name: "LLM Relay DProxy",
+          name: "Directive Proxy",
         }}
         hint={state.status === "signed-out" ? t.auth.authorizedOnly : undefined}
         error={state.status === "unavailable" ? t.auth.unavailable : undefined}

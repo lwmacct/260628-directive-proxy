@@ -68,7 +68,7 @@ func TestHandlerRewriteCarriesProxyToOutboundRequest(t *testing.T) {
 	proxyURL, _ := url.Parse("socks5://user:pass@127.0.0.1:1080")
 	handler := NewHandler(noopResolver{}, http.DefaultTransport, HandlerOptions{})
 
-	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in = in.WithContext(ContextWithPlan(in.Context(), &Plan{
 		Target: target,
 		Proxy:  proxyURL,

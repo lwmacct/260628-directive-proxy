@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 )
 
 type writerFunc func(context.Context, exchange.Record) error

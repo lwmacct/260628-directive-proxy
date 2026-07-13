@@ -1,6 +1,8 @@
-# llm-relay-dproxy
+# 260628-directive-proxy
 
-`llm-relay-dproxy` 是面向 LLM relay 流量的指令代理 data plane。
+`260628-directive-proxy`（Directive Proxy）是由 directive token 驱动的通用 HTTP 反向代理 data plane。
+
+`dproxy` 是 Directive Proxy 的协议前缀，当前用于 `dproxy.14.*` directive token 和 `dproxy.resolve.v1` 远端解析协议。
 
 项目只负责解析 `Authorization: Bearer dproxy.14...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
@@ -49,7 +51,7 @@ proxy:
         - 127.0.0.1
         - ::1
         - 172.22.0.0/16
-        - relay-entry.example.net
+        - client.example.net
       trusted-proxies:
         - 172.18.0.0/16
       dns:
@@ -128,7 +130,7 @@ HTTP RemoteSpec：
 {
   "type": "http",
   "url": "https://policy.example.com/v1/resolve",
-  "key": "team-a/openai",
+  "key": "team-a/service-a",
   "headers": {
     "Authorization": "Bearer policy-token"
   },
@@ -141,11 +143,11 @@ HTTP RemoteSpec：
 ```json
 {
   "protocol": "dproxy.resolve.v1",
-  "key": "team-a/openai",
+  "key": "team-a/service-a",
   "request": {
     "method": "POST",
-    "url": "https://relay.example.com/v1/chat?region=cn",
-    "host": "relay.example.com",
+    "url": "https://gateway.example.com/v1/resources?region=cn",
+    "host": "gateway.example.com",
     "headers": { "Content-Type": ["application/json"] }
   }
 }
@@ -159,14 +161,14 @@ Redis RemoteSpec：
 {
   "type": "redis",
   "url": "redis://user:password@redis.example.com:6379/1",
-  "key": "dproxy:directive:team-a/openai"
+  "key": "dproxy:directive:team-a/service-a"
 }
 ```
 
 服务要求 Redis 8+，对 token 指定的 Redis URL 建立动态 client，并执行精确的 `JSON.GET key` 读取根 JSON 文档，不添加 prefix。每个 key 必须通过 `JSON.SET key $ <directive-json>` 存储完整 directive 对象；旧的 String key 不会被兼容读取。client 按连接 URL 指纹进行有界复用；directive value 不缓存。remote token 可包含连接凭据，必须按密钥处理，避免写入日志或公开配置。
 
 ```shell
-redis-cli JSON.SET 'dproxy:directive:team-a/openai' '$' \
+redis-cli JSON.SET 'dproxy:directive:team-a/service-a' '$' \
   '{"target":{"url":"https://api.example.com"}}'
 ```
 
