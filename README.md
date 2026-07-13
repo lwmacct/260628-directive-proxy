@@ -6,12 +6,12 @@
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
-- 携带 `Authorization: Bearer dproxy.*` 的请求进入基于原生 `net/http` 的反向代理。
+- 携带 `Authorization: Bearer dproxy.*` 且通过来源白名单的请求进入基于原生 `net/http` 的反向代理。
 - 其他请求进入 control handler，包括 Huma `/api/*`、`/health` 和可选的 Web UI。
 
 Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请求仍会进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
-Control API 使用 Dex OIDC 登录，并在本地按 GitHub 数字用户 ID 授权。`/api/*` 必须持有有效身份 Cookie；`/health`、Web UI 和 dproxy 代理流量保持公开。
+Control API 使用 Dex OIDC 登录，并在本地按 GitHub 数字用户 ID 授权。`/api/*` 必须持有有效身份 Cookie；`/health` 和 Web UI 不受 Directive 来源白名单影响。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
 ## Control API 登录
 
@@ -35,6 +35,34 @@ server:
 登录成功后，`oidcauth` 包将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
 
 生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定由每个 origin 派生为 `<external-url>/oidcauth/callback`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。默认值指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
+
+## Directive 来源白名单
+
+`proxy.directive.source-access` 只保护携带 `Authorization: Bearer dproxy.*` 的 Directive 流量。Control API、OIDC、`/health` 和 Web UI 继续使用各自的访问策略。默认仅允许 IPv4/IPv6 环回地址；容器、反向代理或远程客户端部署必须显式配置实际来源，否则请求会被拒绝。
+
+```yaml
+proxy:
+  directive:
+    source-access:
+      allowed-sources:
+        - 127.0.0.1
+        - ::1
+        - 10.42.0.0/16
+        - relay-entry.example.net
+      trusted-proxies:
+        - 172.18.0.0/16
+      dns:
+        lookup-timeout: 2s
+        success-ttl: 1m
+        failure-ttl: 10s
+        stale-ttl: 10m
+```
+
+`allowed-sources` 接受精确 IP、CIDR 或域名，并按 OR 关系匹配。域名通过正向 A/AAAA 解析后与客户端 IP 比较，不检查请求 Host，也不执行 PTR 反查。解析结果按请求惰性缓存；刷新失败时只在 `stale-ttl` 窗口内继续使用旧的成功结果。
+
+默认以 TCP 对端地址作为客户端 IP。仅当直接对端命中 `trusted-proxies` 时，才按 `Forwarded`、`X-Forwarded-For`、`X-Real-IP` 的优先级读取转发链，并从右向左剥离可信代理。`trusted-proxies` 只接受 IP/CIDR；可信反向代理必须覆盖或清理客户端传入的转发头。优先级更高的转发头格式非法时会直接以 `source_invalid` 拒绝，不回退到其他头。
+
+空白名单、非法或重复规则、非法 DNS 参数都会使服务启动失败。来源未命中返回 `403 source_not_allowed`，无法确定有效客户端地址返回 `403 source_invalid`。
 
 ## Directive Token
 

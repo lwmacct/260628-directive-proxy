@@ -21,6 +21,11 @@ func Validate(cfg Config) (Config, error) {
 		return cfg, ErrInvalidAuth
 	}
 	cfg.Server.HTTP.OIDCAuth = validatedAuth
+	validatedAccess, err := cfg.Proxy.Directive.SourceAccess.Validate()
+	if err != nil {
+		return cfg, ErrInvalidAccess
+	}
+	cfg.Proxy.Directive.SourceAccess = validatedAccess
 	if cfg.Proxy.Transport.MaxIdleConns < 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost < 0 ||
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport

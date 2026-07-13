@@ -6,6 +6,7 @@ import (
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
 var (
@@ -13,6 +14,7 @@ var (
 	ErrInvalidAuth      = errors.New("invalid auth config")
 	ErrInvalidTransport = errors.New("invalid transport config")
 	ErrInvalidDirective = errors.New("invalid directive config")
+	ErrInvalidAccess    = errors.New("invalid source access config")
 )
 
 type Config struct {
@@ -41,9 +43,10 @@ type Proxy struct {
 }
 
 type ProxyDirective struct {
-	MaxTokenBytes  int64           `json:"max-token-bytes"  desc:"directive token 最大字节数"`
-	MaxInlineBytes int64           `json:"max-inline-bytes" desc:"inline directive JSON 最大字节数"`
-	Remote         RemoteDirective `json:"remote"           desc:"远程指令解析资源限制"`
+	MaxTokenBytes  int64               `json:"max-token-bytes"  desc:"directive token 最大字节数"`
+	MaxInlineBytes int64               `json:"max-inline-bytes" desc:"inline directive JSON 最大字节数"`
+	SourceAccess   sourceaccess.Config `json:"source-access"   desc:"Directive 入口来源白名单"`
+	Remote         RemoteDirective     `json:"remote"           desc:"远程指令解析资源限制"`
 }
 
 type RemoteDirective struct {
@@ -99,6 +102,15 @@ func DefaultConfig() Config {
 			Directive: ProxyDirective{
 				MaxTokenBytes:  64 << 10,
 				MaxInlineBytes: 48 << 10,
+				SourceAccess: sourceaccess.Config{
+					AllowedSources: []string{"127.0.0.1", "::1"},
+					DNS: sourceaccess.DNSConfig{
+						LookupTimeout: 2 * time.Second,
+						SuccessTTL:    time.Minute,
+						FailureTTL:    10 * time.Second,
+						StaleTTL:      10 * time.Minute,
+					},
+				},
 				Remote: RemoteDirective{
 					Timeout:          time.Second,
 					MaxResponseBytes: 256 << 10,

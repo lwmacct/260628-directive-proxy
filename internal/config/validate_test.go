@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
 func TestDefaultConfigUsesSingleHTTPListen(t *testing.T) {
@@ -73,6 +74,38 @@ func TestValidateNormalizesAuth(t *testing.T) {
 	}
 	if validated.Server.HTTP.OIDCAuth.AllowedUsers[0] != "lwmacct" {
 		t.Fatalf("unexpected username: %q", validated.Server.HTTP.OIDCAuth.AllowedUsers[0])
+	}
+}
+
+func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
+	tests := []func(*sourceaccess.Config){
+		func(cfg *sourceaccess.Config) { cfg.AllowedSources = nil },
+		func(cfg *sourceaccess.Config) { cfg.AllowedSources = []string{"bad_name.example"} },
+		func(cfg *sourceaccess.Config) { cfg.TrustedProxies = []string{"proxy.example.com"} },
+		func(cfg *sourceaccess.Config) { cfg.DNS.LookupTimeout = -1 },
+	}
+	for _, mutate := range tests {
+		cfg := DefaultConfig()
+		mutate(&cfg.Proxy.Directive.SourceAccess)
+		if _, err := Validate(cfg); err != ErrInvalidAccess {
+			t.Fatalf("expected invalid source access config, got %v", err)
+		}
+	}
+}
+
+func TestValidateNormalizesSourceAccess(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{" EDGE.Example.COM. ", "192.0.2.7/24"}
+	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"10.0.0.1"}
+
+	validated, err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("validate config: %v", err)
+	}
+	access := validated.Proxy.Directive.SourceAccess
+	if access.AllowedSources[0] != "edge.example.com" || access.AllowedSources[1] != "192.0.2.0/24" ||
+		access.TrustedProxies[0] != "10.0.0.1/32" {
+		t.Fatalf("unexpected normalized source access: %#v", access)
 	}
 }
 

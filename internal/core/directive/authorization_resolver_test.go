@@ -78,11 +78,17 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 			if got != tt.want {
 				t.Fatalf("unexpected directive request match: got %t want %t", got, tt.want)
 			}
+			if MatchesRequest(req) != tt.want {
+				t.Fatalf("unexpected public directive request match: got %t want %t", MatchesRequest(req), tt.want)
+			}
 		})
 	}
 
 	if _, ok := directiveTokenFromAuthorization(nil); ok {
 		t.Fatal("nil request must not match")
+	}
+	if MatchesRequest(nil) {
+		t.Fatal("nil request must not match through public matcher")
 	}
 }
 

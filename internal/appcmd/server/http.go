@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
+	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/handler"
 )
 
@@ -34,7 +36,24 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	control := newControlHTTPHandler(cfg, rt)
-	return newProxyHandler(cfg, rt.directiveReader, rt.observer, control)
+	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.observer)
+	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
+	})
+	if rt.sourceAccess != nil {
+		protectedDirective = rt.sourceAccess.RequireAccess(directiveProxy)
+	}
+	return routeDirectiveRequests(protectedDirective, control)
+}
+
+func routeDirectiveRequests(directiveHandler, controlHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if directive.MatchesRequest(r) {
+			directiveHandler.ServeHTTP(w, r)
+			return
+		}
+		controlHandler.ServeHTTP(w, r)
+	})
 }
 
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {

@@ -10,6 +10,7 @@ import (
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
@@ -25,6 +26,7 @@ type runtime struct {
 	exchanges       *service.ExchangeService
 	observer        proxy.Observer
 	oidcAuth        *oidcauth.Auth
+	sourceAccess    *sourceaccess.Access
 	tls             *tlsRuntime
 	directiveReader *directiveRemoteReader
 }
@@ -33,6 +35,11 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
+	}
+	sourceAccess, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
+	if err != nil {
+		tlsRuntime.Close()
+		return nil, fmt.Errorf("configure source access: %w", err)
 	}
 	oidcAuth, err := dexgithub.New(ctx, cfg.Server.HTTP.OIDCAuth, dexgithub.Options{})
 	if err != nil {
@@ -46,12 +53,25 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		exchanges:       exchanges,
 		observer:        capture.NewObserver(exchanges),
 		oidcAuth:        oidcAuth,
+		sourceAccess:    sourceAccess,
 		tls:             tlsRuntime,
 		directiveReader: directiveReader,
 	}, nil
 }
 
-func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer proxy.Observer, next http.Handler) http.Handler {
+func newDirectiveSourceAccess(cfg sourceaccess.Config) (*sourceaccess.Access, error) {
+	return sourceaccess.New(cfg, sourceaccess.Options{
+		DeniedHandler: func(w http.ResponseWriter, _ *http.Request, decision sourceaccess.Decision) {
+			code := decision.Reason
+			if code == "" {
+				code = sourceaccess.ReasonSourceNotAllowed
+			}
+			proxy.WriteProxyErrorJSON(w, http.StatusForbidden, code, "directive: source access denied")
+		},
+	})
+}
+
+func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer proxy.Observer) http.Handler {
 	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -68,7 +88,6 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer
 		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
 	}), transport, proxy.HandlerOptions{
 		Observer: observer,
-		Next:     next,
 	})
 }
 
