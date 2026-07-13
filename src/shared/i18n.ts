@@ -8,9 +8,7 @@ const zh = {
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
     unavailable: "暂时无法连接认证服务",
-	accessTokenTitle: "访问令牌登录", accessTokenDescription: "输入访问令牌以继续",
-	accessToken: "访问令牌", accessTokenRequired: "请输入访问令牌", invalidToken: "访问令牌无效",
-	signIn: "登录", retry: "重试",
+	invalidToken: "访问令牌无效",
   },
   appearance: { panel: "主题与界面" },
   exchanges: {
@@ -56,9 +54,7 @@ const en: Text = {
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
     unavailable: "Unable to connect to the authentication service",
-	accessTokenTitle: "Access token sign in", accessTokenDescription: "Enter your access token to continue",
-	accessToken: "Access token", accessTokenRequired: "Enter an access token", invalidToken: "Invalid access token",
-	signIn: "Sign in", retry: "Retry",
+	invalidToken: "Invalid access token",
   },
   appearance: { panel: "Theme and interface" },
   exchanges: {

@@ -73,16 +73,25 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 }
 
 func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*oidcauth.Auth, *tokenauth.Auth, error) {
-	switch cfg.AuthMode {
-	case config.AuthModeOIDC:
-		auth, err := dexgithub.New(ctx, cfg.OIDCAuth, dexgithub.Options{})
-		return auth, nil, err
-	case config.AuthModeToken:
-		auth, err := tokenauth.New(cfg.TokenAuth, tokenauth.Options{Secure: cfg.TLS.Enabled})
-		return nil, auth, err
-	default:
+	var oidcAuth *oidcauth.Auth
+	var tokenAuth *tokenauth.Auth
+	var err error
+	if cfg.Auth.HasMethod(config.AuthMethodOIDC) {
+		oidcAuth, err = dexgithub.New(ctx, cfg.Auth.OIDC, dexgithub.Options{})
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if cfg.Auth.HasMethod(config.AuthMethodToken) {
+		tokenAuth, err = tokenauth.New(cfg.Auth.Token, tokenauth.Options{Secure: cfg.TLS.Enabled})
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if oidcAuth == nil && tokenAuth == nil {
 		return nil, nil, config.ErrInvalidAuth
 	}
+	return oidcAuth, tokenAuth, nil
 }
 
 func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {

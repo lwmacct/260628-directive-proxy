@@ -511,12 +511,45 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 	}
 }
 
+func TestPreferTokenAccessSelectsTokenWithoutDowngradingAuthorization(t *testing.T) {
+	const (
+		tokenStatus    = 298
+		fallbackStatus = 299
+	)
+	handler := preferTokenAccess(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tokenStatus) }),
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(fallbackStatus) }),
+		func(r *http.Request) bool { return r.Header.Get("X-Token-Session") == "valid" },
+	)
+	for _, test := range []struct {
+		name       string
+		headers    map[string]string
+		wantStatus int
+	}{
+		{name: "fallback", wantStatus: fallbackStatus},
+		{name: "token cookie", headers: map[string]string{"X-Token-Session": "valid"}, wantStatus: tokenStatus},
+		{name: "authorization cannot downgrade", headers: map[string]string{"Authorization": "Bearer invalid"}, wantStatus: tokenStatus},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://control.local/api/settings", nil)
+			for name, value := range test.headers {
+				request.Header.Set(name, value)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("unexpected status: got %d, want %d", recorder.Code, test.wantStatus)
+			}
+		})
+	}
+}
+
 func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	const token = "0123456789abcdef0123456789abcdef"
 	cfg := config.DefaultConfig()
-	cfg.Server.HTTP.AuthMode = config.AuthModeToken
-	cfg.Server.HTTP.TokenAuth.Tokens = []string{token}
-	auth, err := tokenauth.New(cfg.Server.HTTP.TokenAuth, tokenauth.Options{})
+	cfg.Server.HTTP.Auth.Methods = []config.AuthMethod{config.AuthMethodToken}
+	cfg.Server.HTTP.Auth.Token.Tokens = []string{token}
+	auth, err := tokenauth.New(cfg.Server.HTTP.Auth.Token, tokenauth.Options{})
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)
 	}
@@ -529,7 +562,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	authConfig := httptest.NewRecorder()
 	handler.ServeHTTP(authConfig, httptest.NewRequest(http.MethodGet, "http://control.local/auth/config", nil))
 	if authConfig.Code != http.StatusOK || authConfig.Header().Get("Cache-Control") != "no-store" ||
-		!strings.Contains(authConfig.Body.String(), `"mode":"token"`) {
+		!strings.Contains(authConfig.Body.String(), `"methods":["token"]`) {
 		t.Fatalf("unexpected auth config: status=%d body=%s", authConfig.Code, authConfig.Body.String())
 	}
 

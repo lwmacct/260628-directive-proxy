@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
@@ -10,11 +11,11 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
-type AuthMode string
+type AuthMethod string
 
 const (
-	AuthModeOIDC  AuthMode = "oidc"
-	AuthModeToken AuthMode = "token"
+	AuthMethodOIDC  AuthMethod = "oidc"
+	AuthMethodToken AuthMethod = "token"
 )
 
 var (
@@ -37,14 +38,18 @@ type Server struct {
 type ServerHTTP struct {
 	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
 	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
-	AuthMode        AuthMode         `json:"auth-mode"  desc:"Control API 认证模式：oidc 或 token"`
-	OIDCAuth        dexgithub.Config `json:"oidc-auth"  desc:"Control API OIDC 认证配置"`
-	TokenAuth       tokenauth.Config `json:"token-auth" desc:"Control API Token 认证配置"`
+	Auth            Auth             `json:"auth"              desc:"Control API 认证配置"`
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
 	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control API 最大请求体字节数，0 表示不限制"`
 	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
+}
+
+type Auth struct {
+	Methods []AuthMethod     `json:"methods" desc:"认证方式，可选 oidc、token 或同时启用"`
+	OIDC    dexgithub.Config `json:"oidc"    desc:"OIDC 认证配置"`
+	Token   tokenauth.Config `json:"token"   desc:"Token 认证配置"`
 }
 
 type Proxy struct {
@@ -97,14 +102,19 @@ func DefaultConfig() Config {
 	return Config{
 		Server: Server{
 			HTTP: ServerHTTP{
-				Listen:   ":23198",
-				AuthMode: AuthModeOIDC,
-				OIDCAuth: dexgithub.Config{
-					Issuer:       "https://2008.s.lwmacct.com:20088",
-					ClientID:     "dproxy",
-					ExternalURLs: []string{"http://localhost:23199"},
-					AllowedUsers: []string{"lwmacct"},
-					SessionTTL:   24 * time.Hour,
+				Listen: ":23198",
+				Auth: Auth{
+					Methods: []AuthMethod{AuthMethodToken},
+					OIDC: dexgithub.Config{
+						Issuer:       "https://2008.s.lwmacct.com:20088",
+						ClientID:     "dproxy",
+						ExternalURLs: []string{"http://localhost:23199"},
+						AllowedUsers: []string{"lwmacct"},
+						SessionTTL:   24 * time.Hour,
+					},
+					Token: tokenauth.Config{
+						Tokens: []string{"${API_ACCESS_TOKEN}"},
+					},
 				},
 				ReadTimeout:     30 * time.Second,
 				WriteTimeout:    0,
@@ -149,4 +159,8 @@ func DefaultConfig() Config {
 			},
 		},
 	}
+}
+
+func (c Auth) HasMethod(method AuthMethod) bool {
+	return slices.Contains(c.Methods, method)
 }

@@ -17,24 +17,28 @@ Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*`
 
 ## Control API 登录
 
-`server.http.auth-mode` 可取 `oidc` 或 `token`，默认保持 `oidc`。只有当前选中的认证配置会在启动时校验和初始化。
+`server.http.auth.methods` 可包含 `oidc`、`token` 或同时包含两者，默认只启用 `token`。只有启用的认证配置会在启动时校验和初始化。
+
+同时启用时，浏览器登录页以 Access token 表单为主体，并提供可选的 GitHub 登录按钮。Control API 接受任一方式：有 Bearer 头或有效 Token Cookie 时使用 tokenauth，否则使用 OIDC；无效 Bearer 不会降级为 OIDC Cookie。
 
 ### OIDC 模式
 
-默认开发配置连接中央 Dex，使用 public client、Authorization Code Flow 和 S256 PKCE：
+启用 OIDC 时连接 Dex，使用 public client、Authorization Code Flow 和 S256 PKCE：
 
 ```yaml
 server:
   http:
-    auth-mode: oidc
-    oidc-auth:
-      issuer: https://2008.s.lwmacct.com:20088
-      client-id: dproxy
-      external-urls:
-        - http://localhost:23199
-      allowed-users:
-        - lwmacct
-      session-ttl: 24h
+    auth:
+      methods:
+        - oidc
+      oidc:
+        issuer: https://2008.s.lwmacct.com:20088
+        client-id: dproxy
+        external-urls:
+          - http://localhost:23199
+        allowed-users:
+          - lwmacct
+        session-ttl: 24h
 ```
 
 `allowed-users` 对 Dex `preferred_username` 中的 GitHub 用户名执行忽略大小写的精确匹配。服务仍验证 `federated_claims.connector_id == github` 并保留 GitHub 数字用户 ID，用于身份响应、头像和审计日志；数字 ID 不参与本地授权配置。
@@ -53,14 +57,22 @@ openssl rand -base64 32
 
 通过环境变量注入 token，避免把凭据提交到仓库：
 
+```shell
+export API_ACCESS_TOKEN="$(openssl rand -base64 32)"
+```
+
+默认配置会读取该环境变量；未设置或值为空时，服务会拒绝启动。显式配置方式如下：
+
 ```yaml
 server:
   http:
-    auth-mode: token
-    token-auth:
-      tokens:
-        - "${APP_ACCESS_TOKEN}"
-      secure-cookie: true
+    auth:
+      methods:
+        - token
+      token:
+        tokens:
+          - "${API_ACCESS_TOKEN}"
+        secure-cookie: true
 ```
 
 浏览器在登录页输入 token 后，`tokenauth` 包将其保存为 HttpOnly、SameSite=Strict 的浏览器会话 Cookie。服务在每次请求时重新比对当前配置；从 `tokens` 删除凭据会立即撤销对应登录，不需要 Session 数据库。HTTPS 由本服务终止时会自动启用 Secure Cookie；HTTPS 在反向代理终止时必须显式设置 `secure-cookie: true`。
@@ -72,6 +84,29 @@ Authorization: Bearer <access-token>
 ```
 
 配置支持多个 token，便于无中断轮换。token 长度限制为 32-3800 字节，且只能使用适合 HTTP Bearer 与 Cookie 的可见 ASCII 字符；重复、空白、过短或包含不安全字符的 token 会导致服务拒绝启动。
+
+同时提供两种登录方式时配置：
+
+```yaml
+server:
+  http:
+    auth:
+      methods:
+        - oidc
+        - token
+      oidc:
+        issuer: https://auth.example.com
+        client-id: dproxy
+        external-urls:
+          - https://proxy.example.com
+        allowed-users:
+          - octocat
+        session-ttl: 24h
+      token:
+        tokens:
+          - "${API_ACCESS_TOKEN}"
+        secure-cookie: true
+```
 
 ## Directive 来源白名单
 

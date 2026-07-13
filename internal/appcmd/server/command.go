@@ -32,15 +32,15 @@ func action(ctx context.Context, cmd *cli.Command) error {
 func commandFlags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: "http.listen", Usage: flagHelp.MustUsage("http.listen"), Value: defaults.Server.HTTP.Listen},
-		&cli.StringFlag{Name: "http.auth-mode", Usage: flagHelp.MustUsage("http.auth-mode"), Value: string(defaults.Server.HTTP.AuthMode)},
-		&cli.StringFlag{Name: "http.oidc-auth.issuer", Usage: flagHelp.MustUsage("http.oidc-auth.issuer"), Value: defaults.Server.HTTP.OIDCAuth.Issuer},
-		&cli.StringFlag{Name: "http.oidc-auth.client-id", Usage: flagHelp.MustUsage("http.oidc-auth.client-id"), Value: defaults.Server.HTTP.OIDCAuth.ClientID},
-		&cli.StringFlag{Name: "http.oidc-auth.client-secret", Usage: flagHelp.MustUsage("http.oidc-auth.client-secret"), Value: defaults.Server.HTTP.OIDCAuth.ClientSecret},
-		&cli.StringSliceFlag{Name: "http.oidc-auth.external-urls", Usage: flagHelp.MustUsage("http.oidc-auth.external-urls"), Value: defaults.Server.HTTP.OIDCAuth.ExternalURLs},
-		&cli.StringSliceFlag{Name: "http.oidc-auth.allowed-users", Usage: flagHelp.MustUsage("http.oidc-auth.allowed-users"), Value: defaults.Server.HTTP.OIDCAuth.AllowedUsers},
-		&cli.DurationFlag{Name: "http.oidc-auth.session-ttl", Usage: flagHelp.MustUsage("http.oidc-auth.session-ttl"), Value: defaults.Server.HTTP.OIDCAuth.SessionTTL},
-		&cli.StringSliceFlag{Name: "http.token-auth.tokens", Usage: flagHelp.MustUsage("http.token-auth.tokens"), Value: defaults.Server.HTTP.TokenAuth.Tokens},
-		&cli.BoolFlag{Name: "http.token-auth.secure-cookie", Usage: flagHelp.MustUsage("http.token-auth.secure-cookie"), Value: defaults.Server.HTTP.TokenAuth.SecureCookie},
+		&cli.StringSliceFlag{Name: "http.auth.methods", Usage: flagHelp.MustUsage("http.auth.methods"), Value: authMethodFlagValues(defaults.Server.HTTP.Auth.Methods)},
+		&cli.StringFlag{Name: "http.auth.oidc.issuer", Usage: flagHelp.MustUsage("http.auth.oidc.issuer"), Value: defaults.Server.HTTP.Auth.OIDC.Issuer},
+		&cli.StringFlag{Name: "http.auth.oidc.client-id", Usage: flagHelp.MustUsage("http.auth.oidc.client-id"), Value: defaults.Server.HTTP.Auth.OIDC.ClientID},
+		&cli.StringFlag{Name: "http.auth.oidc.client-secret", Usage: flagHelp.MustUsage("http.auth.oidc.client-secret"), Value: defaults.Server.HTTP.Auth.OIDC.ClientSecret},
+		&cli.StringSliceFlag{Name: "http.auth.oidc.external-urls", Usage: flagHelp.MustUsage("http.auth.oidc.external-urls"), Value: defaults.Server.HTTP.Auth.OIDC.ExternalURLs},
+		&cli.StringSliceFlag{Name: "http.auth.oidc.allowed-users", Usage: flagHelp.MustUsage("http.auth.oidc.allowed-users"), Value: defaults.Server.HTTP.Auth.OIDC.AllowedUsers},
+		&cli.DurationFlag{Name: "http.auth.oidc.session-ttl", Usage: flagHelp.MustUsage("http.auth.oidc.session-ttl"), Value: defaults.Server.HTTP.Auth.OIDC.SessionTTL},
+		&cli.StringSliceFlag{Name: "http.auth.token.tokens", Usage: flagHelp.MustUsage("http.auth.token.tokens"), Value: defaults.Server.HTTP.Auth.Token.Tokens},
+		&cli.BoolFlag{Name: "http.auth.token.secure-cookie", Usage: flagHelp.MustUsage("http.auth.token.secure-cookie"), Value: defaults.Server.HTTP.Auth.Token.SecureCookie},
 		&cli.BoolFlag{Name: "http.tls.enabled", Usage: flagHelp.MustUsage("http.tls.enabled"), Value: defaults.Server.HTTP.TLS.Enabled},
 		&cli.StringFlag{Name: "http.tls.cert-file", Usage: flagHelp.MustUsage("http.tls.cert-file"), Value: defaults.Server.HTTP.TLS.CertFile},
 		&cli.StringFlag{Name: "http.tls.key-file", Usage: flagHelp.MustUsage("http.tls.key-file"), Value: defaults.Server.HTTP.TLS.KeyFile},
@@ -72,4 +72,12 @@ func commandFlags() []cli.Flag {
 		&cli.DurationFlag{Name: "proxy.directive.remote.redis.client-idle-timeout", Usage: flagHelp.MustUsage("proxy.directive.remote.redis.client-idle-timeout"), Value: defaults.Proxy.Directive.Remote.Redis.ClientIdleTimeout},
 		&cli.IntFlag{Name: "proxy.directive.remote.redis.pool-size", Usage: flagHelp.MustUsage("proxy.directive.remote.redis.pool-size"), Value: defaults.Proxy.Directive.Remote.Redis.PoolSize},
 	}
+}
+
+func authMethodFlagValues(methods []config.AuthMethod) []string {
+	values := make([]string, len(methods))
+	for index, method := range methods {
+		values[index] = string(method)
+	}
+	return values
 }

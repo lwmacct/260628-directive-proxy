@@ -1,6 +1,6 @@
 {
   "name": "directive-proxy-web",
-  "version": "0.36.260713",
+  "version": "0.37.260714",
   "private": true,
   "packageManager": "pnpm@11.11.0",
   "type": "module",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
-    "@lwmacct/260627-antd-workbench": "^0.52.260712",
+    "@lwmacct/260627-antd-workbench": "^0.53.260713",
     "antd": "^6.5.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

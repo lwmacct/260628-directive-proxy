@@ -1,18 +1,17 @@
 import {
   WorkbenchAccessDeniedPage,
   WorkbenchOAuthSignInPage,
-  WorkbenchSecurityPage,
+  WorkbenchTokenSignInPage,
 } from "@lwmacct/260627-antd-workbench";
-import { GithubOutlined, KeyOutlined, LoginOutlined } from "@ant-design/icons";
-import { Alert, Button, Form, Input, Space, Typography } from "antd";
+import { GithubOutlined, KeyOutlined } from "@ant-design/icons";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useText } from "../shared/i18n";
-import { authEndpoint, loadSession, type AuthIdentity, type AuthMode, type SessionState } from "./session";
+import { authEndpoint, loadSession, type AuthIdentity, type AuthMethod, type SessionState } from "./session";
 
 type AuthState =
   | SessionState
-  | { status: "signing-in"; mode: AuthMode }
-  | { status: "invalid-token"; mode: "token" };
+  | { status: "signing-in"; method: AuthMethod; methods: AuthMethod[] }
+  | { status: "invalid-token"; methods: AuthMethod[] };
 
 type AuthContextValue = {
   identity: AuthIdentity;
@@ -50,29 +49,31 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
   }, [retrySession]);
 
   const logout = useCallback(async () => {
-    if (!("mode" in state) || !state.mode) return;
-    const mode = state.mode;
+    const methods = "methods" in state ? state.methods : undefined;
+    if (!methods) return;
     setLogoutLoading(true);
     try {
-      const response = await fetch(authEndpoint(mode, "logout"), { method: "POST" });
-      setState(response.ok ? { status: "signed-out", mode } : { status: "unavailable", mode });
+      const responses = await Promise.all(methods.map((method) => fetch(authEndpoint(method, "logout"), { method: "POST" })));
+      setState(responses.every((response) => response.ok)
+        ? { status: "signed-out", methods }
+        : { status: "unavailable", methods });
     } catch {
-      setState({ status: "unavailable", mode });
+      setState({ status: "unavailable", methods });
     } finally {
       setLogoutLoading(false);
     }
   }, [state]);
 
-  const oidcLogin = useCallback(() => {
-    setState({ status: "signing-in", mode: "oidc" });
+  const oidcLogin = useCallback((methods: AuthMethod[]) => {
+    setState({ status: "signing-in", method: "oidc", methods });
     const returnTo = window.location.pathname + window.location.search + window.location.hash;
     window.requestAnimationFrame(() => {
       window.location.assign(`${authEndpoint("oidc", "login")}?return_to=${encodeURIComponent(returnTo)}`);
     });
   }, []);
 
-  const tokenLogin = useCallback(async (token: string) => {
-    setState({ status: "signing-in", mode: "token" });
+  const tokenLogin = useCallback(async (token: string, methods: AuthMethod[]) => {
+    setState({ status: "signing-in", method: "token", methods });
     try {
       const response = await fetch(authEndpoint("token", "login"), {
         body: JSON.stringify({ token }),
@@ -80,12 +81,14 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
         method: "POST",
       });
       if (!response.ok) {
-        setState({ status: response.status === 401 ? "invalid-token" : "unavailable", mode: "token" });
+        setState(response.status === 401
+          ? { status: "invalid-token", methods }
+          : { status: "unavailable", methods });
         return;
       }
       await retrySession();
     } catch {
-      setState({ status: "unavailable", mode: "token" });
+      setState({ status: "unavailable", methods });
     }
   }, [retrySession]);
 
@@ -112,14 +115,23 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
   }
 
   if (!value) {
-    const mode = "mode" in state ? state.mode : undefined;
-    if (mode === "token") {
+    const methods = "methods" in state ? state.methods : undefined;
+    const tokenEnabled = methods?.includes("token") ?? false;
+    const oidcEnabled = methods?.includes("oidc") ?? false;
+    if (methods && tokenEnabled) {
       return (
-        <AccessTokenSignInPage
+        <WorkbenchTokenSignInPage
+          brand={{ description: t.auth.signInDescription, mark: "D", name: "Directive Proxy" }}
           error={state.status === "unavailable" ? t.auth.unavailable : state.status === "invalid-token" ? t.auth.invalidToken : undefined}
-          loading={state.status === "signing-in"}
+          loading={state.status === "signing-in" && state.method === "token"}
+          oauth={oidcEnabled ? {
+            pendingProvider: state.status === "signing-in" && state.method === "oidc" ? "github" : undefined,
+            providers: [{ label: "GitHub", provider: "github" }],
+            onSelectProvider: () => oidcLogin(methods),
+          } : undefined}
+          retry={state.status === "unavailable"}
           onRetry={state.status === "unavailable" ? retrySession : undefined}
-          onSubmit={tokenLogin}
+          onSubmit={({ token }) => tokenLogin(token, methods)}
         />
       );
     }
@@ -128,51 +140,15 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
         brand={{ description: t.auth.signInDescription, mark: "D", name: "Directive Proxy" }}
         hint={state.status === "signed-out" ? t.auth.authorizedOnly : undefined}
         error={state.status === "unavailable" ? t.auth.unavailable : undefined}
-        pendingProvider={state.status === "signing-in" ? "github" : undefined}
-        providers={[{ label: "GitHub", provider: "github" }]}
+        pendingProvider={state.status === "signing-in" && state.method === "oidc" ? "github" : undefined}
+        providers={[{ disabled: !oidcEnabled, label: "GitHub", provider: "github" }]}
         retry={state.status === "unavailable"}
         onRetry={state.status === "unavailable" ? retrySession : undefined}
-        onSelectProvider={oidcLogin}
+        onSelectProvider={() => methods && oidcLogin(methods)}
       />
     );
   }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-function AccessTokenSignInPage({
-  error,
-  loading,
-  onRetry,
-  onSubmit,
-}: {
-  error?: ReactNode;
-  loading: boolean;
-  onRetry?: () => void;
-  onSubmit: (token: string) => Promise<void>;
-}) {
-  const t = useText();
-  return (
-    <WorkbenchSecurityPage brand={{ description: t.auth.signInDescription, mark: "D", name: "Directive Proxy" }}>
-      <div className="wb-security-form">
-        <Space className="wb-security__header" orientation="vertical" size={4}>
-          <Typography.Title level={1}>{t.auth.accessTokenTitle}</Typography.Title>
-          <Typography.Text type="secondary">{t.auth.accessTokenDescription}</Typography.Text>
-        </Space>
-        {error ? <Alert className="wb-security__alert" message={error} showIcon type="error" /> : null}
-        <Form layout="vertical" requiredMark={false} onFinish={(values: { token: string }) => void onSubmit(values.token)}>
-          <Form.Item label={t.auth.accessToken} name="token" rules={[{ required: true, message: t.auth.accessTokenRequired }]}>
-            <Input.Password autoComplete="current-password" disabled={loading} prefix={<KeyOutlined />} />
-          </Form.Item>
-          <Button block htmlType="submit" icon={<LoginOutlined />} loading={loading} size="large" type="primary">
-            {t.auth.signIn}
-          </Button>
-          {onRetry ? (
-            <Button block type="text" onClick={onRetry}>{t.auth.retry}</Button>
-          ) : null}
-        </Form>
-      </div>
-    </WorkbenchSecurityPage>
-  );
 }
 
 function dispatchAuthRefresh() {

@@ -21,21 +21,31 @@ func Validate(cfg Config) (Config, error) {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	switch cfg.Server.HTTP.AuthMode {
-	case AuthModeOIDC:
-		validatedAuth, err := cfg.Server.HTTP.OIDCAuth.Validate()
-		if err != nil {
-			return cfg, ErrInvalidAuth
-		}
-		cfg.Server.HTTP.OIDCAuth = validatedAuth
-	case AuthModeToken:
-		validatedAuth, err := cfg.Server.HTTP.TokenAuth.Validate()
-		if err != nil {
-			return cfg, ErrInvalidAuth
-		}
-		cfg.Server.HTTP.TokenAuth = validatedAuth
-	default:
+	if len(cfg.Server.HTTP.Auth.Methods) == 0 {
 		return cfg, ErrInvalidAuth
+	}
+	seenAuthMethods := make(map[AuthMethod]struct{}, len(cfg.Server.HTTP.Auth.Methods))
+	for _, method := range cfg.Server.HTTP.Auth.Methods {
+		if _, exists := seenAuthMethods[method]; exists {
+			return cfg, ErrInvalidAuth
+		}
+		seenAuthMethods[method] = struct{}{}
+		switch method {
+		case AuthMethodOIDC:
+			validatedAuth, err := cfg.Server.HTTP.Auth.OIDC.Validate()
+			if err != nil {
+				return cfg, ErrInvalidAuth
+			}
+			cfg.Server.HTTP.Auth.OIDC = validatedAuth
+		case AuthMethodToken:
+			validatedAuth, err := cfg.Server.HTTP.Auth.Token.Validate()
+			if err != nil {
+				return cfg, ErrInvalidAuth
+			}
+			cfg.Server.HTTP.Auth.Token = validatedAuth
+		default:
+			return cfg, ErrInvalidAuth
+		}
 	}
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
 		validatedAccess, err := validateDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)

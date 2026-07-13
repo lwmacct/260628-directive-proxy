@@ -14,29 +14,36 @@ server:
       cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem" # TLS 证书文件路径或 URI
       key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥文件路径或 URI
       poll-interval: 0s # TLS 证书文件重载兜底轮询间隔，未配置时使用默认间隔
-    auth-mode: "oidc" # Control API 认证模式：oidc 或 token
 
-    # Control API OIDC 认证配置
-    oidc-auth:
-      issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
-      client-id: "dproxy" # Dex OIDC client ID
-      client-secret: "" # Dex confidential client secret；public client 留空
+    # Control API 认证配置
+    auth:
 
-      # 允许浏览器访问应用的可信 origin
-      external-urls:
-        - http://localhost:23199
+      # 认证方式，可选 oidc、token 或同时启用
+      methods:
+        - token
 
-      # 允许访问应用的 GitHub 用户名
-      allowed-users:
-        - lwmacct
-      session-ttl: 24h0m0s # 身份 Cookie 最长有效时间
+      # OIDC 认证配置
+      oidc:
+        issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
+        client-id: "dproxy" # Dex OIDC client ID
+        client-secret: "" # Dex confidential client secret；public client 留空
 
-    # Control API Token 认证配置
-    token-auth:
+        # 允许浏览器访问应用的可信 origin
+        external-urls:
+          - http://localhost:23199
 
-      # 允许登录 Control API 的访问令牌；建议使用至少 32 字节的随机值
-      tokens: []
-      secure-cookie: false # 是否仅通过 HTTPS 发送身份 Cookie；TLS 在反向代理终止时应启用
+        # 允许访问应用的 GitHub 用户名
+        allowed-users:
+          - lwmacct
+        session-ttl: 24h0m0s # 身份 Cookie 最长有效时间
+
+      # Token 认证配置
+      token:
+
+        # 允许登录 Control API 的访问令牌；建议使用至少 32 字节的随机值
+        tokens:
+          - ${API_ACCESS_TOKEN}
+        secure-cookie: false # 是否仅通过 HTTPS 发送身份 Cookie；TLS 在反向代理终止时应启用
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间
