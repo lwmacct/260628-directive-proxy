@@ -28,8 +28,8 @@ func Validate(cfg Config) (Config, error) {
 	remote := cfg.Proxy.Directive.Remote
 	if cfg.Proxy.Directive.MaxTokenBytes <= 0 || cfg.Proxy.Directive.MaxInlineBytes <= 0 ||
 		cfg.Proxy.Directive.MaxInlineBytes > cfg.Proxy.Directive.MaxTokenBytes ||
-		remote.Timeout <= 0 || remote.MaxRequestBytes <= 0 || remote.MaxResponseBytes <= 0 ||
-		remote.RedisClientCacheCapacity <= 0 || remote.RedisClientIdleTimeout < 0 || remote.RedisPoolSize <= 0 {
+		remote.Timeout <= 0 || remote.MaxResponseBytes <= 0 || remote.HTTP.MaxRequestBytes <= 0 ||
+		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 {
 		return cfg, ErrInvalidDirective
 	}
 	return cfg, nil

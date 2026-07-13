@@ -54,8 +54,14 @@ proxy:
     # 远程指令解析资源限制
     remote:
       timeout: 1s # 单次远程指令解析总超时
-      max-request-bytes: 131072 # HTTP resolver 请求元数据最大字节数
       max-response-bytes: 262144 # 远程 directive JSON 最大字节数
-      redis-client-cache-capacity: 64 # 动态 Redis client 缓存容量
-      redis-client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
-      redis-pool-size: 4 # 每个动态 Redis client 的连接池容量
+
+      # HTTP resolver 资源限制
+      http:
+        max-request-bytes: 131072 # HTTP resolver 请求元数据最大字节数
+
+      # Redis adapter 资源限制
+      redis:
+        client-cache-capacity: 64 # 动态 Redis client 缓存容量
+        client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
+        pool-size: 4 # 每个动态 Redis client 的连接池容量

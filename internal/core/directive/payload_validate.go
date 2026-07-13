@@ -9,10 +9,13 @@ import (
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/proxy"
 )
 
-var ErrInvalidPayload = errors.New("invalid proxy payload")
+var (
+	ErrInvalidPayload  = errors.New("invalid proxy payload")
+	ErrPayloadTooLarge = errors.New("proxy payload is too large")
+)
 
 func Validate(payload Payload) error {
-	_, err := NormalizePayload(payload, AssembleOptions{})
+	_, err := ToPlan(payload, AssembleOptions{})
 	return err
 }
 

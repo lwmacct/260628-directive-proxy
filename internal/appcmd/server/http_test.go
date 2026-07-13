@@ -11,7 +11,6 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
@@ -290,14 +289,9 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	}
 }
 
-func newTestDirectiveReader(t *testing.T, cfg config.Config) *remote.Reader {
+func newTestDirectiveReader(t *testing.T, cfg config.Config) *directiveRemoteReader {
 	t.Helper()
-	remoteConfig := cfg.Proxy.Directive.Remote
-	reader := remote.New(remote.Options{
-		Timeout: remoteConfig.Timeout, MaxRequestBytes: remoteConfig.MaxRequestBytes,
-		MaxResponseBytes: remoteConfig.MaxResponseBytes, RedisClientCacheCapacity: remoteConfig.RedisClientCacheCapacity,
-		RedisClientIdleTimeout: remoteConfig.RedisClientIdleTimeout, RedisPoolSize: remoteConfig.RedisPoolSize,
-	})
+	reader := newDirectiveRemoteReader(cfg.Proxy.Directive.Remote)
 	t.Cleanup(func() { _ = reader.Close() })
 	return reader
 }

@@ -89,7 +89,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !h.resolver.Match(r) {
+	resolution, err := h.resolver.Resolve(r)
+	if errors.Is(err, ErrNoMatch) {
 		if h.next != nil {
 			h.next.ServeHTTP(w, r)
 			return
@@ -97,7 +98,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-
 	var observation Observation
 	if h.observer != nil {
 		observation = h.observer.Start(r)
@@ -106,15 +106,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w = observation.WrapResponseWriter(w)
 			defer observation.Finish()
 		}
-	}
-	d, err := h.resolver.Resolve(r)
-	if errors.Is(err, ErrNoMatch) {
-		if h.next != nil {
-			h.next.ServeHTTP(w, r)
-			return
-		}
-		http.NotFound(w, r)
-		return
 	}
 
 	if err != nil {
@@ -145,13 +136,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
+	d := resolution.Plan
 	if d == nil || d.Target == nil {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
 	if observation != nil {
 		observation.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
-		observation.SetDirective(d.DirectiveMode, d.DirectiveBackend, d.DirectiveEndpoint, d.DirectiveKey, d.DirectiveResolutionMillis)
+		observation.SetDirective(resolution.Source.Mode, resolution.Source.Backend, resolution.Source.Endpoint, resolution.Source.Key, resolution.Source.Duration.Milliseconds())
 	}
 	ctx := ContextWithPlan(r.Context(), d)
 	if observation != nil {

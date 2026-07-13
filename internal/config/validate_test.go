@@ -79,11 +79,11 @@ func TestValidateNormalizesAuth(t *testing.T) {
 func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 	for _, mutate := range []func(*RemoteDirective){
 		func(cfg *RemoteDirective) { cfg.Timeout = 0 },
-		func(cfg *RemoteDirective) { cfg.MaxRequestBytes = 0 },
+		func(cfg *RemoteDirective) { cfg.HTTP.MaxRequestBytes = 0 },
 		func(cfg *RemoteDirective) { cfg.MaxResponseBytes = 0 },
-		func(cfg *RemoteDirective) { cfg.RedisClientCacheCapacity = 0 },
-		func(cfg *RemoteDirective) { cfg.RedisClientIdleTimeout = -1 },
-		func(cfg *RemoteDirective) { cfg.RedisPoolSize = 0 },
+		func(cfg *RemoteDirective) { cfg.Redis.ClientCacheCapacity = 0 },
+		func(cfg *RemoteDirective) { cfg.Redis.ClientIdleTimeout = -1 },
+		func(cfg *RemoteDirective) { cfg.Redis.PoolSize = 0 },
 	} {
 		cfg := DefaultConfig()
 		mutate(&cfg.Proxy.Directive.Remote)

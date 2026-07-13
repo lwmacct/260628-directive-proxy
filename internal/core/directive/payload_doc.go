@@ -4,9 +4,9 @@
 // The package owns:
 //
 //   - the payload schema
-//   - dproxy.14 inline and remote token encoding / decoding
-//   - payload validation
-//   - payload-level validation
+//   - the inline / remote Document model
+//   - dproxy.14 Document encoding and complete decoding
+//   - payload and RemoteSpec validation
 //
 // Resolvers extract directive tokens from Authorization bearer headers and
 // translate the decoded payload into a proxy.Plan.

@@ -149,11 +149,13 @@ proxy:
     max-inline-bytes: 49152
     remote:
       timeout: 1s
-      max-request-bytes: 131072
       max-response-bytes: 262144
-      redis-client-cache-capacity: 64
-      redis-client-idle-timeout: 10m
-      redis-pool-size: 4
+      http:
+        max-request-bytes: 131072
+      redis:
+        client-cache-capacity: 64
+        client-idle-timeout: 10m
+        pool-size: 4
 ```
 
 已认证的 Control API 提供唯一的协议编解码与校验实现，Web 工作台也使用这些端点：

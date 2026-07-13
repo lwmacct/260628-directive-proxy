@@ -26,7 +26,6 @@ type RemoteReader interface {
 type ResolverOptions struct {
 	RemoteReader   RemoteReader
 	LookupTimeout  time.Duration
-	MaxValueBytes  int64
 	MaxTokenBytes  int64
 	MaxInlineBytes int64
 }
@@ -34,7 +33,6 @@ type ResolverOptions struct {
 type Resolver struct {
 	remoteReader   RemoteReader
 	lookupTimeout  time.Duration
-	maxValueBytes  int64
 	maxTokenBytes  int64
 	maxInlineBytes int64
 }
@@ -47,38 +45,36 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 	return &Resolver{
 		remoteReader:   configured.RemoteReader,
 		lookupTimeout:  configured.LookupTimeout,
-		maxValueBytes:  configured.MaxValueBytes,
 		maxTokenBytes:  configured.MaxTokenBytes,
 		maxInlineBytes: configured.MaxInlineBytes,
 	}
 }
 
-func (*Resolver) Match(req *http.Request) bool {
-	_, ok := directiveTokenFromAuthorization(req)
-	return ok
-}
-
-func (r *Resolver) Resolve(req *http.Request) (*proxy.Plan, error) {
+func (r *Resolver) Resolve(req *http.Request) (proxy.Resolution, error) {
 	raw, ok := directiveTokenFromAuthorization(req)
 	if !ok {
-		return nil, proxy.ErrNoMatch
+		return proxy.Resolution{}, proxy.ErrNoMatch
 	}
 	if r != nil && r.maxTokenBytes > 0 && int64(len(raw)) > r.maxTokenBytes {
-		return nil, proxy.ErrDirectiveTokenTooLarge
+		return proxy.Resolution{}, proxy.ErrDirectiveTokenTooLarge
 	}
-	token, err := Decode(raw)
+	var maxInlineBytes int64
+	if r != nil {
+		maxInlineBytes = r.maxInlineBytes
+	}
+	document, err := DecodeWithOptions(raw, DecodeOptions{MaxInlineBytes: maxInlineBytes})
+	if errors.Is(err, ErrPayloadTooLarge) {
+		return proxy.Resolution{}, proxy.ErrDirectiveTokenTooLarge
+	}
 	if err != nil {
-		return nil, proxy.ErrInvalidDirective
+		return proxy.Resolution{}, proxy.ErrInvalidDirective
 	}
 
 	startedAt := time.Now()
-	payloadRaw := token.Payload
-	if token.Kind == TokenInline && r != nil && r.maxInlineBytes > 0 && int64(len(payloadRaw)) > r.maxInlineBytes {
-		return nil, proxy.ErrDirectiveTokenTooLarge
-	}
-	if token.Kind == TokenRemote {
+	payload := document.Payload
+	if document.Kind == KindRemote {
 		if r == nil || r.remoteReader == nil {
-			return nil, proxy.ErrRemoteDirectiveUnavailable
+			return proxy.Resolution{}, proxy.ErrRemoteDirectiveUnavailable
 		}
 		ctx := req.Context()
 		if r.lookupTimeout > 0 {
@@ -86,50 +82,45 @@ func (r *Resolver) Resolve(req *http.Request) (*proxy.Plan, error) {
 			ctx, cancel = context.WithTimeout(ctx, r.lookupTimeout)
 			defer cancel()
 		}
-		payloadRaw, err = r.remoteReader.Read(ctx, token.Remote, req)
+		payloadRaw, err := r.remoteReader.Read(ctx, *document.Remote, req)
 		switch {
 		case errors.Is(err, ErrRemoteNotFound):
-			slog.Warn("remote directive not found", "directive_backend", token.Remote.Type, "directive_key", token.Remote.Key)
-			return nil, proxy.ErrDirectiveNotFound
+			slog.Warn("remote directive not found", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key)
+			return proxy.Resolution{}, proxy.ErrDirectiveNotFound
 		case errors.Is(err, ErrRemoteMetadataTooBig):
-			return nil, proxy.ErrDirectiveMetadataTooLarge
+			return proxy.Resolution{}, proxy.ErrDirectiveMetadataTooLarge
 		case errors.Is(err, ErrRemoteInvalid):
-			return nil, proxy.ErrRemoteDirectiveInvalid
+			return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
 		case err != nil:
-			slog.Warn("resolve remote directive", "directive_backend", token.Remote.Type, "directive_key", token.Remote.Key, "error", err)
-			return nil, proxy.ErrRemoteDirectiveUnavailable
+			slog.Warn("resolve remote directive", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key, "error", err)
+			return proxy.Resolution{}, proxy.ErrRemoteDirectiveUnavailable
 		}
-		if r.maxValueBytes > 0 && int64(len(payloadRaw)) > r.maxValueBytes {
-			slog.Error("remote directive exceeds value limit", "directive_backend", token.Remote.Type, "directive_key", token.Remote.Key, "bytes", len(payloadRaw), "limit", r.maxValueBytes)
-			return nil, proxy.ErrRemoteDirectiveInvalid
+		decoded, decodeErr := DecodePayload(payloadRaw)
+		if decodeErr != nil {
+			slog.Error("decode remote directive", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key, "error", decodeErr)
+			return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
 		}
+		payload = &decoded
 	}
-
-	payload, err := DecodePayload(payloadRaw)
+	plan, err := ToPlan(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}})
 	if err != nil {
-		if token.Kind == TokenRemote {
-			slog.Error("decode remote directive", "directive_backend", token.Remote.Type, "directive_key", token.Remote.Key, "error", err)
-			return nil, proxy.ErrRemoteDirectiveInvalid
+		if document.Kind == KindRemote {
+			slog.Error("compile remote directive", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key, "error", err)
+			return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
 		}
-		return nil, proxy.ErrInvalidDirective
+		return proxy.Resolution{}, proxy.ErrInvalidDirective
 	}
-	plan, err := ToPlan(payload, AssembleOptions{StripHeaders: []string{"Authorization"}})
-	if err != nil {
-		if token.Kind == TokenRemote {
-			slog.Error("compile remote directive", "directive_backend", token.Remote.Type, "directive_key", token.Remote.Key, "error", err)
-			return nil, proxy.ErrRemoteDirectiveInvalid
+	resolution := proxy.Resolution{Plan: plan, Source: proxy.SourceMetadata{Mode: KindInline}}
+	if document.Kind == KindRemote {
+		resolution.Source = proxy.SourceMetadata{
+			Mode:     KindRemote,
+			Backend:  document.Remote.Type,
+			Endpoint: sanitizeRemoteEndpoint(document.Remote.URL),
+			Key:      document.Remote.Key,
+			Duration: time.Since(startedAt),
 		}
-		return nil, proxy.ErrInvalidDirective
 	}
-	plan.DirectiveMode = "inline"
-	if token.Kind == TokenRemote {
-		plan.DirectiveMode = "remote"
-		plan.DirectiveBackend = token.Remote.Type
-		plan.DirectiveEndpoint = sanitizeRemoteEndpoint(token.Remote.URL)
-		plan.DirectiveKey = token.Remote.Key
-		plan.DirectiveResolutionMillis = time.Since(startedAt).Milliseconds()
-	}
-	return plan, nil
+	return resolution, nil
 }
 
 func sanitizeRemoteEndpoint(raw string) string {

@@ -11,7 +11,6 @@ import (
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
 
-	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/directive/remote"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/config"
 	"github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
@@ -27,7 +26,7 @@ type runtime struct {
 	observer        proxy.Observer
 	oidcAuth        *oidcauth.Auth
 	tls             *tlsRuntime
-	directiveReader *remote.Reader
+	directiveReader *directiveRemoteReader
 }
 
 func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
@@ -42,14 +41,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	}
 	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
 	remoteConfig := cfg.Proxy.Directive.Remote
-	directiveReader := remote.New(remote.Options{
-		Timeout:                  remoteConfig.Timeout,
-		MaxRequestBytes:          remoteConfig.MaxRequestBytes,
-		MaxResponseBytes:         remoteConfig.MaxResponseBytes,
-		RedisClientCacheCapacity: remoteConfig.RedisClientCacheCapacity,
-		RedisClientIdleTimeout:   remoteConfig.RedisClientIdleTimeout,
-		RedisPoolSize:            remoteConfig.RedisPoolSize,
-	})
+	directiveReader := newDirectiveRemoteReader(remoteConfig)
 	return &runtime{
 		exchanges:       exchanges,
 		observer:        capture.NewObserver(exchanges),
@@ -72,7 +64,6 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer
 	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
 		RemoteReader:   reader,
 		LookupTimeout:  remoteConfig.Timeout,
-		MaxValueBytes:  remoteConfig.MaxResponseBytes,
 		MaxTokenBytes:  cfg.Proxy.Directive.MaxTokenBytes,
 		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
 	}), transport, proxy.HandlerOptions{

@@ -47,12 +47,20 @@ type ProxyDirective struct {
 }
 
 type RemoteDirective struct {
-	Timeout                  time.Duration `json:"timeout"                     desc:"单次远程指令解析总超时"`
-	MaxRequestBytes          int64         `json:"max-request-bytes"           desc:"HTTP resolver 请求元数据最大字节数"`
-	MaxResponseBytes         int64         `json:"max-response-bytes"          desc:"远程 directive JSON 最大字节数"`
-	RedisClientCacheCapacity int           `json:"redis-client-cache-capacity" desc:"动态 Redis client 缓存容量"`
-	RedisClientIdleTimeout   time.Duration `json:"redis-client-idle-timeout"   desc:"动态 Redis client 空闲回收时间"`
-	RedisPoolSize            int           `json:"redis-pool-size"             desc:"每个动态 Redis client 的连接池容量"`
+	Timeout          time.Duration        `json:"timeout"            desc:"单次远程指令解析总超时"`
+	MaxResponseBytes int64                `json:"max-response-bytes" desc:"远程 directive JSON 最大字节数"`
+	HTTP             HTTPRemoteDirective  `json:"http"               desc:"HTTP resolver 资源限制"`
+	Redis            RedisRemoteDirective `json:"redis"              desc:"Redis adapter 资源限制"`
+}
+
+type HTTPRemoteDirective struct {
+	MaxRequestBytes int64 `json:"max-request-bytes" desc:"HTTP resolver 请求元数据最大字节数"`
+}
+
+type RedisRemoteDirective struct {
+	ClientCacheCapacity int           `json:"client-cache-capacity" desc:"动态 Redis client 缓存容量"`
+	ClientIdleTimeout   time.Duration `json:"client-idle-timeout"   desc:"动态 Redis client 空闲回收时间"`
+	PoolSize            int           `json:"pool-size"             desc:"每个动态 Redis client 的连接池容量"`
 }
 
 type ProxyTransport struct {
@@ -92,12 +100,16 @@ func DefaultConfig() Config {
 				MaxTokenBytes:  64 << 10,
 				MaxInlineBytes: 48 << 10,
 				Remote: RemoteDirective{
-					Timeout:                  time.Second,
-					MaxRequestBytes:          128 << 10,
-					MaxResponseBytes:         256 << 10,
-					RedisClientCacheCapacity: 64,
-					RedisClientIdleTimeout:   10 * time.Minute,
-					RedisPoolSize:            4,
+					Timeout:          time.Second,
+					MaxResponseBytes: 256 << 10,
+					HTTP: HTTPRemoteDirective{
+						MaxRequestBytes: 128 << 10,
+					},
+					Redis: RedisRemoteDirective{
+						ClientCacheCapacity: 64,
+						ClientIdleTimeout:   10 * time.Minute,
+						PoolSize:            4,
+					},
 				},
 			},
 			Transport: ProxyTransport{

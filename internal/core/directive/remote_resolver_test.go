@@ -25,7 +25,6 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"ops":[{"op":"=","name":"X-Source","values":["remote"]}]}}`), nil
 		}),
 		LookupTimeout: time.Second,
-		MaxValueBytes: 1024,
 	})
 	spec := RemoteSpec{Type: RemoteTypeHTTP, URL: "https://policy.example.com/v1/resolve?secret=hidden", Key: "team-a/openai"}
 	token, err := EncodeRemote(spec)
@@ -35,16 +34,17 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	plan, err := resolver.Resolve(req)
+	resolution, err := resolver.Resolve(req)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
+	plan := resolution.Plan
 	if requested.Key != spec.Key || plan.Target.String() != "https://remote.example.com/v1" {
 		t.Fatalf("unexpected resolved directive: spec=%#v plan=%#v", requested, plan)
 	}
-	if plan.DirectiveMode != "remote" || plan.DirectiveBackend != "http" ||
-		plan.DirectiveEndpoint != "https://policy.example.com/v1/resolve" || plan.DirectiveKey != spec.Key {
-		t.Fatalf("unexpected directive metadata: %#v", plan)
+	if resolution.Source.Mode != "remote" || resolution.Source.Backend != "http" ||
+		resolution.Source.Endpoint != "https://policy.example.com/v1/resolve" || resolution.Source.Key != spec.Key {
+		t.Fatalf("unexpected directive metadata: %#v", resolution.Source)
 	}
 	if len(plan.HeaderOps) != 2 || plan.HeaderOps[1].Values[0] != "remote" {
 		t.Fatalf("unexpected header ops: %#v", plan.HeaderOps)
@@ -76,9 +76,6 @@ func TestResolverRemoteFailures(t *testing.T) {
 		{name: "invalid payload", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(context.Context, RemoteSpec, *http.Request) ([]byte, error) {
 			return []byte(`{"target":{}}`), nil
 		})}, wantErr: proxy.ErrRemoteDirectiveInvalid},
-		{name: "value too large", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(context.Context, RemoteSpec, *http.Request) ([]byte, error) {
-			return []byte(`{"target":{"url":"https://api.example.com"}}`), nil
-		}), MaxValueBytes: 8}, wantErr: proxy.ErrRemoteDirectiveInvalid},
 		{name: "timeout", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(ctx context.Context, _ RemoteSpec, _ *http.Request) ([]byte, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()

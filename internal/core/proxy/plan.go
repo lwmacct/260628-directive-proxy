@@ -1,18 +1,29 @@
 package proxy
 
-import "net/url"
+import (
+	"net/url"
+	"time"
+)
 
 type Plan struct {
-	Target                    *url.URL
-	Proxy                     *url.URL
-	HeaderMode                HeaderMode
-	HeaderOps                 []HeaderOp
-	JoinPath                  bool
-	DirectiveMode             string
-	DirectiveBackend          string
-	DirectiveEndpoint         string
-	DirectiveKey              string
-	DirectiveResolutionMillis int64
+	Target     *url.URL
+	Proxy      *url.URL
+	HeaderMode HeaderMode
+	HeaderOps  []HeaderOp
+	JoinPath   bool
+}
+
+type Resolution struct {
+	Plan   *Plan
+	Source SourceMetadata
+}
+
+type SourceMetadata struct {
+	Mode     string
+	Backend  string
+	Endpoint string
+	Key      string
+	Duration time.Duration
 }
 
 type HeaderMode string

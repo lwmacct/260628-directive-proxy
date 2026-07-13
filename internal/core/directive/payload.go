@@ -8,6 +8,17 @@ const (
 )
 
 const (
+	KindInline = "inline"
+	KindRemote = "remote"
+)
+
+type Document struct {
+	Kind    string      `json:"kind" enum:"inline,remote"`
+	Payload *Payload    `json:"payload,omitempty"`
+	Remote  *RemoteSpec `json:"remote,omitempty"`
+}
+
+const (
 	RemoteTypeHTTP  = "http"
 	RemoteTypeRedis = "redis"
 )

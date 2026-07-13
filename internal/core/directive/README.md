@@ -4,6 +4,8 @@
 
 面向使用者的 payload 示例和字段说明放在根目录 [README.md](../../../README.md)；这里只保留包内部维护说明，避免两处文档重复。
 
+远程来源的信任前提、适配器边界和禁止方向见 [Directive 远程适配器设计约束](../../../docs/directive-remote-adapter-design.md)。修改 remote token、HTTP 或 Redis adapter 前应先核对该文档。
+
 ## 职责
 
 - 从 `Authorization: Bearer <token>` 提取 `dproxy.` family token
@@ -16,9 +18,9 @@
 
 1. `resolver.go` 读取 `Authorization` bearer token。
 2. 非 dproxy family token 由 proxy handler 交给下一个 HTTP handler；dproxy family token 必须是 `dproxy.14.i/r.<base64url>`。
-3. `payload_codec.go` 解码来源；remote value 和 inline JSON 使用同一严格 schema，未知字段会被拒绝。
-4. `assemble.go` 对 payload 做一次 normalize，并转换成 `proxy.Plan`。
-5. `payload_validate.go` 保留对外校验入口，复用 normalize 流程。
+3. `payload_codec.go` 将 token 完整解码为领域 `Document`；inline payload 和 remote spec 在返回前已经校验。
+4. remote document 由 `RemoteReader` 取得裸 payload JSON，再进入与 inline 相同的严格解码流程。
+5. `assemble.go` 将合法 payload 直接编译成 `proxy.Plan`；resolver 另行返回来源观测信息。
 
 ## 实现约定
 
@@ -35,8 +37,14 @@
 
 ## 文件结构
 
-- `resolver.go`: Authorization bearer directive token 提取和统一解析
-- `payload.go`: payload schema
-- `payload_codec.go`: dproxy.14 i/r token、RemoteSpec 编解码和严格 JSON 解码
+- `resolver.go`: Authorization bearer directive token 提取、远端读取和统一编排
+- `payload.go`: `Document`、payload 和 `RemoteSpec` schema
+- `payload_codec.go`: 完整 `Document` 编解码、规范化和严格 JSON 解码
 - `payload_validate.go`: payload 字段校验入口
-- `assemble.go`: payload normalize -> `proxy.Plan`
+- `assemble.go`: payload -> `proxy.Plan`
+
+远端实现按 adapter 分离：
+
+- `internal/adapter/directive/remote/http`: HTTP resolver 协议与 transport
+- `internal/adapter/directive/remote/redis`: Redis JSON 读取与动态 client cache
+- `internal/appcmd/server/directive_remote.go`: 在组合根按 `RemoteSpec.type` 分派 adapter

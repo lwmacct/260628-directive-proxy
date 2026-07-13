@@ -32,13 +32,10 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
-	if token.Kind != TokenInline {
+	if token.Kind != KindInline {
 		t.Fatalf("unexpected token kind: %q", token.Kind)
 	}
-	decoded, err := DecodePayload(token.Payload)
-	if err != nil {
-		t.Fatalf("decode payload failed: %v", err)
-	}
+	decoded := *token.Payload
 	if decoded.Target.URL != input.Target.URL {
 		t.Fatalf("unexpected url: %s", decoded.Target.URL)
 	}
@@ -78,7 +75,7 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode remote failed: %v", err)
 	}
-	if token.Kind != TokenRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
+	if token.Kind != KindRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
 		token.Remote.Key != input.Key || token.Remote.Headers["Authorization"] != "Bearer policy-token" ||
 		len(token.Remote.RequestHeaders) != 2 {
 		t.Fatalf("unexpected decoded token: %#v", token)
@@ -294,5 +291,8 @@ func decodeInlinePayload(encoded string) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
-	return DecodePayload(token.Payload)
+	if token.Payload == nil {
+		return Payload{}, ErrInvalidPayload
+	}
+	return *token.Payload, nil
 }

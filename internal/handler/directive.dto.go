@@ -2,11 +2,7 @@ package handler
 
 import "github.com/lwmacct/260628-llm-relay-dproxy/internal/core/directive"
 
-type DirectiveDocumentDTO struct {
-	Kind    string                `json:"kind" enum:"inline,remote"`
-	Payload *directive.Payload    `json:"payload,omitempty"`
-	Remote  *directive.RemoteSpec `json:"remote,omitempty"`
-}
+type DirectiveDocumentDTO = directive.Document
 
 type DirectiveTokenRequestDTO struct {
 	Token string `json:"token" minLength:"1"`

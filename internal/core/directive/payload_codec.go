@@ -14,55 +14,93 @@ import (
 
 const maxRemoteKeyBytes = 256
 
-type Token struct {
-	Kind    string
-	Payload []byte
-	Remote  RemoteSpec
-}
-
 func Encode(payload Payload) (string, error) {
-	if err := Validate(payload); err != nil {
-		return "", err
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	return encodeToken(TokenInline, raw), nil
+	return EncodeDocument(Document{Kind: KindInline, Payload: &payload})
 }
 
 func EncodeRemote(spec RemoteSpec) (string, error) {
-	spec, err := normalizeRemoteSpec(spec)
-	if err != nil {
-		return "", err
-	}
-	raw, err := json.Marshal(spec)
-	if err != nil {
-		return "", err
-	}
-	return encodeToken(TokenRemote, raw), nil
+	return EncodeDocument(Document{Kind: KindRemote, Remote: &spec})
 }
 
-func Decode(encoded string) (Token, error) {
+func EncodeDocument(document Document) (string, error) {
+	document, err := ValidateDocument(document)
+	if err != nil {
+		return "", err
+	}
+	var kind string
+	var value any
+	switch document.Kind {
+	case KindInline:
+		kind, value = TokenInline, document.Payload
+	case KindRemote:
+		kind, value = TokenRemote, document.Remote
+	default:
+		return "", ErrInvalidPayload
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return encodeToken(kind, raw), nil
+}
+
+func Decode(encoded string) (Document, error) {
+	return DecodeWithOptions(encoded, DecodeOptions{})
+}
+
+type DecodeOptions struct {
+	MaxInlineBytes int64
+}
+
+func DecodeWithOptions(encoded string, opts DecodeOptions) (Document, error) {
 	parts := strings.Split(strings.TrimSpace(encoded), ".")
 	if len(parts) != 4 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[3] == "" {
-		return Token{}, ErrInvalidPayload
+		return Document{}, ErrInvalidPayload
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[3])
 	if err != nil || len(raw) == 0 {
-		return Token{}, ErrInvalidPayload
+		return Document{}, ErrInvalidPayload
 	}
 	switch parts[2] {
 	case TokenInline:
-		return Token{Kind: TokenInline, Payload: raw}, nil
+		if opts.MaxInlineBytes > 0 && int64(len(raw)) > opts.MaxInlineBytes {
+			return Document{}, ErrPayloadTooLarge
+		}
+		payload, err := DecodePayload(raw)
+		if err != nil {
+			return Document{}, err
+		}
+		return ValidateDocument(Document{Kind: KindInline, Payload: &payload})
 	case TokenRemote:
 		spec, err := decodeRemoteSpec(raw)
 		if err != nil {
-			return Token{}, err
+			return Document{}, err
 		}
-		return Token{Kind: TokenRemote, Remote: spec}, nil
+		return Document{Kind: KindRemote, Remote: &spec}, nil
 	default:
-		return Token{}, ErrInvalidPayload
+		return Document{}, ErrInvalidPayload
+	}
+}
+
+func ValidateDocument(document Document) (Document, error) {
+	switch document.Kind {
+	case KindInline:
+		if document.Payload == nil || document.Remote != nil || Validate(*document.Payload) != nil {
+			return Document{}, ErrInvalidPayload
+		}
+		return document, nil
+	case KindRemote:
+		if document.Remote == nil || document.Payload != nil {
+			return Document{}, ErrInvalidPayload
+		}
+		spec, err := normalizeRemoteSpec(*document.Remote)
+		if err != nil {
+			return Document{}, err
+		}
+		document.Remote = &spec
+		return document, nil
+	default:
+		return Document{}, ErrInvalidPayload
 	}
 }
 

@@ -12,30 +12,14 @@ type AssembleOptions struct {
 	StripHeaders []string
 }
 
-type NormalizedPayload struct {
-	Target     *url.URL
-	Proxy      *url.URL
-	HeaderMode proxy.HeaderMode
-	HeaderOps  []proxy.HeaderOp
-	JoinPath   bool
-}
-
 func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
-	normalized, err := NormalizePayload(payload, opts)
-	if err != nil {
-		return nil, err
-	}
-	return BuildPlan(normalized), nil
-}
-
-func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload, error) {
 	targetURL := strings.TrimSpace(payload.Target.URL)
 	if targetURL == "" {
-		return NormalizedPayload{}, ErrInvalidPayload
+		return nil, ErrInvalidPayload
 	}
 	target, err := url.Parse(targetURL)
 	if err != nil || target.Scheme == "" || target.Host == "" || !isHTTPURL(target) {
-		return NormalizedPayload{}, ErrInvalidPayload
+		return nil, ErrInvalidPayload
 	}
 	headerMode := ""
 	var rawHeaderOps []HeaderOp
@@ -44,15 +28,15 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 		rawHeaderOps = payload.Headers.Ops
 	}
 	if err := validateHeaderMode(headerMode); err != nil {
-		return NormalizedPayload{}, err
+		return nil, err
 	}
 	proxyURL, err := ParseProxy(payload.Proxy)
 	if err != nil {
-		return NormalizedPayload{}, err
+		return nil, err
 	}
 	headerOps, err := parseHeaderOps(rawHeaderOps)
 	if err != nil {
-		return NormalizedPayload{}, err
+		return nil, err
 	}
 	ops := make([]proxy.HeaderOp, 0, len(opts.StripHeaders)+len(headerOps))
 	for _, name := range opts.StripHeaders {
@@ -76,7 +60,7 @@ func NormalizePayload(payload Payload, opts AssembleOptions) (NormalizedPayload,
 		joinPath = *payload.Target.JoinPath
 	}
 
-	return NormalizedPayload{
+	return &proxy.Plan{
 		Target:     target,
 		Proxy:      proxyURL,
 		HeaderMode: toHeaderMode(headerMode),
@@ -90,16 +74,6 @@ func isHTTPURL(u *url.URL) bool {
 		return false
 	}
 	return strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
-}
-
-func BuildPlan(payload NormalizedPayload) *proxy.Plan {
-	return &proxy.Plan{
-		Target:     payload.Target,
-		Proxy:      payload.Proxy,
-		HeaderMode: payload.HeaderMode,
-		HeaderOps:  append([]proxy.HeaderOp(nil), payload.HeaderOps...),
-		JoinPath:   payload.JoinPath,
-	}
 }
 
 func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {

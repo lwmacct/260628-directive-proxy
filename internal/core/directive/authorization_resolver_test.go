@@ -24,10 +24,11 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/chat/completions", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
-	plan, err := NewResolver().Resolve(req)
+	resolution, err := NewResolver().Resolve(req)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
+	plan := resolution.Plan
 	if plan.Target.String() != "https://api.example.com/v1" {
 		t.Fatalf("unexpected target: %s", plan.Target.String())
 	}

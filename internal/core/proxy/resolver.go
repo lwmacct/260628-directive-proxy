@@ -16,6 +16,5 @@ var (
 )
 
 type Resolver interface {
-	Match(*http.Request) bool
-	Resolve(*http.Request) (*Plan, error)
+	Resolve(*http.Request) (Resolution, error)
 }
