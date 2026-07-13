@@ -13,15 +13,20 @@
 
 Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请求仍会进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
-Control API 使用 Dex OIDC 登录，并在本地按 GitHub 数字用户 ID 授权。`/api/*` 必须持有有效身份 Cookie；`/health` 和 Web UI 不受 Directive 来源白名单影响。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
+Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*` 必须通过当前模式认证；`/health` 和 Web UI 不受 Directive 来源白名单影响。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
 ## Control API 登录
+
+`server.http.auth-mode` 可取 `oidc` 或 `token`，默认保持 `oidc`。只有当前选中的认证配置会在启动时校验和初始化。
+
+### OIDC 模式
 
 默认开发配置连接中央 Dex，使用 public client、Authorization Code Flow 和 S256 PKCE：
 
 ```yaml
 server:
   http:
+    auth-mode: oidc
     oidc-auth:
       issuer: https://2008.s.lwmacct.com:20088
       client-id: dproxy
@@ -37,6 +42,36 @@ server:
 登录成功后，`oidcauth` 包将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
 
 生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定由每个 origin 派生为 `<external-url>/oidcauth/callback`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。默认值指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
+
+### Access token 模式
+
+不部署 Dex 时，只需生成一个至少 32 字节的随机 token：
+
+```shell
+openssl rand -base64 32
+```
+
+通过环境变量注入 token，避免把凭据提交到仓库：
+
+```yaml
+server:
+  http:
+    auth-mode: token
+    token-auth:
+      tokens:
+        - "${APP_ACCESS_TOKEN}"
+      secure-cookie: true
+```
+
+浏览器在登录页输入 token 后，`tokenauth` 包将其保存为 HttpOnly、SameSite=Strict 的浏览器会话 Cookie。服务在每次请求时重新比对当前配置；从 `tokens` 删除凭据会立即撤销对应登录，不需要 Session 数据库。HTTPS 由本服务终止时会自动启用 Secure Cookie；HTTPS 在反向代理终止时必须显式设置 `secure-cookie: true`。
+
+自动化客户端无需调用登录端点，可直接访问 Control API：
+
+```http
+Authorization: Bearer <access-token>
+```
+
+配置支持多个 token，便于无中断轮换。token 长度限制为 32-3800 字节，且只能使用适合 HTTP Bearer 与 Cookie 的可见 ASCII 字符；重复、空白、过短或包含不安全字符的 token 会导致服务拒绝启动。
 
 ## Directive 来源白名单
 
@@ -212,10 +247,14 @@ go run . server
 
 ```text
 HTTP (:23198)
+  GET /auth/config
   GET /oidcauth/login
   GET /oidcauth/callback
   GET /oidcauth/session
   POST /oidcauth/logout
+  POST /tokenauth/login
+  GET /tokenauth/session
+  POST /tokenauth/logout
   GET /api/health
   GET /api/openapi.json
   GET /api/docs

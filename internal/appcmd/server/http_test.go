@@ -12,6 +12,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
+	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -507,5 +508,58 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("unexpected Cache-Control: %q", got)
+	}
+}
+
+func TestTokenAuthProtectsControlAPI(t *testing.T) {
+	const token = "0123456789abcdef0123456789abcdef"
+	cfg := config.DefaultConfig()
+	cfg.Server.HTTP.AuthMode = config.AuthModeToken
+	cfg.Server.HTTP.TokenAuth.Tokens = []string{token}
+	auth, err := tokenauth.New(cfg.Server.HTTP.TokenAuth, tokenauth.Options{})
+	if err != nil {
+		t.Fatalf("configure access token auth: %v", err)
+	}
+	rt := &runtime{
+		exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes),
+		tokenAuth: auth,
+	}
+	handler := newHTTPServer(&cfg, rt).Handler
+
+	authConfig := httptest.NewRecorder()
+	handler.ServeHTTP(authConfig, httptest.NewRequest(http.MethodGet, "http://control.local/auth/config", nil))
+	if authConfig.Code != http.StatusOK || authConfig.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(authConfig.Body.String(), `"mode":"token"`) {
+		t.Fatalf("unexpected auth config: status=%d body=%s", authConfig.Code, authConfig.Body.String())
+	}
+
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
+	}
+
+	loginRequest := httptest.NewRequest(http.MethodPost, "http://control.local/tokenauth/login", strings.NewReader(`{"token":"`+token+`"}`))
+	loginRequest.Header.Set("Origin", "http://control.local")
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, loginRequest)
+	if login.Code != http.StatusNoContent || login.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
+	}
+
+	protectedRequest := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
+	protectedRequest.AddCookie(login.Result().Cookies()[0])
+	protected := httptest.NewRecorder()
+	handler.ServeHTTP(protected, protectedRequest)
+	if protected.Code != http.StatusOK {
+		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
+	}
+
+	bearerRequest := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
+	bearerRequest.Header.Set("Authorization", "Bearer "+token)
+	bearer := httptest.NewRecorder()
+	handler.ServeHTTP(bearer, bearerRequest)
+	if bearer.Code != http.StatusOK {
+		t.Fatalf("unexpected bearer status: %d body=%s", bearer.Code, bearer.Body.String())
 	}
 }

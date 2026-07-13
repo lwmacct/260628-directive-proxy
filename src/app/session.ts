@@ -1,3 +1,5 @@
+export type AuthMode = "oidc" | "token";
+
 export type AuthIdentity = {
   subject: string;
   username: string;
@@ -9,21 +11,39 @@ export type AuthIdentity = {
 };
 
 export type SessionState =
-  | { status: "authenticated"; access: "denied" | "granted"; identity: AuthIdentity }
-  | { status: "signed-out" }
-  | { status: "unavailable" };
+  | { status: "authenticated"; access: "denied" | "granted"; identity: AuthIdentity; mode: AuthMode }
+  | { status: "signed-out"; mode: AuthMode }
+  | { status: "unavailable"; mode?: AuthMode };
 
-type SessionResponse = Exclude<SessionState, { status: "unavailable" }>;
+type SessionResponse =
+  | { status: "authenticated"; access: "denied" | "granted"; identity: AuthIdentity }
+  | { status: "signed-out" };
 
 export async function loadSession(): Promise<SessionState> {
+  let mode: AuthMode | undefined;
   try {
-    const response = await fetch("/oidcauth/session");
-    if (!response.ok) return { status: "unavailable" };
+    const configResponse = await fetch("/auth/config");
+    if (!configResponse.ok) return { status: "unavailable" };
+    const config: unknown = await configResponse.json();
+    mode = parseAuthMode(config);
+    if (!mode) return { status: "unavailable" };
+
+    const response = await fetch(authEndpoint(mode, "session"));
+    if (!response.ok) return { status: "unavailable", mode };
     const session: unknown = await response.json();
-    return isSessionResponse(session) ? session : { status: "unavailable" };
+    return isSessionResponse(session) ? { ...session, mode } : { status: "unavailable", mode };
   } catch {
-    return { status: "unavailable" };
+    return { status: "unavailable", mode };
   }
+}
+
+export function authEndpoint(mode: AuthMode, action: "login" | "logout" | "session") {
+  return `/${mode === "oidc" ? "oidcauth" : "tokenauth"}/${action}`;
+}
+
+function parseAuthMode(value: unknown): AuthMode | undefined {
+  if (!value || typeof value !== "object" || !("mode" in value)) return undefined;
+  return value.mode === "oidc" || value.mode === "token" ? value.mode : undefined;
 }
 
 function isSessionResponse(value: unknown): value is SessionResponse {

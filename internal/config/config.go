@@ -6,7 +6,15 @@ import (
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
+)
+
+type AuthMode string
+
+const (
+	AuthModeOIDC  AuthMode = "oidc"
+	AuthModeToken AuthMode = "token"
 )
 
 var (
@@ -27,9 +35,11 @@ type Server struct {
 }
 
 type ServerHTTP struct {
-	Listen          string           `json:"listen"             desc:"HTTP 服务监听地址"`
-	TLS             tlsreload.Config `json:"tls"                desc:"HTTPS TLS 配置"`
-	OIDCAuth        dexgithub.Config `json:"oidc-auth"          desc:"Control API OIDC 认证配置"`
+	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
+	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
+	AuthMode        AuthMode         `json:"auth-mode"  desc:"Control API 认证模式：oidc 或 token"`
+	OIDCAuth        dexgithub.Config `json:"oidc-auth"  desc:"Control API OIDC 认证配置"`
+	TokenAuth       tokenauth.Config `json:"token-auth" desc:"Control API Token 认证配置"`
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
@@ -87,7 +97,8 @@ func DefaultConfig() Config {
 	return Config{
 		Server: Server{
 			HTTP: ServerHTTP{
-				Listen: ":23198",
+				Listen:   ":23198",
+				AuthMode: AuthModeOIDC,
 				OIDCAuth: dexgithub.Config{
 					Issuer:       "https://2008.s.lwmacct.com:20088",
 					ClientID:     "dproxy",

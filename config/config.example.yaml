@@ -14,6 +14,7 @@ server:
       cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem" # TLS 证书文件路径或 URI
       key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥文件路径或 URI
       poll-interval: 0s # TLS 证书文件重载兜底轮询间隔，未配置时使用默认间隔
+    auth-mode: "oidc" # Control API 认证模式：oidc 或 token
 
     # Control API OIDC 认证配置
     oidc-auth:
@@ -29,6 +30,13 @@ server:
       allowed-users:
         - lwmacct
       session-ttl: 24h0m0s # 身份 Cookie 最长有效时间
+
+    # Control API Token 认证配置
+    token-auth:
+
+      # 允许登录 Control API 的访问令牌；建议使用至少 32 字节的随机值
+      tokens: []
+      secure-cookie: false # 是否仅通过 HTTPS 发送身份 Cookie；TLS 在反向代理终止时应启用
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间

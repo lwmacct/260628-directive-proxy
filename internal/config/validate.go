@@ -21,11 +21,22 @@ func Validate(cfg Config) (Config, error) {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	validatedAuth, err := cfg.Server.HTTP.OIDCAuth.Validate()
-	if err != nil {
+	switch cfg.Server.HTTP.AuthMode {
+	case AuthModeOIDC:
+		validatedAuth, err := cfg.Server.HTTP.OIDCAuth.Validate()
+		if err != nil {
+			return cfg, ErrInvalidAuth
+		}
+		cfg.Server.HTTP.OIDCAuth = validatedAuth
+	case AuthModeToken:
+		validatedAuth, err := cfg.Server.HTTP.TokenAuth.Validate()
+		if err != nil {
+			return cfg, ErrInvalidAuth
+		}
+		cfg.Server.HTTP.TokenAuth = validatedAuth
+	default:
 		return cfg, ErrInvalidAuth
 	}
-	cfg.Server.HTTP.OIDCAuth = validatedAuth
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
 		validatedAccess, err := validateDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
 		if err != nil {

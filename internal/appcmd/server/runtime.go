@@ -10,6 +10,7 @@ import (
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 
@@ -27,6 +28,7 @@ type runtime struct {
 	exchanges       *service.ExchangeService
 	observer        proxy.Observer
 	oidcAuth        *oidcauth.Auth
+	tokenAuth       *tokenauth.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
 	tls             *tlsRuntime
@@ -47,7 +49,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 			return nil, fmt.Errorf("configure source access: %w", err)
 		}
 	}
-	oidcAuth, err := dexgithub.New(ctx, cfg.Server.HTTP.OIDCAuth, dexgithub.Options{})
+	oidcAuth, tokenAuth, err := newControlAuth(ctx, cfg.Server.HTTP)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
@@ -62,11 +64,25 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		exchanges:       exchanges,
 		observer:        capture.NewObserver(exchanges),
 		oidcAuth:        oidcAuth,
+		tokenAuth:       tokenAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
 		tls:             tlsRuntime,
 		directiveReader: directiveReader,
 	}, nil
+}
+
+func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*oidcauth.Auth, *tokenauth.Auth, error) {
+	switch cfg.AuthMode {
+	case config.AuthModeOIDC:
+		auth, err := dexgithub.New(ctx, cfg.OIDCAuth, dexgithub.Options{})
+		return auth, nil, err
+	case config.AuthModeToken:
+		auth, err := tokenauth.New(cfg.TokenAuth, tokenauth.Options{Secure: cfg.TLS.Enabled})
+		return nil, auth, err
+	default:
+		return nil, nil, config.ErrInvalidAuth
+	}
 }
 
 func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {

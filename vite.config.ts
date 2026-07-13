@@ -27,6 +27,12 @@ export default defineConfig({
       "/oidcauth": {
         target: "http://localhost:23198",
       },
+      "/tokenauth": {
+        target: "http://localhost:23198",
+      },
+      "/auth": {
+        target: "http://localhost:23198",
+      },
       "/api": {
         target: "http://localhost:23198",
       },

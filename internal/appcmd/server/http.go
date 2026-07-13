@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path"
@@ -67,6 +68,15 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 		protectedAPI = rt.oidcAuth.RequireAccess(protectedAPI)
 		mux.Handle("/oidcauth/", noStore(rt.oidcAuth.Handler()))
 	}
+	if rt.tokenAuth != nil {
+		protectedAPI = rt.tokenAuth.RequireAccess(protectedAPI)
+		mux.Handle("/tokenauth/", noStore(rt.tokenAuth.Handler()))
+	}
+	mux.HandleFunc("GET /auth/config", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"mode": string(cfg.Server.HTTP.AuthMode)})
+	})
 	mux.Handle(httpAPIPrefix+"/", protectedAPI)
 	mux.Handle("/health", api)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {

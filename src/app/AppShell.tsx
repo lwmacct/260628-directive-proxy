@@ -5,7 +5,7 @@ import {
   WorkbenchUserMenu,
   type WorkbenchNavEntry,
 } from "@lwmacct/260627-antd-workbench";
-import { AppstoreOutlined, GithubOutlined, SettingOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, GithubOutlined, KeyOutlined, SettingOutlined } from "@ant-design/icons";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { ConsoleLayout } from "../modules/console/ConsoleLayout";
 import { SettingsLayout } from "../modules/settings/SettingsLayout";
@@ -38,8 +38,8 @@ export function AppShell() {
           user={{
             avatarUrl: identity.avatar_url,
             displayName: identity.name,
-            provider: "GitHub",
-            providerIcon: <GithubOutlined />,
+            provider: identity.provider === "github" ? "GitHub" : "Access token",
+            providerIcon: identity.provider === "github" ? <GithubOutlined /> : <KeyOutlined />,
             username: identity.username,
           }}
           onLogout={logout}

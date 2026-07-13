@@ -32,12 +32,15 @@ func action(ctx context.Context, cmd *cli.Command) error {
 func commandFlags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{Name: "http.listen", Usage: flagHelp.MustUsage("http.listen"), Value: defaults.Server.HTTP.Listen},
+		&cli.StringFlag{Name: "http.auth-mode", Usage: flagHelp.MustUsage("http.auth-mode"), Value: string(defaults.Server.HTTP.AuthMode)},
 		&cli.StringFlag{Name: "http.oidc-auth.issuer", Usage: flagHelp.MustUsage("http.oidc-auth.issuer"), Value: defaults.Server.HTTP.OIDCAuth.Issuer},
 		&cli.StringFlag{Name: "http.oidc-auth.client-id", Usage: flagHelp.MustUsage("http.oidc-auth.client-id"), Value: defaults.Server.HTTP.OIDCAuth.ClientID},
 		&cli.StringFlag{Name: "http.oidc-auth.client-secret", Usage: flagHelp.MustUsage("http.oidc-auth.client-secret"), Value: defaults.Server.HTTP.OIDCAuth.ClientSecret},
 		&cli.StringSliceFlag{Name: "http.oidc-auth.external-urls", Usage: flagHelp.MustUsage("http.oidc-auth.external-urls"), Value: defaults.Server.HTTP.OIDCAuth.ExternalURLs},
 		&cli.StringSliceFlag{Name: "http.oidc-auth.allowed-users", Usage: flagHelp.MustUsage("http.oidc-auth.allowed-users"), Value: defaults.Server.HTTP.OIDCAuth.AllowedUsers},
 		&cli.DurationFlag{Name: "http.oidc-auth.session-ttl", Usage: flagHelp.MustUsage("http.oidc-auth.session-ttl"), Value: defaults.Server.HTTP.OIDCAuth.SessionTTL},
+		&cli.StringSliceFlag{Name: "http.token-auth.tokens", Usage: flagHelp.MustUsage("http.token-auth.tokens"), Value: defaults.Server.HTTP.TokenAuth.Tokens},
+		&cli.BoolFlag{Name: "http.token-auth.secure-cookie", Usage: flagHelp.MustUsage("http.token-auth.secure-cookie"), Value: defaults.Server.HTTP.TokenAuth.SecureCookie},
 		&cli.BoolFlag{Name: "http.tls.enabled", Usage: flagHelp.MustUsage("http.tls.enabled"), Value: defaults.Server.HTTP.TLS.Enabled},
 		&cli.StringFlag{Name: "http.tls.cert-file", Usage: flagHelp.MustUsage("http.tls.cert-file"), Value: defaults.Server.HTTP.TLS.CertFile},
 		&cli.StringFlag{Name: "http.tls.key-file", Usage: flagHelp.MustUsage("http.tls.key-file"), Value: defaults.Server.HTTP.TLS.KeyFile},

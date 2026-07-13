@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
@@ -73,6 +74,37 @@ func TestValidateNormalizesAuth(t *testing.T) {
 	}
 	if validated.Server.HTTP.OIDCAuth.AllowedUsers[0] != "lwmacct" {
 		t.Fatalf("unexpected username: %q", validated.Server.HTTP.OIDCAuth.AllowedUsers[0])
+	}
+}
+
+func TestValidateTokenAuth(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.HTTP.AuthMode = AuthModeToken
+	cfg.Server.HTTP.TokenAuth.Tokens = []string{"  " + strings.Repeat("a", 32) + "  "}
+	cfg.Server.HTTP.OIDCAuth = dexgithub.Config{}
+
+	validated, err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("validate config: %v", err)
+	}
+	if validated.Server.HTTP.TokenAuth.Tokens[0] != strings.Repeat("a", 32) {
+		t.Fatalf("unexpected normalized token")
+	}
+}
+
+func TestValidateRejectsInvalidAuthModeAndActiveTokenConfig(t *testing.T) {
+	for _, mutate := range []func(*ServerHTTP){
+		func(cfg *ServerHTTP) { cfg.AuthMode = "unknown" },
+		func(cfg *ServerHTTP) {
+			cfg.AuthMode = AuthModeToken
+			cfg.TokenAuth.Tokens = nil
+		},
+	} {
+		cfg := DefaultConfig()
+		mutate(&cfg.Server.HTTP)
+		if _, err := Validate(cfg); err != ErrInvalidAuth {
+			t.Fatalf("expected invalid auth config, got %v", err)
+		}
 	}
 }
 
