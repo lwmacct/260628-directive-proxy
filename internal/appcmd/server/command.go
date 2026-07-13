@@ -54,6 +54,7 @@ func commandFlags() []cli.Flag {
 		&cli.BoolFlag{Name: "proxy.transport.disable-keep-alives", Usage: flagHelp.MustUsage("proxy.transport.disable-keep-alives"), Value: defaults.Proxy.Transport.DisableKeepAlives},
 		&cli.Int64Flag{Name: "proxy.directive.max-token-bytes", Usage: flagHelp.MustUsage("proxy.directive.max-token-bytes"), Value: defaults.Proxy.Directive.MaxTokenBytes},
 		&cli.Int64Flag{Name: "proxy.directive.max-inline-bytes", Usage: flagHelp.MustUsage("proxy.directive.max-inline-bytes"), Value: defaults.Proxy.Directive.MaxInlineBytes},
+		&cli.BoolFlag{Name: "proxy.directive.source-access.enabled", Usage: flagHelp.MustUsage("proxy.directive.source-access.enabled"), Value: defaults.Proxy.Directive.SourceAccess.Enabled},
 		&cli.StringSliceFlag{Name: "proxy.directive.source-access.allowed-sources", Usage: flagHelp.MustUsage("proxy.directive.source-access.allowed-sources"), Value: defaults.Proxy.Directive.SourceAccess.AllowedSources},
 		&cli.StringSliceFlag{Name: "proxy.directive.source-access.trusted-proxies", Usage: flagHelp.MustUsage("proxy.directive.source-access.trusted-proxies"), Value: defaults.Proxy.Directive.SourceAccess.TrustedProxies},
 		&cli.DurationFlag{Name: "proxy.directive.source-access.dns.lookup-timeout", Usage: flagHelp.MustUsage("proxy.directive.source-access.dns.lookup-timeout"), Value: defaults.Proxy.Directive.SourceAccess.DNS.LookupTimeout},

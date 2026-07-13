@@ -371,8 +371,31 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 	}
 }
 
+func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
+	cfg := config.DefaultConfig()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
+	if err != nil {
+		t.Fatalf("encode directive: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
+	req.RemoteAddr = "198.51.100.7:1234"
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+
+	newHTTPServer(&cfg, &runtime{}).Handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("disabled source access blocked directive: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat/completions", nil)
 	req.RemoteAddr = "198.51.100.7:1234"
@@ -388,6 +411,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 
 func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -413,6 +437,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 
 func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
@@ -431,6 +456,7 @@ func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 
 func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer dproxy.11.payload")

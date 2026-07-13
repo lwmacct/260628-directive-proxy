@@ -86,6 +86,7 @@ func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
 	}
 	for _, mutate := range tests {
 		cfg := DefaultConfig()
+		cfg.Proxy.Directive.SourceAccess.Enabled = true
 		mutate(&cfg.Proxy.Directive.SourceAccess)
 		if _, err := Validate(cfg); err != ErrInvalidAccess {
 			t.Fatalf("expected invalid source access config, got %v", err)
@@ -95,6 +96,7 @@ func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
 
 func TestValidateNormalizesSourceAccess(t *testing.T) {
 	cfg := DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{" EDGE.Example.COM. ", "192.0.2.7/24"}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"10.0.0.1"}
 
@@ -106,6 +108,16 @@ func TestValidateNormalizesSourceAccess(t *testing.T) {
 	if access.AllowedSources[0] != "edge.example.com" || access.AllowedSources[1] != "192.0.2.0/24" ||
 		access.TrustedProxies[0] != "10.0.0.1/32" {
 		t.Fatalf("unexpected normalized source access: %#v", access)
+	}
+}
+
+func TestValidateSkipsSourceAccessWhenDisabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Proxy.Directive.SourceAccess.AllowedSources = nil
+	cfg.Proxy.Directive.SourceAccess.DNS.MaxHosts = 0
+
+	if _, err := Validate(cfg); err != nil {
+		t.Fatalf("disabled source access must not be validated: %v", err)
 	}
 }
 

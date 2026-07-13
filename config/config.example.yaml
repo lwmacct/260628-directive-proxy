@@ -53,11 +53,13 @@ proxy:
 
     # Directive 入口来源白名单
     source-access:
+      enabled: false # 是否启用 Directive 入口来源白名单
 
       # 允许访问的来源 IP、CIDR 或域名列表
       allowed-sources:
         - 127.0.0.1
         - ::1
+        - 172.22.0.0/16
 
       # 可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头
       trusted-proxies: []

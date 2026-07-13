@@ -37,6 +37,9 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	control := newControlHTTPHandler(cfg, rt)
 	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.observer)
+	if !cfg.Proxy.Directive.SourceAccess.Enabled {
+		return routeDirectiveRequests(directiveProxy, control)
+	}
 	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
 	})

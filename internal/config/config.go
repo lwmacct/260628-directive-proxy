@@ -50,6 +50,7 @@ type ProxyDirective struct {
 }
 
 type DirectiveSourceAccess struct {
+	Enabled        bool                   `json:"enabled"          desc:"是否启用 Directive 入口来源白名单"`
 	AllowedSources []string               `json:"allowed-sources"  desc:"允许访问的来源 IP、CIDR 或域名列表"`
 	TrustedProxies []string               `json:"trusted-proxies" desc:"可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头"`
 	DNS            sourceaccess.DNSConfig `json:"dns"             desc:"域名来源规则的 DNS 缓存配置"`
@@ -111,7 +112,8 @@ func DefaultConfig() Config {
 				MaxTokenBytes:  64 << 10,
 				MaxInlineBytes: 48 << 10,
 				SourceAccess: DirectiveSourceAccess{
-					AllowedSources: []string{"127.0.0.1", "::1"},
+					Enabled:        false,
+					AllowedSources: []string{"127.0.0.1", "::1", "172.22.0.0/16"},
 					DNS:            sourceDNS,
 				},
 				Remote: RemoteDirective{

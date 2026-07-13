@@ -38,14 +38,20 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
-	sourceAccess, sourceEngine, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
-	if err != nil {
-		tlsRuntime.Close()
-		return nil, fmt.Errorf("configure source access: %w", err)
+	var sourceAccess *sourcehttp.Guard
+	var sourceEngine *sourceaccess.Engine
+	if cfg.Proxy.Directive.SourceAccess.Enabled {
+		sourceAccess, sourceEngine, err = newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
+		if err != nil {
+			tlsRuntime.Close()
+			return nil, fmt.Errorf("configure source access: %w", err)
+		}
 	}
 	oidcAuth, err := dexgithub.New(ctx, cfg.Server.HTTP.OIDCAuth, dexgithub.Options{})
 	if err != nil {
-		sourceEngine.Close()
+		if sourceEngine != nil {
+			sourceEngine.Close()
+		}
 		tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
