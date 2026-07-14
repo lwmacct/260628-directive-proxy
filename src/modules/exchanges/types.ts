@@ -1,37 +1,19 @@
-export type BodySnapshot = {
-  text?: string;
-  base64?: string;
-  bytes: number;
-  captured_bytes: number;
-  truncated: boolean;
-};
-
-export type ExchangeRecord = {
-  id: number;
-  started_at: string;
-  completed_at: string;
-  duration_millis: number;
+export type ActiveProxyRequest = {
+  trace_id: string;
+  state: "awaiting_response" | "retry_requested";
   method: string;
-  host?: string;
   url: string;
-  target_url?: string;
-  directive_mode?: string;
-  directive_backend?: string;
-  directive_endpoint?: string;
-  directive_key?: string;
-  directive_resolution_millis?: number;
-  status_code: number;
-  request_headers?: Record<string, string[]>;
-  outbound_request_headers?: Record<string, string[]>;
-  response_headers?: Record<string, string[]>;
-  request_body: BodySnapshot;
-  response_body: BodySnapshot;
+  target_url: string;
+  started_at: string;
+  attempt: number;
+  attempt_started_at: string;
+  waiting_millis: number;
+  retryable_at: string;
+  retryable: boolean;
+  max_attempts: number;
 };
 
-export type ExchangeSnapshot = {
-  enabled: boolean;
-  capacity: number;
-  max_body_bytes: number;
-  total: number;
-  items: ExchangeRecord[];
+export type ActiveProxyRequestSnapshot = {
+  server_time: string;
+  items: ActiveProxyRequest[];
 };

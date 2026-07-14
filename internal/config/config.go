@@ -16,6 +16,8 @@ var (
 	ErrInvalidHTTP      = errors.New("invalid http config")
 	ErrInvalidAuth      = errors.New("invalid auth config")
 	ErrInvalidTransport = errors.New("invalid transport config")
+	ErrInvalidRetry     = errors.New("invalid retry config")
+	ErrInvalidCapture   = errors.New("invalid capture config")
 	ErrInvalidDirective = errors.New("invalid directive config")
 	ErrInvalidAccess    = errors.New("invalid source access config")
 )
@@ -69,7 +71,46 @@ func (c OIDCAuth) MethodConfig() oidc.Config {
 
 type Proxy struct {
 	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
+	Retry     ProxyRetry     `json:"retry"     desc:"等待上游响应时的人工重试配置"`
+	Capture   ProxyCapture   `json:"capture"   desc:"请求生命周期 Fluentd 捕获配置"`
 	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
+}
+
+type ProxyRetry struct {
+	Enabled           bool          `json:"enabled"            desc:"是否启用等待响应请求的人工重试"`
+	RetryableAfter    time.Duration `json:"retryable-after"    desc:"单次上游请求等待多久后允许人工重试"`
+	MaxAttempts       int           `json:"max-attempts"       desc:"单个逻辑请求允许的最大上游尝试次数，包含首次请求"`
+	MaxActiveRequests int           `json:"max-active-requests" desc:"同时等待上游最终响应的最大请求数"`
+	TempDir           string        `json:"temp-dir"           desc:"可重放请求正文临时文件目录，留空使用系统临时目录"`
+	MaxBodyBytes      int64         `json:"max-body-bytes"     desc:"单个可重放请求正文最大字节数"`
+	MaxInflightBytes  int64         `json:"max-inflight-bytes" desc:"所有进行中请求正文临时文件的总字节上限"`
+}
+
+type ProxyCapture struct {
+	Enabled          bool          `json:"enabled"             desc:"是否将请求生命周期发送到 Fluentd"`
+	InstanceID       string        `json:"instance-id"         desc:"写入 capture 记录的代理实例标识，留空使用主机名"`
+	BodyChunkBytes   int           `json:"body-chunk-bytes"    desc:"请求和响应正文单条 capture 记录的最大字节数"`
+	MaxSSEEventBytes int           `json:"max-sse-event-bytes" desc:"单条 SSE 语义事件解析缓冲上限"`
+	RedactHeaders    []string      `json:"redact-headers"      desc:"需要脱敏的 HTTP header 名称或 glob"`
+	RedactQuery      []string      `json:"redact-query"        desc:"需要脱敏的 URL query 参数名称或 glob"`
+	Fluent           CaptureFluent `json:"fluent"              desc:"Fluent Forward 输出配置"`
+}
+
+type CaptureFluent struct {
+	Network               string        `json:"network"                  desc:"Fluent 网络类型：tcp、tls 或 unix"`
+	Host                  string        `json:"host"                     desc:"Fluent TCP/TLS 主机"`
+	Port                  int           `json:"port"                     desc:"Fluent TCP/TLS 端口"`
+	SocketPath            string        `json:"socket-path"              desc:"Fluent Unix socket 路径"`
+	Connections           int           `json:"connections"              desc:"按 trace ID 分片的同步 Fluent 连接数"`
+	Timeout               time.Duration `json:"timeout"                  desc:"Fluent 建连超时"`
+	WriteTimeout          time.Duration `json:"write-timeout"            desc:"Fluent 单条记录写入超时"`
+	ReadTimeout           time.Duration `json:"read-timeout"             desc:"Fluent ACK 读取超时"`
+	RetryWaitMillis       int           `json:"retry-wait-millis"        desc:"Fluent 首次重试等待毫秒数"`
+	MaxRetry              int           `json:"max-retry"                desc:"Fluent 单条记录最大写入尝试次数"`
+	MaxRetryWaitMillis    int           `json:"max-retry-wait-millis"    desc:"Fluent 重试等待上限毫秒数"`
+	TagPrefix             string        `json:"tag-prefix"               desc:"Fluent tag 前缀"`
+	RequestAck            bool          `json:"request-ack"              desc:"是否要求 Fluentd 对每条记录确认"`
+	TLSInsecureSkipVerify bool          `json:"tls-insecure-skip-verify" desc:"是否跳过 Fluent TLS 证书验证，仅用于开发"`
 }
 
 type ProxyDirective struct {
@@ -150,6 +191,38 @@ func DefaultConfig() Config {
 			},
 		},
 		Proxy: Proxy{
+			Retry: ProxyRetry{
+				Enabled:           true,
+				RetryableAfter:    10 * time.Second,
+				MaxAttempts:       3,
+				MaxActiveRequests: 4096,
+				MaxBodyBytes:      32 << 20,
+				MaxInflightBytes:  1 << 30,
+			},
+			Capture: ProxyCapture{
+				Enabled:          false,
+				BodyChunkBytes:   32 << 10,
+				MaxSSEEventBytes: 1 << 20,
+				RedactHeaders: []string{
+					"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key",
+				},
+				RedactQuery: []string{"access_token", "api_key", "apikey", "key", "token"},
+				Fluent: CaptureFluent{
+					Network:            "unix",
+					SocketPath:         "/run/fluent/fluent.sock",
+					Host:               "127.0.0.1",
+					Port:               24224,
+					Connections:        4,
+					Timeout:            500 * time.Millisecond,
+					WriteTimeout:       500 * time.Millisecond,
+					ReadTimeout:        500 * time.Millisecond,
+					RetryWaitMillis:    100,
+					MaxRetry:           1,
+					MaxRetryWaitMillis: 500,
+					TagPrefix:          "dproxy.capture",
+					RequestAck:         true,
+				},
+			},
 			Directive: ProxyDirective{
 				MaxTokenBytes:  64 << 10,
 				MaxInlineBytes: 48 << 10,

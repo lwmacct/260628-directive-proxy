@@ -64,6 +64,9 @@ func applyRewrite(r *httputil.ProxyRequest, d *Plan) {
 	stripDproxyHeaders(r.Out.Header)
 	stripHopByHopHeaders(r.Out.Header)
 	copyHeaders(r.Out.Header, transportHeaders)
+	// Capture parses SSE at the downstream byte boundary. Force identity encoding so
+	// event framing is observable without changing the response representation.
+	r.Out.Header.Set("Accept-Encoding", "identity")
 	if replaceHeaders {
 		suppressDefaultUserAgent(r.Out.Header)
 	}

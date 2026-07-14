@@ -3,7 +3,7 @@ import { useWorkbenchLocale } from "@lwmacct/260627-antd-workbench";
 const zh = {
   app: {
     console: "控制台", settings: "设置", debugTools: "调试工具", preferences: "偏好设置",
-    exchanges: "请求记录", authConsole: "Authorization 工作台", appearance: "外观设置",
+    exchanges: "等待响应", authConsole: "Authorization 工作台", appearance: "外观设置",
   },
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
@@ -12,14 +12,12 @@ const zh = {
   },
   appearance: { panel: "主题与界面" },
   exchanges: {
-    description: "查看、过滤和管理最近的代理请求响应记录。", capture: "捕获", auto: "自动刷新",
-    refresh: "刷新", retained: "保留数量", capacity: "容量", total: "累计数量", bodyLimit: "正文上限",
-    time: "时间", method: "方法", status: "状态", latency: "耗时", body: "正文", details: "详情",
-    search: "搜索 URL、目标地址或 ID", errors: "仅错误", apply: "应用", clear: "清空",
-    clearConfirm: "清空所有保留的请求记录？", requestFailed: "请求失败", updateFailed: "更新失败",
-    clearFailed: "清空失败", open: "处理中", exchange: "请求", started: "开始时间", duration: "持续时间",
-    target: "目标地址", directiveMode: "指令模式", directiveBackend: "远程类型", directiveEndpoint: "远程地址", directiveKey: "远程 Key", directiveResolution: "远程解析耗时", requestBody: "请求正文", responseBody: "响应正文", requestHeaders: "入站请求头", outboundRequestHeaders: "出站请求头",
-    responseHeaders: "响应头", captured: "已捕获",
+    description: "查看当前已发起但尚未收到上游最终响应头的请求，并人工触发安全状态检查后的重试。",
+    auto: "自动刷新", refresh: "刷新", active: "等待响应", retryable: "可重试", oldestWait: "最长等待",
+    time: "尝试时间", method: "方法", status: "状态", search: "搜索 URL、目标地址或 Trace ID",
+    target: "目标地址", attempt: "尝试", waiting: "等待时长", awaiting: "等待上游响应", retrying: "正在切换尝试",
+    retry: "重试", retryConfirm: "取消当前上游尝试并启动下一次尝试？", retryNotReady: "尚未达到重试阈值或已达到次数上限",
+    requestFailed: "请求失败", retryFailed: "重试失败",
   },
   authConsole: {
     description: "从结构化表单、Payload JSON 或 Token 任一来源编辑 directive，并同步生成其他格式。",
@@ -49,7 +47,7 @@ const zh = {
 const en: Text = {
   app: {
     console: "Console", settings: "Settings", debugTools: "Debug tools", preferences: "Preferences",
-    exchanges: "Exchanges", authConsole: "Authorization Workbench", appearance: "Appearance",
+    exchanges: "Awaiting response", authConsole: "Authorization Workbench", appearance: "Appearance",
   },
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
@@ -58,14 +56,12 @@ const en: Text = {
   },
   appearance: { panel: "Theme and interface" },
   exchanges: {
-    description: "View, filter, and manage recent proxy request and response records.", capture: "Capture", auto: "Auto refresh",
-    refresh: "Refresh", retained: "Retained", capacity: "Capacity", total: "Total", bodyLimit: "Body limit",
-    time: "Time", method: "Method", status: "Status", latency: "Latency", body: "Body", details: "Details",
-    search: "Search URL, target, or ID", errors: "Errors only", apply: "Apply", clear: "Clear",
-    clearConfirm: "Clear all retained exchange records?", requestFailed: "Request failed", updateFailed: "Update failed",
-    clearFailed: "Clear failed", open: "open", exchange: "Exchange", started: "Started", duration: "Duration",
-    target: "Target", directiveMode: "Directive mode", directiveBackend: "Remote backend", directiveEndpoint: "Remote endpoint", directiveKey: "Remote key", directiveResolution: "Remote resolution", requestBody: "Request body", responseBody: "Response body", requestHeaders: "Inbound request headers", outboundRequestHeaders: "Outbound request headers",
-    responseHeaders: "Response headers", captured: "captured",
+    description: "View requests that have started an upstream attempt but have not received final response headers, and manually trigger a guarded retry.",
+    auto: "Auto refresh", refresh: "Refresh", active: "Awaiting response", retryable: "Retryable", oldestWait: "Oldest wait",
+    time: "Attempt time", method: "Method", status: "Status", search: "Search URL, target, or Trace ID",
+    target: "Target", attempt: "Attempt", waiting: "Waiting", awaiting: "Awaiting upstream", retrying: "Switching attempt",
+    retry: "Retry", retryConfirm: "Cancel the current upstream attempt and start the next attempt?", retryNotReady: "Retry threshold not reached or attempt limit reached",
+    requestFailed: "Request failed", retryFailed: "Retry failed",
   },
   authConsole: {
     description: "Edit a directive from the structured form, Payload JSON, or Token and keep every format in sync.",

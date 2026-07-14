@@ -72,6 +72,57 @@ proxy:
     idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
     disable-keep-alives: false # 是否禁用上游 keep-alive
 
+  # 等待上游响应时的人工重试配置
+  retry:
+    enabled: true # 是否启用等待响应请求的人工重试
+    retryable-after: 10s # 单次上游请求等待多久后允许人工重试
+    max-attempts: 3 # 单个逻辑请求允许的最大上游尝试次数，包含首次请求
+    max-active-requests: 4096 # 同时等待上游最终响应的最大请求数
+    temp-dir: "" # 可重放请求正文临时文件目录，留空使用系统临时目录
+    max-body-bytes: 33554432 # 单个可重放请求正文最大字节数
+    max-inflight-bytes: 1073741824 # 所有进行中请求正文临时文件的总字节上限
+
+  # 请求生命周期 Fluentd 捕获配置
+  capture:
+    enabled: false # 是否将请求生命周期发送到 Fluentd
+    instance-id: "" # 写入 capture 记录的代理实例标识，留空使用主机名
+    body-chunk-bytes: 32768 # 请求和响应正文单条 capture 记录的最大字节数
+    max-sse-event-bytes: 1048576 # 单条 SSE 语义事件解析缓冲上限
+
+    # 需要脱敏的 HTTP header 名称或 glob
+    redact-headers:
+      - authorization
+      - proxy-authorization
+      - cookie
+      - set-cookie
+      - x-api-key
+      - api-key
+
+    # 需要脱敏的 URL query 参数名称或 glob
+    redact-query:
+      - access_token
+      - api_key
+      - apikey
+      - key
+      - token
+
+    # Fluent Forward 输出配置
+    fluent:
+      network: "unix" # Fluent 网络类型：tcp、tls 或 unix
+      host: "127.0.0.1" # Fluent TCP/TLS 主机
+      port: 24224 # Fluent TCP/TLS 端口
+      socket-path: "/run/fluent/fluent.sock" # Fluent Unix socket 路径
+      connections: 4 # 按 trace ID 分片的同步 Fluent 连接数
+      timeout: 500ms # Fluent 建连超时
+      write-timeout: 500ms # Fluent 单条记录写入超时
+      read-timeout: 500ms # Fluent ACK 读取超时
+      retry-wait-millis: 100 # Fluent 首次重试等待毫秒数
+      max-retry: 1 # Fluent 单条记录最大写入尝试次数
+      max-retry-wait-millis: 500 # Fluent 重试等待上限毫秒数
+      tag-prefix: "dproxy.capture" # Fluent tag 前缀
+      request-ack: true # 是否要求 Fluentd 对每条记录确认
+      tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发
+
   # 指令来源配置
   directive:
     max-token-bytes: 65536 # directive token 最大字节数

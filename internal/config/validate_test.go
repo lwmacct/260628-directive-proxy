@@ -213,3 +213,49 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRetryConfiguration(t *testing.T) {
+	for _, mutate := range []func(*ProxyRetry){
+		func(cfg *ProxyRetry) { cfg.RetryableAfter = -time.Second },
+		func(cfg *ProxyRetry) { cfg.MaxAttempts = 1 },
+		func(cfg *ProxyRetry) { cfg.MaxActiveRequests = 0 },
+		func(cfg *ProxyRetry) { cfg.MaxBodyBytes = 0 },
+		func(cfg *ProxyRetry) { cfg.MaxInflightBytes = cfg.MaxBodyBytes - 1 },
+	} {
+		cfg := validDefaultConfig()
+		mutate(&cfg.Proxy.Retry)
+		if _, err := Validate(cfg); err != ErrInvalidRetry {
+			t.Fatalf("expected invalid retry config, got %v", err)
+		}
+	}
+	cfg := validDefaultConfig()
+	cfg.Proxy.Retry.Enabled = false
+	validated, err := Validate(cfg)
+	if err != nil || validated.Proxy.Retry.MaxAttempts != 1 {
+		t.Fatalf("disabled retry was not normalized: cfg=%#v err=%v", validated.Proxy.Retry, err)
+	}
+}
+
+func TestValidateCaptureConfiguration(t *testing.T) {
+	cfg := validDefaultConfig()
+	cfg.Proxy.Capture.Enabled = true
+	validated, err := Validate(cfg)
+	if err != nil || validated.Proxy.Capture.Fluent.Network != "unix" {
+		t.Fatalf("valid capture config was rejected: cfg=%#v err=%v", validated.Proxy.Capture, err)
+	}
+	for _, mutate := range []func(*ProxyCapture){
+		func(cfg *ProxyCapture) { cfg.BodyChunkBytes = 0 },
+		func(cfg *ProxyCapture) { cfg.MaxSSEEventBytes = 0 },
+		func(cfg *ProxyCapture) { cfg.RedactHeaders = []string{"[invalid"} },
+		func(cfg *ProxyCapture) { cfg.Fluent.Network = "udp" },
+		func(cfg *ProxyCapture) { cfg.Fluent.Connections = 0 },
+		func(cfg *ProxyCapture) { cfg.Fluent.ReadTimeout = 0 },
+	} {
+		cfg := validDefaultConfig()
+		cfg.Proxy.Capture.Enabled = true
+		mutate(&cfg.Proxy.Capture)
+		if _, err := Validate(cfg); err != ErrInvalidCapture {
+			t.Fatalf("expected invalid capture config, got %v", err)
+		}
+	}
+}

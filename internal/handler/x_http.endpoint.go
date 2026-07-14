@@ -23,7 +23,7 @@ func (e *Endpoint) Handler() http.Handler {
 }
 
 func (e *Endpoint) Register(api huma.API) {
-	RegisterHealth(api)
+	RegisterHealth(api, e.services.Capture)
 	RegisterDirective(api)
-	RegisterProxyExchange(api, e.services.Exchanges)
+	RegisterProxyRequest(api, e.services.Requests)
 }

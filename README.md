@@ -13,6 +13,42 @@
 
 Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请求仍会进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
+## 等待响应请求与人工重试
+
+代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；人工重试会取消当前尚未收到最终响应头的 attempt，并使用磁盘临时文件中的相同请求正文启动下一次 attempt。directive 只解析一次，重试不会重新选择目标。
+
+Control API：
+
+- `GET /api/proxy-requests/awaiting-response`：列出已经发起上游请求但尚未收到最终响应头的请求。
+- `GET /api/proxy-requests/{trace_id}`：读取一个仍然活动的请求。
+- `POST /api/proxy-requests/{trace_id}/retry`：请求体为 `{"expected_attempt": 1}`，以 compare-and-swap 方式触发重试。
+
+收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST 等非幂等请求的重试是 at-least-once，上游可能已经执行了第一次请求但响应尚未返回。
+
+活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Control API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
+
+```yaml
+proxy:
+  retry:
+    enabled: true
+    retryable-after: 10s
+    max-attempts: 3
+    max-active-requests: 4096
+    temp-dir: ""
+    max-body-bytes: 33554432
+    max-inflight-bytes: 1073741824
+```
+
+## Fluentd 生命周期 capture
+
+Capture 不在进程内保留历史记录，也不提供历史查询 API。请求头、请求正文 chunk、attempt、响应头、响应正文 chunk、SSE 语义事件和完成状态都作为独立 Forward 记录同步发送到 Fluentd，并通过 `trace_id`、`attempt_id`、`record_id` 和请求内递增 `sequence` 关联。
+
+默认 tag 为 `dproxy.capture.lifecycle`、`request.headers`、`request.body`、`attempt`、`response.headers`、`response.body` 和 `response.sse`。正文使用 Base64 chunk、绝对 offset 和 SHA-256 end 记录，SSE 同时保存原始响应字节和解析后的每条 event/comment。
+
+Exporter 固定使用同步模式，避免 Fluent Logger 的进程内异步队列；建议连接本机 Unix socket，并由 Fluentd 使用文件 buffer。启用 capture 时启动阶段无法连接 Fluentd 会导致服务启动失败；运行阶段发送失败采用 fail-open，代理继续处理请求，并在 `/health` 的 `capture` 字段报告 degraded 状态。
+
+完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
+
 Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*` 必须通过当前模式认证；`/health` 和 Web UI 不受 Directive 来源白名单影响。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
 ## Control API 登录

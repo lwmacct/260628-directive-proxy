@@ -8,30 +8,27 @@
 
 ## APIs
 
-| Method   | Path                        | Operation                        | Tags | Handler          | Register                | File                                         |
-| -------- | --------------------------- | -------------------------------- | ---- | ---------------- | ----------------------- | -------------------------------------------- |
-| `POST`   | `/directives/decode`        | `decode-directive`               |      | `decode`         | `RegisterDirective`     | `internal/handler/directive.handler.go`      |
-| `POST`   | `/directives/encode`        | `encode-directive`               |      | `encode`         | `RegisterDirective`     | `internal/handler/directive.handler.go`      |
-| `POST`   | `/directives/validate`      | `validate-directive`             |      | `validate`       | `RegisterDirective`     | `internal/handler/directive.handler.go`      |
-| `GET`    | `/health`                   | `get-health`                     |      | `get`            | `RegisterHealth`        | `internal/handler/health.handler.go`         |
-| `DELETE` | `/proxy-exchanges`          | `clear-proxy-exchanges`          |      | `clear`          | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
-| `GET`    | `/proxy-exchanges`          | `list-proxy-exchanges`           |      | `list`           | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
-| `PUT`    | `/proxy-exchanges/settings` | `update-proxy-exchange-settings` |      | `updateSettings` | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
-| `GET`    | `/proxy-exchanges/{id}`     | `get-proxy-exchange`             |      | `get`            | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` |
+| Method | Path                                | Operation                               | Tags | Handler    | Register               | File                                        |
+| ------ | ----------------------------------- | --------------------------------------- | ---- | ---------- | ---------------------- | ------------------------------------------- |
+| `POST` | `/directives/decode`                | `decode-directive`                      |      | `decode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `POST` | `/directives/encode`                | `encode-directive`                      |      | `encode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `POST` | `/directives/validate`              | `validate-directive`                    |      | `validate` | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `GET`  | `/health`                           | `get-health`                            |      | `get`      | `RegisterHealth`       | `internal/handler/health.handler.go`        |
+| `GET`  | `/proxy-requests/awaiting-response` | `list-proxy-requests-awaiting-response` |      | `list`     | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `GET`  | `/proxy-requests/{trace_id}`        | `get-active-proxy-request`              |      | `get`      | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `POST` | `/proxy-requests/{trace_id}/retry`  | `retry-active-proxy-request`            |      | `retry`    | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
 
 ## Handlers
 
-| Scope            | Handler                | Register                | File                                         | Methods                          |
-| ---------------- | ---------------------- | ----------------------- | -------------------------------------------- | -------------------------------- |
-| `directive`      | `directiveHandler`     | `RegisterDirective`     | `internal/handler/directive.handler.go`      | decode, encode, validate         |
-| `health`         | `healthHandler`        | `RegisterHealth`        | `internal/handler/health.handler.go`         | get                              |
-| `proxy_exchange` | `proxyExchangeHandler` | `RegisterProxyExchange` | `internal/handler/proxy_exchange.handler.go` | clear, get, list, updateSettings |
+| Scope           | Handler               | Register               | File                                        | Methods                  |
+| --------------- | --------------------- | ---------------------- | ------------------------------------------- | ------------------------ |
+| `directive`     | `directiveHandler`    | `RegisterDirective`    | `internal/handler/directive.handler.go`     | decode, encode, validate |
+| `health`        | `healthHandler`       | `RegisterHealth`       | `internal/handler/health.handler.go`        | get                      |
+| `proxy_request` | `proxyRequestHandler` | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` | get, list, retry         |
 
 ## Services
 
-| Service           | Scope      | File                                   | Constructor          | Dependencies | Methods                                                                        |
-| ----------------- | ---------- | -------------------------------------- | -------------------- | ------------ | ------------------------------------------------------------------------------ |
-| `ExchangeService` | `exchange` | `internal/service/exchange.service.go` | `NewExchangeService` |              | Begin, Clear, Complete, Configure, Get, Snapshot, resizeLocked, snapshotLocked |
+No services found.
 
 ## Stores
 

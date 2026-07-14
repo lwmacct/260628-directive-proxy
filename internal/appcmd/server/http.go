@@ -36,7 +36,7 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	control := newControlHTTPHandler(cfg, rt)
-	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.observer)
+	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.requests, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
 		return routeDirectiveRequests(directiveProxy, control)
 	}
@@ -61,7 +61,7 @@ func routeDirectiveRequests(directiveHandler, controlHandler http.Handler) http.
 
 func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	mux := http.NewServeMux()
-	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
+	api := handler.NewEndpoint(handler.Services{Requests: rt.requests, Capture: rt.captureSink}).Handler()
 	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
 	if rt.controlAuth != nil {
 		protectedAPI = rt.controlAuth.RequireAccess(protectedAPI)

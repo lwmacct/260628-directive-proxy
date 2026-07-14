@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path"
 	"strings"
 
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
@@ -75,12 +76,81 @@ func Validate(cfg Config) (Config, error) {
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport
 	}
+	retry := cfg.Proxy.Retry
+	if retry.Enabled {
+		if retry.RetryableAfter < 0 || retry.MaxAttempts < 2 || retry.MaxActiveRequests <= 0 || retry.MaxBodyBytes <= 0 ||
+			retry.MaxInflightBytes < retry.MaxBodyBytes {
+			return cfg, ErrInvalidRetry
+		}
+	} else {
+		cfg.Proxy.Retry.MaxAttempts = 1
+		if cfg.Proxy.Retry.MaxActiveRequests <= 0 {
+			cfg.Proxy.Retry.MaxActiveRequests = 4096
+		}
+	}
+	if cfg.Proxy.Capture.Enabled {
+		validatedCapture, err := validateCapture(cfg.Proxy.Capture)
+		if err != nil {
+			return cfg, ErrInvalidCapture
+		}
+		cfg.Proxy.Capture = validatedCapture
+	}
 	remote := cfg.Proxy.Directive.Remote
 	if cfg.Proxy.Directive.MaxTokenBytes <= 0 || cfg.Proxy.Directive.MaxInlineBytes <= 0 ||
 		cfg.Proxy.Directive.MaxInlineBytes > cfg.Proxy.Directive.MaxTokenBytes ||
 		remote.Timeout <= 0 || remote.MaxResponseBytes <= 0 || remote.HTTP.MaxRequestBytes <= 0 ||
 		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 {
 		return cfg, ErrInvalidDirective
+	}
+	return cfg, nil
+}
+
+func validateCapture(cfg ProxyCapture) (ProxyCapture, error) {
+	if cfg.BodyChunkBytes <= 0 || cfg.MaxSSEEventBytes <= 0 || len(cfg.RedactHeaders) == 0 {
+		return cfg, ErrInvalidCapture
+	}
+	for index, values := range [][]string{cfg.RedactHeaders, cfg.RedactQuery} {
+		seen := make(map[string]struct{}, len(values))
+		for itemIndex, value := range values {
+			value = strings.ToLower(strings.TrimSpace(value))
+			if value == "" {
+				return cfg, ErrInvalidCapture
+			}
+			if _, err := path.Match(value, "capture-test-value"); err != nil {
+				return cfg, ErrInvalidCapture
+			}
+			if _, exists := seen[value]; exists {
+				return cfg, ErrInvalidCapture
+			}
+			seen[value] = struct{}{}
+			values[itemIndex] = value
+		}
+		if index == 0 {
+			cfg.RedactHeaders = values
+		} else {
+			cfg.RedactQuery = values
+		}
+	}
+	fluent := &cfg.Fluent
+	fluent.Network = strings.ToLower(strings.TrimSpace(fluent.Network))
+	fluent.Host = strings.TrimSpace(fluent.Host)
+	fluent.SocketPath = strings.TrimSpace(fluent.SocketPath)
+	fluent.TagPrefix = strings.Trim(strings.TrimSpace(fluent.TagPrefix), ".")
+	if fluent.Connections <= 0 || fluent.Timeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ReadTimeout <= 0 ||
+		fluent.RetryWaitMillis <= 0 || fluent.MaxRetry <= 0 || fluent.MaxRetryWaitMillis <= 0 || fluent.TagPrefix == "" {
+		return cfg, ErrInvalidCapture
+	}
+	switch fluent.Network {
+	case "unix":
+		if fluent.SocketPath == "" {
+			return cfg, ErrInvalidCapture
+		}
+	case "tcp", "tls":
+		if fluent.Host == "" || fluent.Port <= 0 || fluent.Port > 65535 {
+			return cfg, ErrInvalidCapture
+		}
+	default:
+		return cfg, ErrInvalidCapture
 	}
 	return cfg, nil
 }

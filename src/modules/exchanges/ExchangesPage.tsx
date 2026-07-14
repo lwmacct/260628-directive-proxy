@@ -1,7 +1,6 @@
 import {
-  ClearOutlined,
-  EyeOutlined,
   ReloadOutlined,
+  RetweetOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import {
@@ -11,14 +10,12 @@ import {
 import {
   Alert,
   Button,
+  Col,
   Empty,
   Flex,
   Input,
-  InputNumber,
   Popconfirm,
   Row,
-  Col,
-  Select,
   Space,
   Statistic,
   Switch,
@@ -37,54 +34,41 @@ import {
 } from "react";
 import { apiFetch } from "../../app/auth";
 import { useText } from "../../shared/i18n";
-import { ExchangeDrawer } from "./ExchangeDrawer";
-import type { ExchangeRecord, ExchangeSnapshot } from "./types";
-import { formatBytes, formatDate, methodColor, statusColor } from "./utils";
+import type {
+  ActiveProxyRequest,
+  ActiveProxyRequestSnapshot,
+} from "./types";
+import { formatDate, methodColor } from "./utils";
 
 const { Text } = Typography;
 
-const emptySnapshot: ExchangeSnapshot = {
-  enabled: false,
-  capacity: 100,
-  max_body_bytes: 65536,
-  total: 0,
+const emptySnapshot: ActiveProxyRequestSnapshot = {
+  server_time: "",
   items: [],
 };
 
-const allMethods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-
 export function ExchangesPage() {
   const t = useText();
-  const [snapshot, setSnapshot] = useState<ExchangeSnapshot>(emptySnapshot);
+  const [snapshot, setSnapshot] = useState(emptySnapshot);
   const [loading, setLoading] = useState(false);
-  const [updating, setUpdating] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<ExchangeRecord | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [query, setQuery] = useState("");
-  const [method, setMethod] = useState<string | undefined>();
-  const [errorsOnly, setErrorsOnly] = useState(false);
-  const [capacity, setCapacity] = useState(emptySnapshot.capacity);
-  const [maxBodyBytes, setMaxBodyBytes] = useState(emptySnapshot.max_body_bytes);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiFetch("/api/proxy-exchanges?limit=1000", { signal });
+      const response = await apiFetch(
+        "/api/proxy-requests/awaiting-response",
+        { signal },
+      );
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const data = (await response.json()) as ExchangeSnapshot;
-      const next = {
-        ...emptySnapshot,
-        ...data,
-        items: data.items ?? [],
-      };
-      setSnapshot(next);
-      setCapacity(next.capacity);
-      setMaxBodyBytes(next.max_body_bytes);
+      const data = (await response.json()) as ActiveProxyRequestSnapshot;
+      setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
@@ -97,67 +81,28 @@ export function ExchangesPage() {
     }
   }, [t.exchanges.requestFailed]);
 
-  const updateSettings = useCallback(
-    async (enabled: boolean) => {
-      setUpdating(true);
-      setError(null);
-      try {
-        const response = await apiFetch("/api/proxy-exchanges/settings", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            enabled,
-            capacity,
-            max_body_bytes: maxBodyBytes,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const data = (await response.json()) as ExchangeSnapshot;
-        setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : t.exchanges.updateFailed);
-      } finally {
-        setUpdating(false);
-      }
-    },
-    [capacity, maxBodyBytes, t.exchanges.updateFailed],
-  );
-
-  const clearRecords = useCallback(async () => {
-    setUpdating(true);
+  const retry = useCallback(async (request: ActiveProxyRequest) => {
+    setRetrying(request.trace_id);
     setError(null);
     try {
-      const response = await apiFetch("/api/proxy-exchanges", { method: "DELETE" });
+      const response = await apiFetch(
+        `/api/proxy-requests/${request.trace_id}/retry`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expected_attempt: request.attempt }),
+        },
+      );
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const data = (await response.json()) as ExchangeSnapshot;
-      setSnapshot({ ...emptySnapshot, ...data, items: data.items ?? [] });
-      setSelected(null);
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.exchanges.clearFailed);
+      setError(err instanceof Error ? err.message : t.exchanges.retryFailed);
     } finally {
-      setUpdating(false);
+      setRetrying(null);
     }
-  }, [t.exchanges.clearFailed]);
-
-  const openRecord = useCallback(async (record: ExchangeRecord) => {
-    setSelected(record);
-    setDetailLoading(true);
-    try {
-      const response = await apiFetch(`/api/proxy-exchanges/${record.id}`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      setSelected((await response.json()) as ExchangeRecord);
-    } catch {
-      setSelected(record);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
+  }, [load, t.exchanges.retryFailed]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -169,93 +114,102 @@ export function ExchangesPage() {
     if (!autoRefresh) {
       return undefined;
     }
-    const timer = window.setInterval(() => {
-      void load();
-    }, 5000);
+    const timer = window.setInterval(() => void load(), 2000);
     return () => window.clearInterval(timer);
   }, [autoRefresh, load]);
 
   const filteredItems = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return snapshot.items.filter((item) => {
-      if (method && item.method !== method) {
-        return false;
-      }
-      if (errorsOnly && item.status_code < 400) {
-        return false;
-      }
-      if (!normalizedQuery) {
-        return true;
-      }
-      return [item.url, item.target_url, String(item.id)]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(normalizedQuery));
-    });
-  }, [errorsOnly, method, query, snapshot.items]);
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) {
+      return snapshot.items;
+    }
+    return snapshot.items.filter((item) =>
+      [item.trace_id, item.url, item.target_url]
+        .some((value) => value.toLowerCase().includes(normalized)),
+    );
+  }, [query, snapshot.items]);
 
-  const columns = useMemo<TableColumnsType<ExchangeRecord>>(
-    () => [
-      { title: "ID", dataIndex: "id", width: 88, fixed: "left" },
-      {
-        title: t.exchanges.time,
-        dataIndex: "started_at",
-        width: 180,
-        render: (value: string) => formatDate(value),
-      },
-      {
-        title: t.exchanges.method,
-        dataIndex: "method",
-        width: 104,
-        render: (value: string) => <Tag color={methodColor(value)}>{value}</Tag>,
-      },
-      {
-        title: "URL",
-        dataIndex: "url",
-        ellipsis: true,
-        render: (value: string) => <Text copyable>{value}</Text>,
-      },
-      {
-        title: t.exchanges.status,
-        dataIndex: "status_code",
-        width: 108,
-        render: (value: number) => (
-          <Tag color={statusColor(value)}>{value || t.exchanges.open}</Tag>
-        ),
-      },
-      {
-        title: t.exchanges.latency,
-        dataIndex: "duration_millis",
-        width: 116,
-        align: "right",
-        render: (value: number) => `${value} ms`,
-      },
-      {
-        title: t.exchanges.body,
-        key: "body",
-        width: 140,
-        align: "right",
-        render: (_, record) =>
-          formatBytes(record.request_body.bytes + record.response_body.bytes),
-      },
-      {
-        title: "",
-        key: "actions",
-        width: 64,
-        fixed: "right",
-        render: (_, record) => (
-          <Tooltip title={t.exchanges.details}>
+  const retryableCount = snapshot.items.filter((item) => item.retryable).length;
+  const oldestWait = snapshot.items.reduce(
+    (value, item) => Math.max(value, item.waiting_millis),
+    0,
+  );
+
+  const columns = useMemo<TableColumnsType<ActiveProxyRequest>>(() => [
+    {
+      title: "Trace ID",
+      dataIndex: "trace_id",
+      width: 280,
+      fixed: "left",
+      render: (value: string) => <Text copyable code>{value}</Text>,
+    },
+    {
+      title: t.exchanges.time,
+      dataIndex: "attempt_started_at",
+      width: 180,
+      render: (value: string) => formatDate(value),
+    },
+    {
+      title: t.exchanges.method,
+      dataIndex: "method",
+      width: 100,
+      render: (value: string) => <Tag color={methodColor(value)}>{value}</Tag>,
+    },
+    { title: "URL", dataIndex: "url", width: 300, ellipsis: true },
+    {
+      title: t.exchanges.target,
+      dataIndex: "target_url",
+      width: 300,
+      ellipsis: true,
+    },
+    {
+      title: t.exchanges.attempt,
+      key: "attempt",
+      width: 110,
+      align: "right",
+      render: (_, item) => `${item.attempt}/${item.max_attempts}`,
+    },
+    {
+      title: t.exchanges.waiting,
+      dataIndex: "waiting_millis",
+      width: 130,
+      align: "right",
+      render: (value: number) => `${(value / 1000).toFixed(1)} s`,
+    },
+    {
+      title: t.exchanges.status,
+      dataIndex: "state",
+      width: 170,
+      render: (value: ActiveProxyRequest["state"]) => (
+        <Tag color={value === "retry_requested" ? "processing" : "warning"}>
+          {value === "retry_requested" ? t.exchanges.retrying : t.exchanges.awaiting}
+        </Tag>
+      ),
+    },
+    {
+      title: "",
+      key: "actions",
+      width: 76,
+      fixed: "right",
+      render: (_, item) => (
+        <Popconfirm
+          disabled={!item.retryable}
+          title={t.exchanges.retryConfirm}
+          onConfirm={() => void retry(item)}
+        >
+          <Tooltip title={item.retryable ? t.exchanges.retry : t.exchanges.retryNotReady}>
             <Button
-              aria-label={t.exchanges.details}
-              icon={<EyeOutlined />}
-              onClick={() => void openRecord(record)}
+              aria-label={t.exchanges.retry}
+              disabled={!item.retryable}
+              icon={<RetweetOutlined />}
+              loading={retrying === item.trace_id}
               type="text"
             />
           </Tooltip>
-        ),
-      },
-    ],
-    [openRecord, t.exchanges],
-  );
+        </Popconfirm>
+      ),
+    },
+  ], [retry, retrying, t.exchanges]);
 
   return (
     <WorkbenchPage
@@ -263,22 +217,10 @@ export function ExchangesPage() {
       extra={
         <Space wrap>
           <Space className="switch-control">
-            <Text type="secondary">{t.exchanges.capture}</Text>
-            <Switch
-              checked={snapshot.enabled}
-              loading={updating}
-              onChange={(checked: boolean) => void updateSettings(checked)}
-            />
-          </Space>
-          <Space className="switch-control">
             <Text type="secondary">{t.exchanges.auto}</Text>
             <Switch checked={autoRefresh} onChange={setAutoRefresh} />
           </Space>
-          <Button
-            icon={<ReloadOutlined />}
-            loading={loading}
-            onClick={() => void load()}
-          >
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
             {t.exchanges.refresh}
           </Button>
         </Space>
@@ -286,10 +228,9 @@ export function ExchangesPage() {
       title={t.app.exchanges}
     >
       <Row gutter={[12, 12]}>
-        <Metric label={t.exchanges.retained} value={snapshot.items.length} />
-        <Metric label={t.exchanges.capacity} value={snapshot.capacity} />
-        <Metric label={t.exchanges.total} value={snapshot.total} />
-        <Metric label={t.exchanges.bodyLimit} value={formatBytes(snapshot.max_body_bytes)} />
+        <Metric label={t.exchanges.active} value={snapshot.items.length} />
+        <Metric label={t.exchanges.retryable} value={retryableCount} />
+        <Metric label={t.exchanges.oldestWait} value={`${(oldestWait / 1000).toFixed(1)} s`} />
       </Row>
 
       <WorkbenchPanel>
@@ -297,88 +238,35 @@ export function ExchangesPage() {
           <Input
             allowClear
             className="search-input"
-            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-              setQuery(event.target.value)
-            }
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
             placeholder={t.exchanges.search}
             prefix={<SearchOutlined />}
             value={query}
           />
-          <Select
-            allowClear
-            className="method-select"
-            onChange={setMethod}
-            options={allMethods.map((value) => ({ label: value, value }))}
-            placeholder={t.exchanges.method}
-            value={method}
-          />
-          <Space className="switch-control">
-            <Text type="secondary">{t.exchanges.errors}</Text>
-            <Switch checked={errorsOnly} onChange={setErrorsOnly} />
-          </Space>
-          <InputNumber
-            className="number-input"
-            min={1}
-            max={10000}
-            onChange={(value: number | null) =>
-              setCapacity(Number(value ?? snapshot.capacity))
-            }
-            prefix="N"
-            value={capacity}
-          />
-          <InputNumber
-            className="number-input"
-            min={0}
-            max={10485760}
-            onChange={(value: number | null) =>
-              setMaxBodyBytes(Number(value ?? snapshot.max_body_bytes))
-            }
-            step={1024}
-            value={maxBodyBytes}
-          />
-          <Button loading={updating} onClick={() => void updateSettings(snapshot.enabled)}>
-            {t.exchanges.apply}
-          </Button>
-          <Popconfirm
-            okButtonProps={{ danger: true }}
-            okText={t.exchanges.clear}
-            onConfirm={() => void clearRecords()}
-            title={t.exchanges.clearConfirm}
-          >
-            <Button danger icon={<ClearOutlined />} loading={updating}>
-              {t.exchanges.clear}
-            </Button>
-          </Popconfirm>
         </Flex>
       </WorkbenchPanel>
 
       {error ? <Alert title={error} type="error" /> : null}
 
       <WorkbenchPanel>
-        <Table<ExchangeRecord>
+        <Table<ActiveProxyRequest>
           columns={columns}
           dataSource={filteredItems}
           loading={loading}
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
           pagination={{ pageSize: 20, showSizeChanger: true }}
-          rowKey="id"
-          scroll={{ x: 1120 }}
+          rowKey="trace_id"
+          scroll={{ x: 1560 }}
           size="middle"
         />
       </WorkbenchPanel>
-      <ExchangeDrawer
-        text={t.exchanges}
-        loading={detailLoading}
-        record={selected}
-        onClose={() => setSelected(null)}
-      />
     </WorkbenchPage>
   );
 }
 
 function Metric({ label, value }: { label: string; value: number | string }) {
   return (
-    <Col xs={24} sm={12} lg={6}>
+    <Col xs={24} sm={12} lg={8}>
       <WorkbenchPanel>
         <Statistic title={label} value={value} />
       </WorkbenchPanel>

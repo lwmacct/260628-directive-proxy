@@ -7,36 +7,24 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 )
 
 type Handler struct {
-	resolver Resolver
-	proxy    *httputil.ReverseProxy
-	observer Observer
-	next     http.Handler
+	resolver           Resolver
+	proxy              *httputil.ReverseProxy
+	tracker            proxyrequest.Tracker
+	trackBeforeResolve bool
+	next               http.Handler
 }
 
 type HandlerOptions struct {
-	Observer Observer
+	Tracker            proxyrequest.Tracker
+	TrackBeforeResolve bool
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
 }
-
-type Observer interface {
-	Start(*http.Request) Observation
-}
-
-type Observation interface {
-	WrapRequest(*http.Request) *http.Request
-	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
-	SetTargetURL(*url.URL)
-	SetDirective(string, string, string, string, int64)
-	SetOutboundRequest(*http.Request)
-	Finish()
-}
-
-type observationContextKey struct{}
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
 	proxy := &httputil.ReverseProxy{
@@ -48,25 +36,35 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 			if d != nil && d.Proxy != nil {
 				r.Out = withRequestProxy(r.Out, d.Proxy)
 			}
-			if observation, ok := r.In.Context().Value(observationContextKey{}).(Observation); ok {
-				observation.SetOutboundRequest(r.Out)
-			}
 		},
 		ErrorHandler: handleProxyError,
 		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
 		Transport:    transport,
 	}
 	return &Handler{
-		resolver: resolver,
-		proxy:    proxy,
-		observer: opts.Observer,
-		next:     opts.Next,
+		resolver:           resolver,
+		proxy:              proxy,
+		tracker:            opts.Tracker,
+		trackBeforeResolve: opts.TrackBeforeResolve,
+		next:               opts.Next,
 	}
 }
 
 func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 	if isRequestCanceled(r) {
 		slog.Debug("proxy request canceled", "error", err, "path", requestPath(r))
+		return
+	}
+	if errors.Is(err, ErrReplayBodyTooLarge) {
+		WriteProxyErrorJSON(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "proxy: request body exceeds retry replay limit")
+		return
+	}
+	if errors.Is(err, ErrReplayBudgetFull) {
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "retry_capacity_unavailable", "proxy: retry replay capacity is unavailable")
+		return
+	}
+	if errors.Is(err, ErrActiveCapacity) {
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "active_request_capacity_unavailable", "proxy: active request capacity is unavailable")
 		return
 	}
 	slog.Error("proxy error", "error", err, "path", requestPath(r))
@@ -89,6 +87,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	var session proxyrequest.Session
+	if h.trackBeforeResolve && h.tracker != nil {
+		session = h.tracker.Start(r)
+		if session != nil {
+			r = r.WithContext(proxyrequest.ContextWithSession(r.Context(), session))
+			w = session.WrapResponseWriter(w)
+			defer session.Complete()
+		}
+	}
 	resolution, err := h.resolver.Resolve(r)
 	if errors.Is(err, ErrNoMatch) {
 		if h.next != nil {
@@ -98,13 +105,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var observation Observation
-	if h.observer != nil {
-		observation = h.observer.Start(r)
-		if observation != nil {
-			r = observation.WrapRequest(r)
-			w = observation.WrapResponseWriter(w)
-			defer observation.Finish()
+	if session == nil && h.tracker != nil {
+		session = h.tracker.Start(r)
+		if session != nil {
+			r = r.WithContext(proxyrequest.ContextWithSession(r.Context(), session))
+			w = session.WrapResponseWriter(w)
+			defer session.Complete()
 		}
 	}
 
@@ -141,14 +147,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
-	if observation != nil {
-		observation.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
-		observation.SetDirective(resolution.Source.Mode, resolution.Source.Backend, resolution.Source.Endpoint, resolution.Source.Key, resolution.Source.Duration.Milliseconds())
+	if session != nil {
+		session.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
+		session.SetDirective(resolution.Source.Mode, resolution.Source.Backend, resolution.Source.Endpoint, resolution.Source.Key, resolution.Source.Duration)
 	}
 	ctx := ContextWithPlan(r.Context(), d)
-	if observation != nil {
-		ctx = context.WithValue(ctx, observationContextKey{}, observation)
-	}
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 func WriteProxyErrorJSON(w http.ResponseWriter, status int, code, message string) {

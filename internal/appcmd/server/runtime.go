@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
@@ -15,20 +17,21 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/adapter/exchange/capture"
+	fluentcapture "github.com/lwmacct/260628-directive-proxy/internal/adapter/capture/fluent"
+	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	corecapture "github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
-	"github.com/lwmacct/260628-directive-proxy/internal/service"
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	exchanges       *service.ExchangeService
-	observer        proxy.Observer
+	requests        *proxyrequestadapter.ProxyRequestService
+	proxyTransport  http.RoundTripper
+	captureSink     corecapture.Sink
 	controlAuth     *httpauth.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
@@ -58,18 +61,83 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
-	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
+	captureSink, err := newCaptureSink(cfg.Proxy.Capture)
+	if err != nil {
+		if sourceEngine != nil {
+			sourceEngine.Close()
+		}
+		tlsRuntime.Close()
+		return nil, fmt.Errorf("configure capture: %w", err)
+	}
+	instanceID := cfg.Proxy.Capture.InstanceID
+	if instanceID == "" {
+		instanceID, _ = os.Hostname()
+	}
+	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
+		RetryAfter:        cfg.Proxy.Retry.RetryableAfter,
+		MaxAttempts:       cfg.Proxy.Retry.MaxAttempts,
+		MaxActiveRequests: cfg.Proxy.Retry.MaxActiveRequests,
+		InstanceID:        instanceID,
+		BodyChunkBytes:    cfg.Proxy.Capture.BodyChunkBytes,
+		MaxSSEEventBytes:  cfg.Proxy.Capture.MaxSSEEventBytes,
+		RedactHeaders:     cfg.Proxy.Capture.RedactHeaders,
+		RedactQuery:       cfg.Proxy.Capture.RedactQuery,
+	}, captureSink)
+	baseTransport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
+		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
+		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
+		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
+		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
+		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
+	})
+	retryTransport, err := proxy.NewRetryTransport(baseTransport, proxy.RetryTransportOptions{
+		TempDir:          cfg.Proxy.Retry.TempDir,
+		MaxBodyBytes:     cfg.Proxy.Retry.MaxBodyBytes,
+		MaxInflightBytes: cfg.Proxy.Retry.MaxInflightBytes,
+		ChunkBytes:       cfg.Proxy.Capture.BodyChunkBytes,
+	})
+	if err != nil {
+		_ = captureSink.Close()
+		if sourceEngine != nil {
+			sourceEngine.Close()
+		}
+		tlsRuntime.Close()
+		return nil, fmt.Errorf("configure retry transport: %w", err)
+	}
 	remoteConfig := cfg.Proxy.Directive.Remote
 	directiveReader := newDirectiveRemoteReader(remoteConfig)
 	return &runtime{
-		exchanges:       exchanges,
-		observer:        capture.NewObserver(exchanges),
+		requests:        requests,
+		proxyTransport:  retryTransport,
+		captureSink:     captureSink,
 		controlAuth:     controlAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
 		tls:             tlsRuntime,
 		directiveReader: directiveReader,
 	}, nil
+}
+
+func newCaptureSink(cfg config.ProxyCapture) (corecapture.Sink, error) {
+	if !cfg.Enabled {
+		return corecapture.DiscardSink{}, nil
+	}
+	return fluentcapture.New(fluentcapture.Config{
+		Network:               cfg.Fluent.Network,
+		Host:                  cfg.Fluent.Host,
+		Port:                  cfg.Fluent.Port,
+		SocketPath:            cfg.Fluent.SocketPath,
+		Connections:           cfg.Fluent.Connections,
+		Timeout:               cfg.Fluent.Timeout,
+		WriteTimeout:          cfg.Fluent.WriteTimeout,
+		ReadTimeout:           cfg.Fluent.ReadTimeout,
+		RetryWaitMillis:       cfg.Fluent.RetryWaitMillis,
+		MaxRetry:              cfg.Fluent.MaxRetry,
+		MaxRetryWaitMillis:    cfg.Fluent.MaxRetryWaitMillis,
+		TagPrefix:             cfg.Fluent.TagPrefix,
+		RequestAck:            cfg.Fluent.RequestAck,
+		TLSInsecureSkipVerify: cfg.Fluent.TLSInsecureSkipVerify,
+	})
 }
 
 func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
@@ -132,15 +200,7 @@ func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Gua
 	return guard, engine, nil
 }
 
-func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer proxy.Observer) http.Handler {
-	transport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
-		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
-		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
-		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
-		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
-		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
-	})
-
+func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, tracker *proxyrequestadapter.ProxyRequestService, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
 		RemoteReader:   reader,
@@ -148,7 +208,8 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, observer
 		MaxTokenBytes:  cfg.Proxy.Directive.MaxTokenBytes,
 		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
 	}), transport, proxy.HandlerOptions{
-		Observer: observer,
+		Tracker:            tracker,
+		TrackBeforeResolve: true,
 	})
 }
 
@@ -156,6 +217,7 @@ func (rt *runtime) Close(_ context.Context) error {
 	if rt == nil {
 		return nil
 	}
+	var errs []error
 	if rt.sourceEngine != nil {
 		rt.sourceEngine.Close()
 		rt.sourceEngine = nil
@@ -167,11 +229,17 @@ func (rt *runtime) Close(_ context.Context) error {
 	}
 	if rt.directiveReader != nil {
 		if err := rt.directiveReader.Close(); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 		rt.directiveReader = nil
 	}
-	return nil
+	if rt.captureSink != nil {
+		if err := rt.captureSink.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		rt.captureSink = nil
+	}
+	return errors.Join(errs...)
 }
 
 type tlsRuntime struct {

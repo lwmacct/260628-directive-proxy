@@ -9,17 +9,19 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/adapter/exchange/capture"
+	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	corecapture "github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
-	"github.com/lwmacct/260628-directive-proxy/internal/service"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
@@ -97,121 +99,85 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	}
 }
 
-func TestHTTPServerListsProxyExchangesWhenCaptureDisabled(t *testing.T) {
+func TestHTTPServerListsAndRetriesRequestAwaitingUpstreamResponse(t *testing.T) {
 	cfg := config.DefaultConfig()
-	rt := &runtime{exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)}
-	srv := newHTTPServer(&cfg, rt)
-
-	req := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
-	recorder := httptest.NewRecorder()
-	srv.Handler.ServeHTTP(recorder, req)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("unexpected status: %d", recorder.Code)
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
+		RetryAfter:  0,
+		MaxAttempts: 3,
+	}, corecapture.DiscardSink{})
+	base := proxy.NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))
+	retryTransport, err := proxy.NewRetryTransport(base, proxy.RetryTransportOptions{
+		TempDir:          t.TempDir(),
+		MaxBodyBytes:     1024,
+		MaxInflightBytes: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	var body struct {
-		Enabled bool  `json:"enabled"`
-		Items   []any `json:"items"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal body failed: %v", err)
-	}
-	if body.Enabled || len(body.Items) != 0 {
-		t.Fatalf("unexpected response body: %#v", body)
-	}
-}
-
-func TestHTTPServerUpdatesAndClearsProxyExchangeSettings(t *testing.T) {
-	cfg := config.DefaultConfig()
-	rt := &runtime{exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)}
-	srv := newHTTPServer(&cfg, rt)
-
-	updateReq := httptest.NewRequest(
-		http.MethodPut,
-		"http://control.local/api/proxy-exchanges/settings",
-		strings.NewReader(`{"enabled":true,"capacity":3,"max_body_bytes":128}`),
-	)
-	updateReq.Header.Set("Content-Type", "application/json")
-	updateRecorder := httptest.NewRecorder()
-	srv.Handler.ServeHTTP(updateRecorder, updateReq)
-
-	if updateRecorder.Code != http.StatusOK {
-		t.Fatalf("unexpected settings status: %d body=%s", updateRecorder.Code, updateRecorder.Body.String())
-	}
-	var updateBody struct {
-		Enabled      bool  `json:"enabled"`
-		Capacity     int   `json:"capacity"`
-		MaxBodyBytes int64 `json:"max_body_bytes"`
-	}
-	if err := json.Unmarshal(updateRecorder.Body.Bytes(), &updateBody); err != nil {
-		t.Fatalf("unmarshal settings body failed: %v", err)
-	}
-	if !updateBody.Enabled || updateBody.Capacity != 3 || updateBody.MaxBodyBytes != 128 {
-		t.Fatalf("unexpected settings body: %#v", updateBody)
-	}
-
-	rt.exchanges.Configure(true, 0, -1)
-	rt.exchanges.Clear()
-	clearReq := httptest.NewRequest(http.MethodDelete, "http://control.local/api/proxy-exchanges", nil)
-	clearRecorder := httptest.NewRecorder()
-	srv.Handler.ServeHTTP(clearRecorder, clearReq)
-	if clearRecorder.Code != http.StatusOK {
-		t.Fatalf("unexpected clear status: %d body=%s", clearRecorder.Code, clearRecorder.Body.String())
-	}
-}
-
-func TestHTTPServerCapturesProxiedExchangeEndToEnd(t *testing.T) {
-	cfg := config.DefaultConfig()
-	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
-	exchanges.Configure(true, 0, -1)
-	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges)})
+	var calls atomic.Int32
+	firstStarted := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("read upstream body: %v", err)
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil || string(body) != "payload" {
+			t.Errorf("unexpected upstream body: body=%q err=%v", body, readErr)
 		}
-		if string(body) != "hello" {
-			t.Errorf("unexpected upstream body: %q", body)
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			<-r.Context().Done()
+			return
 		}
-		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte("world"))
+		_, _ = io.WriteString(w, "retried")
 	}))
 	defer upstream.Close()
 	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
 	if err != nil {
-		t.Fatalf("encode directive failed: %v", err)
+		t.Fatal(err)
 	}
+	rt := &runtime{requests: tracker, proxyTransport: retryTransport, captureSink: corecapture.DiscardSink{}}
+	handler := newHTTPServer(&cfg, rt).Handler
+	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
+	proxyReq.Header.Set("Authorization", "Bearer "+token)
+	proxyRecorder := httptest.NewRecorder()
+	proxyDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(proxyRecorder, proxyReq)
+		close(proxyDone)
+	}()
 
-	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("hello"))
-	req.RemoteAddr = "127.0.0.1:1234"
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Forwarded", "for=client.example")
-	response := httptest.NewRecorder()
-	newHTTPServer(&cfg, rt).Handler.ServeHTTP(response, req)
-
-	if response.Code != http.StatusCreated || response.Body.String() != "world" {
-		t.Fatalf("unexpected proxy response: status=%d body=%q", response.Code, response.Body.String())
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first upstream attempt did not start")
 	}
-	snapshot := exchanges.Snapshot(0)
-	if len(snapshot.Items) != 1 {
-		t.Fatalf("expected one captured exchange, got %#v", snapshot)
+	listRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-requests/awaiting-response", nil))
+	var listBody struct {
+		Items []struct {
+			TraceID string `json:"trace_id"`
+			Attempt int    `json:"attempt"`
+		} `json:"items"`
 	}
-	record := snapshot.Items[0]
-	if record.RequestBody.Text != "hello" || record.ResponseBody.Text != "world" || record.StatusCode != http.StatusCreated {
-		t.Fatalf("unexpected captured exchange: %#v", record)
+	if listRecorder.Code != http.StatusOK || json.Unmarshal(listRecorder.Body.Bytes(), &listBody) != nil || len(listBody.Items) != 1 {
+		t.Fatalf("unexpected active request list: status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
 	}
-	if record.RequestHeaders["Authorization"][0] != "<redacted>" {
-		t.Fatalf("authorization was not redacted: %#v", record.RequestHeaders)
+	retryReq := httptest.NewRequest(http.MethodPost, "http://control.local/api/proxy-requests/"+listBody.Items[0].TraceID+"/retry", strings.NewReader(`{"expected_attempt":1}`))
+	retryReq.Header.Set("Content-Type", "application/json")
+	retryRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(retryRecorder, retryReq)
+	if retryRecorder.Code != http.StatusAccepted {
+		t.Fatalf("unexpected retry response: status=%d body=%s", retryRecorder.Code, retryRecorder.Body.String())
 	}
-	if _, exists := record.OutboundRequestHeaders["Authorization"]; exists {
-		t.Fatalf("directive authorization was forwarded: %#v", record.OutboundRequestHeaders)
+	select {
+	case <-proxyDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("retried proxy request did not complete")
 	}
-	if record.OutboundRequestHeaders["Forwarded"][0] != "for=client.example" {
-		t.Fatalf("patch did not preserve forwarding header: %#v", record.OutboundRequestHeaders)
+	if proxyRecorder.Code != http.StatusCreated || proxyRecorder.Body.String() != "retried" || calls.Load() != 2 {
+		t.Fatalf("unexpected retried response: status=%d body=%q calls=%d", proxyRecorder.Code, proxyRecorder.Body.String(), calls.Load())
 	}
-	if record.DirectiveMode != "inline" || record.DirectiveBackend != "" || record.DirectiveKey != "" {
-		t.Fatalf("unexpected inline directive metadata: %#v", record)
+	if proxyRecorder.Header().Get("X-Dproxy-Trace-ID") != listBody.Items[0].TraceID {
+		t.Fatalf("trace ID response header mismatch: %#v", proxyRecorder.Header())
 	}
 }
 
@@ -236,9 +202,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode redis token failed: %v", err)
 	}
-	exchanges := service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)
-	exchanges.Configure(true, 0, -1)
-	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{exchanges: exchanges, observer: capture.NewObserver(exchanges), directiveReader: reader})
+	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveReader: reader})
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -248,11 +212,6 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 
 	if recorder.Code != http.StatusNoContent || upstreamSource != "redis" {
 		t.Fatalf("unexpected proxy result: status=%d source=%q body=%s", recorder.Code, upstreamSource, recorder.Body.String())
-	}
-	record := exchanges.Snapshot(1).Items[0]
-	if record.DirectiveMode != "remote" || record.DirectiveBackend != "redis" || record.DirectiveKey != "team-a/service-a" ||
-		record.DirectiveEndpoint != "redis://"+redisServer.Addr()+"/0" {
-		t.Fatalf("unexpected redis directive metadata: %#v", record)
 	}
 }
 
@@ -363,7 +322,7 @@ func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
 
 func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) {
 	cfg := config.DefaultConfig()
-	rt := &runtime{exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes)}
+	rt := &runtime{}
 	srv := newHTTPServer(&cfg, rt)
 
 	healthReq := httptest.NewRequest(http.MethodGet, "http://control.local/health", nil)
@@ -529,10 +488,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)
 	}
-	rt := &runtime{
-		exchanges:   service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes),
-		controlAuth: auth,
-	}
+	rt := &runtime{controlAuth: auth}
 	handler := newHTTPServer(&cfg, rt).Handler
 
 	authSession := httptest.NewRecorder()
@@ -543,7 +499,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	}
 
 	unauthenticated := httptest.NewRecorder()
-	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-exchanges", nil))
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-requests/awaiting-response", nil))
 	if unauthenticated.Code != http.StatusUnauthorized {
 		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
 	}
@@ -556,7 +512,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
 	}
 
-	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-exchanges", nil)
+	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-requests/awaiting-response", nil)
 	protectedRequest.AddCookie(login.Result().Cookies()[0])
 	protected := httptest.NewRecorder()
 	handler.ServeHTTP(protected, protectedRequest)
@@ -564,7 +520,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
 	}
 
-	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-exchanges", nil)
+	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-requests/awaiting-response", nil)
 	bearerRequest.Header.Set("Authorization", "Bearer "+token)
 	bearer := httptest.NewRecorder()
 	handler.ServeHTTP(bearer, bearerRequest)

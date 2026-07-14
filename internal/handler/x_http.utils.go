@@ -1,20 +1,12 @@
 package handler
 
-import "github.com/danielgtaylor/huma/v2"
+import (
+	"time"
 
-func utilOptionalInt(value *int) int {
-	if value == nil {
-		return 0
-	}
-	return *value
-}
+	"github.com/danielgtaylor/huma/v2"
+)
 
-func utilOptionalInt64(value *int64) int64 {
-	if value == nil {
-		return -1
-	}
-	return *value
-}
+func utilNowUTC() time.Time { return time.Now().UTC() }
 
 func utilHTTPConfig() huma.Config {
 	config := huma.DefaultConfig("Directive Proxy", "1.0.0")
