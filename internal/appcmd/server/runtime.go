@@ -8,9 +8,10 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
-	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 
@@ -27,8 +28,7 @@ const httpTLSMinVersion = tls.VersionTLS12
 type runtime struct {
 	exchanges       *service.ExchangeService
 	observer        proxy.Observer
-	oidcAuth        *oidcauth.Auth
-	tokenAuth       *tokenauth.Auth
+	controlAuth     *httpauth.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
 	tls             *tlsRuntime
@@ -49,7 +49,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 			return nil, fmt.Errorf("configure source access: %w", err)
 		}
 	}
-	oidcAuth, tokenAuth, err := newControlAuth(ctx, cfg.Server.HTTP)
+	controlAuth, err := newControlAuth(ctx, cfg.Server.HTTP)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
@@ -63,8 +63,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	return &runtime{
 		exchanges:       exchanges,
 		observer:        capture.NewObserver(exchanges),
-		oidcAuth:        oidcAuth,
-		tokenAuth:       tokenAuth,
+		controlAuth:     controlAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
 		tls:             tlsRuntime,
@@ -72,26 +71,29 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	}, nil
 }
 
-func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*oidcauth.Auth, *tokenauth.Auth, error) {
-	var oidcAuth *oidcauth.Auth
-	var tokenAuth *tokenauth.Auth
-	var err error
+func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
+	methods := make([]httpauth.Method, 0, len(cfg.Auth.Methods))
+	var authorizers []httpauth.Authorizer
 	if cfg.Auth.HasMethod(config.AuthMethodOIDC) {
-		oidcAuth, err = dexgithub.New(ctx, cfg.Auth.OIDC, dexgithub.Options{})
+		oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig(), oidc.Options{})
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
+		methods = append(methods, oidcMethod)
+		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.OIDC.AllowedUsers)
+		if err != nil {
+			return nil, err
+		}
+		authorizers = append(authorizers, authorizer)
 	}
 	if cfg.Auth.HasMethod(config.AuthMethodToken) {
-		tokenAuth, err = tokenauth.New(cfg.Auth.Token, tokenauth.Options{Secure: cfg.TLS.Enabled})
+		tokenMethod, err := statictoken.New(cfg.Auth.Token)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
+		methods = append(methods, tokenMethod)
 	}
-	if oidcAuth == nil && tokenAuth == nil {
-		return nil, nil, config.ErrInvalidAuth
-	}
-	return oidcAuth, tokenAuth, nil
+	return httpauth.New(httpauth.Config{ExternalURLs: cfg.Auth.ExternalURLs, Session: cfg.Auth.Session}, methods, httpauth.Options{Authorizer: httpauth.AuthorizeAll(authorizers...)})
 }
 
 func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {

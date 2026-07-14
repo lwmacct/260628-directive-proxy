@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc/dexgithub"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 )
@@ -24,6 +26,12 @@ func Validate(cfg Config) (Config, error) {
 	if len(cfg.Server.HTTP.Auth.Methods) == 0 {
 		return cfg, ErrInvalidAuth
 	}
+	validatedCore, err := (httpauth.Config{ExternalURLs: cfg.Server.HTTP.Auth.ExternalURLs, Session: cfg.Server.HTTP.Auth.Session}).Validate()
+	if err != nil {
+		return cfg, ErrInvalidAuth
+	}
+	cfg.Server.HTTP.Auth.ExternalURLs = validatedCore.ExternalURLs
+	cfg.Server.HTTP.Auth.Session = validatedCore.Session
 	seenAuthMethods := make(map[AuthMethod]struct{}, len(cfg.Server.HTTP.Auth.Methods))
 	for _, method := range cfg.Server.HTTP.Auth.Methods {
 		if _, exists := seenAuthMethods[method]; exists {
@@ -32,11 +40,22 @@ func Validate(cfg Config) (Config, error) {
 		seenAuthMethods[method] = struct{}{}
 		switch method {
 		case AuthMethodOIDC:
-			validatedAuth, err := cfg.Server.HTTP.Auth.OIDC.Validate()
+			validatedAuth, err := cfg.Server.HTTP.Auth.OIDC.MethodConfig().Validate()
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
-			cfg.Server.HTTP.Auth.OIDC = validatedAuth
+			cfg.Server.HTTP.Auth.OIDC.Issuer = validatedAuth.Issuer
+			cfg.Server.HTTP.Auth.OIDC.ClientID = validatedAuth.ClientID
+			cfg.Server.HTTP.Auth.OIDC.ClientSecret = validatedAuth.ClientSecret
+			cfg.Server.HTTP.Auth.OIDC.SessionTTL = validatedAuth.SessionTTL
+			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Server.HTTP.Auth.OIDC.AllowedUsers)
+			if err != nil {
+				return cfg, ErrInvalidAuth
+			}
+			_ = authorizer
+			for index, username := range cfg.Server.HTTP.Auth.OIDC.AllowedUsers {
+				cfg.Server.HTTP.Auth.OIDC.AllowedUsers[index] = strings.ToLower(strings.TrimSpace(username))
+			}
 		case AuthMethodToken:
 			validatedAuth, err := cfg.Server.HTTP.Auth.Token.Validate()
 			if err != nil {

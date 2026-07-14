@@ -22,28 +22,39 @@ server:
       methods:
         - token
 
+      # 允许浏览器访问应用的可信 origin
+      external-urls:
+        - http://localhost:23199
+
+      # 统一浏览器 Session 配置
+      session:
+
+        # Session encryption key ring; first key writes, all keys read
+        keys:
+          - id: "default" # Session key ID
+            secret: "${AUTH_SESSION_KEY}" # Base64url-encoded 32-byte AES key
+        ttl: 24h0m0s # Maximum browser session lifetime
+        cookie-name: "" # Optional browser session cookie name
+
       # OIDC 认证配置
       oidc:
         issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
         client-id: "dproxy" # Dex OIDC client ID
         client-secret: "" # Dex confidential client secret；public client 留空
 
-        # 允许浏览器访问应用的可信 origin
-        external-urls:
-          - http://localhost:23199
-
         # 允许访问应用的 GitHub 用户名
         allowed-users:
           - lwmacct
-        session-ttl: 24h0m0s # 身份 Cookie 最长有效时间
+        session-ttl: 24h0m0s # OIDC 身份 Session 最长有效时间
 
       # Token 认证配置
       token:
 
-        # 允许登录 Control API 的访问令牌；建议使用至少 32 字节的随机值
-        tokens:
-          - ${API_ACCESS_TOKEN}
-        secure-cookie: false # 是否仅通过 HTTPS 发送身份 Cookie；TLS 在反向代理终止时应启用
+        # Named static access tokens
+        credentials:
+          - id: "admin" # Stable credential ID
+            name: "Administrator" # Display name
+            secret: "${API_ACCESS_TOKEN}" # Access token secret
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间

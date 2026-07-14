@@ -24,12 +24,6 @@ export default defineConfig({
     port: 23199,
     strictPort: true,
     proxy: {
-      "/oidcauth": {
-        target: "http://localhost:23198",
-      },
-      "/tokenauth": {
-        target: "http://localhost:23198",
-      },
       "/auth": {
         target: "http://localhost:23198",
       },

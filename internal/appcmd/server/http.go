@@ -1,15 +1,11 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 	"time"
-
-	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth"
-	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
@@ -67,58 +63,16 @@ func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	mux := http.NewServeMux()
 	api := handler.NewEndpoint(handler.Services{Exchanges: rt.exchanges}).Handler()
 	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
-	protectedAPI = requireControlAccess(protectedAPI, rt.oidcAuth, rt.tokenAuth)
-	if rt.oidcAuth != nil {
-		mux.Handle("/oidcauth/", noStore(rt.oidcAuth.Handler()))
+	if rt.controlAuth != nil {
+		protectedAPI = rt.controlAuth.RequireAccess(protectedAPI)
+		mux.Handle("/auth/", rt.controlAuth.Handler())
 	}
-	if rt.tokenAuth != nil {
-		mux.Handle("/tokenauth/", noStore(rt.tokenAuth.Handler()))
-	}
-	mux.HandleFunc("GET /auth/config", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(struct {
-			Methods []config.AuthMethod `json:"methods"`
-		}{Methods: cfg.Server.HTTP.Auth.Methods})
-	})
 	mux.Handle(httpAPIPrefix+"/", protectedAPI)
 	mux.Handle("/health", api)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
 		mux.Handle("/", spaFileServer(webRoot))
 	}
 	return mux
-}
-
-func requireControlAccess(next http.Handler, oidcAuth *oidcauth.Auth, tokenAuth *tokenauth.Auth) http.Handler {
-	if oidcAuth == nil && tokenAuth == nil {
-		return next
-	}
-	if oidcAuth == nil {
-		return tokenAuth.RequireAccess(next)
-	}
-	if tokenAuth == nil {
-		return oidcAuth.RequireAccess(next)
-	}
-	oidcProtected := oidcAuth.RequireAccess(next)
-	tokenProtected := tokenAuth.RequireAccess(next)
-	return preferTokenAccess(tokenProtected, oidcProtected, func(r *http.Request) bool {
-		_, err := tokenAuth.Authenticate(r)
-		return err == nil
-	})
-}
-
-func preferTokenAccess(tokenProtected, fallback http.Handler, tokenAuthenticated func(*http.Request) bool) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
-			tokenProtected.ServeHTTP(w, r)
-			return
-		}
-		if tokenAuthenticated(r) {
-			tokenProtected.ServeHTTP(w, r)
-			return
-		}
-		fallback.ServeHTTP(w, r)
-	})
 }
 
 func noStore(next http.Handler) http.Handler {

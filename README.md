@@ -19,7 +19,24 @@ Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*`
 
 `server.http.auth.methods` 可包含 `oidc`、`token` 或同时包含两者，默认只启用 `token`。只有启用的认证配置会在启动时校验和初始化。
 
-同时启用时，浏览器登录页以 Access token 表单为主体，并提供可选的 GitHub 登录按钮。Control API 接受任一方式：有 Bearer 头或有效 Token Cookie 时使用 tokenauth，否则使用 OIDC；无效 Bearer 不会降级为 OIDC Cookie。
+同时启用时，浏览器登录页以 Access token 表单为主体，并提供可选的 GitHub 登录按钮。两种方式签发同一个加密浏览器 Session；显式 Bearer 无效时不会降级使用 Session Cookie。
+
+所有模式共用可信 origin 和 Session key ring：
+
+```yaml
+server:
+  http:
+    auth:
+      external-urls:
+        - https://proxy.example.com
+      session:
+        keys:
+          - id: primary
+            secret: "${AUTH_SESSION_KEY}"
+        ttl: 24h
+```
+
+`AUTH_SESSION_KEY` 必须是 base64url 编码的 32 字节随机值，可用 `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` 生成。第一把 key 用于写入，所有 key 均可解密，便于轮换。
 
 ### OIDC 模式
 
@@ -29,13 +46,13 @@ Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*`
 server:
   http:
     auth:
-      methods:
-        - oidc
+	  methods:
+		- oidc
+	  external-urls:
+		- http://localhost:23199
       oidc:
         issuer: https://2008.s.lwmacct.com:20088
         client-id: dproxy
-        external-urls:
-          - http://localhost:23199
         allowed-users:
           - lwmacct
         session-ttl: 24h
@@ -43,9 +60,9 @@ server:
 
 `allowed-users` 对 Dex `preferred_username` 中的 GitHub 用户名执行忽略大小写的精确匹配。服务仍验证 `federated_claims.connector_id == github` 并保留 GitHub 数字用户 ID，用于身份响应、头像和审计日志；数字 ID 不参与本地授权配置。
 
-登录成功后，`oidcauth` 包将 Dex ID Token 保存为 HttpOnly Cookie。每次 API 请求都会重新验证 issuer、audience、签名、有效期、GitHub connector 和本地管理员配置；服务不保存 GitHub access token，也不维护本地 Session 数据库。
+登录回调验证 issuer、audience、签名、有效期、nonce、PKCE 和 GitHub connector 后签发本地 AES-256-GCM Session；Cookie 不保存 Dex ID Token 或 GitHub access token。本地管理员策略在每次请求时重新执行。
 
-生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定由每个 origin 派生为 `<external-url>/oidcauth/callback`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。默认值指向本地 Vite 的 `http://localhost:23199`；运行打包后的单端口服务时将它改为 `http://localhost:23198`。
+生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定为 `<external-url>/auth/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
 
 ### Access token 模式
 
@@ -59,6 +76,7 @@ openssl rand -base64 32
 
 ```shell
 export API_ACCESS_TOKEN="$(openssl rand -base64 32)"
+export AUTH_SESSION_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
 ```
 
 默认配置会读取该环境变量；未设置或值为空时，服务会拒绝启动。显式配置方式如下：
@@ -69,13 +87,14 @@ server:
     auth:
       methods:
         - token
-      token:
-        tokens:
-          - "${API_ACCESS_TOKEN}"
-        secure-cookie: true
+	  token:
+		credentials:
+		  - id: admin
+			name: Administrator
+			secret: "${API_ACCESS_TOKEN}"
 ```
 
-浏览器在登录页输入 token 后，`tokenauth` 包将其保存为 HttpOnly、SameSite=Strict 的浏览器会话 Cookie。服务在每次请求时重新比对当前配置；从 `tokens` 删除凭据会立即撤销对应登录，不需要 Session 数据库。HTTPS 由本服务终止时会自动启用 Secure Cookie；HTTPS 在反向代理终止时必须显式设置 `secure-cookie: true`。
+浏览器输入 token 后，服务只把 credential ID 和 secret revision 写入统一加密 Session，不保存原始 token。删除 credential 或轮换 secret 会立即撤销对应登录，不需要 Session 数据库。
 
 自动化客户端无需调用登录端点，可直接访问 Control API：
 
@@ -83,7 +102,7 @@ server:
 Authorization: Bearer <access-token>
 ```
 
-配置支持多个 token，便于无中断轮换。token 长度限制为 32-3800 字节，且只能使用适合 HTTP Bearer 与 Cookie 的可见 ASCII 字符；重复、空白、过短或包含不安全字符的 token 会导致服务拒绝启动。
+配置支持多个具名 credential，便于审计和轮换。ID 必须唯一，secret 至少 16 字节。
 
 同时提供两种登录方式时配置：
 
@@ -91,21 +110,22 @@ Authorization: Bearer <access-token>
 server:
   http:
     auth:
-      methods:
-        - oidc
-        - token
+	  methods:
+		- oidc
+		- token
+	  external-urls:
+		- https://proxy.example.com
       oidc:
         issuer: https://auth.example.com
         client-id: dproxy
-        external-urls:
-          - https://proxy.example.com
         allowed-users:
           - octocat
         session-ttl: 24h
-      token:
-        tokens:
-          - "${API_ACCESS_TOKEN}"
-        secure-cookie: true
+	  token:
+		credentials:
+		  - id: admin
+			name: Administrator
+			secret: "${API_ACCESS_TOKEN}"
 ```
 
 ## Directive 来源白名单
@@ -282,14 +302,11 @@ go run . server
 
 ```text
 HTTP (:23198)
-  GET /auth/config
-  GET /oidcauth/login
-  GET /oidcauth/callback
-  GET /oidcauth/session
-  POST /oidcauth/logout
-  POST /tokenauth/login
-  GET /tokenauth/session
-  POST /tokenauth/logout
+	GET /auth/session
+	DELETE /auth/session
+	POST /auth/login/token
+	GET /auth/login/github
+	GET /auth/callback/github
   GET /api/health
   GET /api/openapi.json
   GET /api/docs

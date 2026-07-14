@@ -6,11 +6,11 @@ import {
 import { GithubOutlined, KeyOutlined } from "@ant-design/icons";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useText } from "../shared/i18n";
-import { authEndpoint, loadSession, type AuthIdentity, type AuthMethod, type SessionState } from "./session";
+import { loadSession, type AuthIdentity, type AuthMethod, type AuthMethodID, type SessionState } from "./session";
 
 type AuthState =
   | SessionState
-  | { status: "signing-in"; method: AuthMethod; methods: AuthMethod[] }
+  | { status: "signing-in"; method: AuthMethodID; methods: AuthMethod[] }
   | { status: "invalid-token"; methods: AuthMethod[] };
 
 type AuthContextValue = {
@@ -53,8 +53,8 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
     if (!methods) return;
     setLogoutLoading(true);
     try {
-      const responses = await Promise.all(methods.map((method) => fetch(authEndpoint(method, "logout"), { method: "POST" })));
-      setState(responses.every((response) => response.ok)
+      const response = await fetch("/auth/session", { method: "DELETE" });
+      setState(response.ok
         ? { status: "signed-out", methods }
         : { status: "unavailable", methods });
     } catch {
@@ -65,17 +65,17 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
   }, [state]);
 
   const oidcLogin = useCallback((methods: AuthMethod[]) => {
-    setState({ status: "signing-in", method: "oidc", methods });
+    setState({ status: "signing-in", method: "github", methods });
     const returnTo = window.location.pathname + window.location.search + window.location.hash;
     window.requestAnimationFrame(() => {
-      window.location.assign(`${authEndpoint("oidc", "login")}?return_to=${encodeURIComponent(returnTo)}`);
+      window.location.assign(`/auth/login/github?return_to=${encodeURIComponent(returnTo)}`);
     });
   }, []);
 
   const tokenLogin = useCallback(async (token: string, methods: AuthMethod[]) => {
     setState({ status: "signing-in", method: "token", methods });
     try {
-      const response = await fetch(authEndpoint("token", "login"), {
+      const response = await fetch("/auth/login/token", {
         body: JSON.stringify({ token }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -116,8 +116,8 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
 
   if (!value) {
     const methods = "methods" in state ? state.methods : undefined;
-    const tokenEnabled = methods?.includes("token") ?? false;
-    const oidcEnabled = methods?.includes("oidc") ?? false;
+    const tokenEnabled = methods?.some((method) => method.id === "token") ?? false;
+    const oidcEnabled = methods?.some((method) => method.id === "github") ?? false;
     if (methods && tokenEnabled) {
       return (
         <WorkbenchTokenSignInPage
@@ -125,7 +125,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
           error={state.status === "unavailable" ? t.auth.unavailable : state.status === "invalid-token" ? t.auth.invalidToken : undefined}
           loading={state.status === "signing-in" && state.method === "token"}
           oauth={oidcEnabled ? {
-            pendingProvider: state.status === "signing-in" && state.method === "oidc" ? "github" : undefined,
+            pendingProvider: state.status === "signing-in" && state.method === "github" ? "github" : undefined,
             providers: [{ label: "GitHub", provider: "github" }],
             onSelectProvider: () => oidcLogin(methods),
           } : undefined}
@@ -140,7 +140,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
         brand={{ description: t.auth.signInDescription, mark: "D", name: "Directive Proxy" }}
         hint={state.status === "signed-out" ? t.auth.authorizedOnly : undefined}
         error={state.status === "unavailable" ? t.auth.unavailable : undefined}
-        pendingProvider={state.status === "signing-in" && state.method === "oidc" ? "github" : undefined}
+        pendingProvider={state.status === "signing-in" && state.method === "github" ? "github" : undefined}
         providers={[{ disabled: !oidcEnabled, label: "GitHub", provider: "github" }]}
         retry={state.status === "unavailable"}
         onRetry={state.status === "unavailable" ? retrySession : undefined}

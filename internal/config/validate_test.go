@@ -1,20 +1,22 @@
 package config
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 
-	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 )
 
 func validDefaultConfig() Config {
 	cfg := DefaultConfig()
-	cfg.Server.HTTP.Auth.Token.Tokens = []string{strings.Repeat("a", 32)}
+	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
+	cfg.Server.HTTP.Auth.Token.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Secret: strings.Repeat("a", 32)}}
 	return cfg
 }
 
 func oidcConfig() Config {
-	cfg := DefaultConfig()
+	cfg := validDefaultConfig()
 	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC}
 	return cfg
 }
@@ -47,19 +49,14 @@ func TestValidateRejectsInvalidHTTPHeaderLimit(t *testing.T) {
 func TestValidateRejectsInvalidAuth(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*dexgithub.Config)
+		mutate func(*OIDCAuth)
 	}{
-		{name: "http issuer", mutate: func(cfg *dexgithub.Config) { cfg.Issuer = "http://auth.example.com" }},
-		{name: "missing client", mutate: func(cfg *dexgithub.Config) { cfg.ClientID = "" }},
-		{name: "remote http external URL", mutate: func(cfg *dexgithub.Config) { cfg.ExternalURLs = []string{"http://tool.example.com"} }},
-		{name: "external URL path", mutate: func(cfg *dexgithub.Config) { cfg.ExternalURLs = []string{"https://tool.example.com/app"} }},
-		{name: "duplicate external URL host", mutate: func(cfg *dexgithub.Config) {
-			cfg.ExternalURLs = []string{"https://tool.example.com", "https://tool.example.com/"}
-		}},
-		{name: "missing users", mutate: func(cfg *dexgithub.Config) { cfg.AllowedUsers = nil }},
-		{name: "empty user", mutate: func(cfg *dexgithub.Config) { cfg.AllowedUsers = []string{" "} }},
-		{name: "duplicate users", mutate: func(cfg *dexgithub.Config) { cfg.AllowedUsers = []string{"lwmacct", " LwMacct "} }},
-		{name: "invalid session TTL", mutate: func(cfg *dexgithub.Config) { cfg.SessionTTL = 0 }},
+		{name: "http issuer", mutate: func(cfg *OIDCAuth) { cfg.Issuer = "http://auth.example.com" }},
+		{name: "missing client", mutate: func(cfg *OIDCAuth) { cfg.ClientID = "" }},
+		{name: "missing users", mutate: func(cfg *OIDCAuth) { cfg.AllowedUsers = nil }},
+		{name: "empty user", mutate: func(cfg *OIDCAuth) { cfg.AllowedUsers = []string{" "} }},
+		{name: "duplicate users", mutate: func(cfg *OIDCAuth) { cfg.AllowedUsers = []string{"lwmacct", " LwMacct "} }},
+		{name: "invalid session TTL", mutate: func(cfg *OIDCAuth) { cfg.SessionTTL = 0 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -92,14 +89,14 @@ func TestValidateNormalizesAuth(t *testing.T) {
 func TestValidateTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodToken}
-	cfg.Server.HTTP.Auth.Token.Tokens = []string{"  " + strings.Repeat("a", 32) + "  "}
-	cfg.Server.HTTP.Auth.OIDC = dexgithub.Config{}
+	cfg.Server.HTTP.Auth.Token.Credentials[0].Secret = "  " + strings.Repeat("a", 32) + "  "
+	cfg.Server.HTTP.Auth.OIDC = OIDCAuth{}
 
 	validated, err := Validate(cfg)
 	if err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	if validated.Server.HTTP.Auth.Token.Tokens[0] != strings.Repeat("a", 32) {
+	if validated.Server.HTTP.Auth.Token.Credentials[0].Secret != strings.Repeat("a", 32) {
 		t.Fatalf("unexpected normalized token")
 	}
 }
@@ -107,7 +104,7 @@ func TestValidateTokenAuth(t *testing.T) {
 func TestValidateOIDCAndTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC, AuthMethodToken}
-	cfg.Server.HTTP.Auth.Token.Tokens = []string{strings.Repeat("a", 32)}
+	cfg.Server.HTTP.Auth.Token.Credentials[0].Secret = strings.Repeat("a", 32)
 
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate combined auth config: %v", err)
@@ -121,7 +118,7 @@ func TestValidateRejectsInvalidAuthMethodsAndActiveTokenConfig(t *testing.T) {
 		func(cfg *Auth) { cfg.Methods = []AuthMethod{AuthMethodOIDC, AuthMethodOIDC} },
 		func(cfg *Auth) {
 			cfg.Methods = []AuthMethod{AuthMethodToken}
-			cfg.Token.Tokens = nil
+			cfg.Token.Credentials = nil
 		},
 	} {
 		cfg := validDefaultConfig()

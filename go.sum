@@ -39,10 +39,8 @@ github.com/lwmacct/260614-go-pkg-tlsreload v0.13.260630 h1:N8kOOwhNRZ1S4ukgeE7Qq
 github.com/lwmacct/260614-go-pkg-tlsreload v0.13.260630/go.mod h1:2W0xK40pSXql00+H/mt0DBQyoFRUyLtjBxh/s14OY9E=
 github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626 h1:gHyEFXJ6rPEljJSt7Gv++18aORbQ0P0+Oqbe2EJvt1M=
 github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626/go.mod h1:vcBuL7xMgFha98wyMcmTck3z6IADiP7pspe4PRUq0Cg=
-github.com/lwmacct/260711-go-pkg-oidcauth v0.6.260712 h1:RZKzIK9pWo9Its9j7xR+jhVfqpwplxaAx80qK9dFq60=
-github.com/lwmacct/260711-go-pkg-oidcauth v0.6.260712/go.mod h1:Y8rqThIWEjAHShQjKfTmdq6/EFy/7A3z364Xtvl/mS8=
-github.com/lwmacct/260711-go-pkg-tokenauth v0.2.260713 h1:0FvqrWvc8+1mDSxcaHZOEvtdnCLj4OaEtHRU5nxPKW4=
-github.com/lwmacct/260711-go-pkg-tokenauth v0.2.260713/go.mod h1:Mz75vjcgUZ4xf5S1YKlPMykbr8Wq5/YIth760HIWw4M=
+github.com/lwmacct/260711-go-pkg-httpauth v0.4.260714 h1:i1pdZR3CO+mzv6O7dkpbJYLSwFfzem3ugpe3dHJqPag=
+github.com/lwmacct/260711-go-pkg-httpauth v0.4.260714/go.mod h1:E0bTIFJRFJRmmhA1s0AhmqXZMwCMUxiAhfaHdOqNvvA=
 github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713 h1:C3eRbK0JFIa9qcZUupaczKHFnyJfyGLxOM99sAcMqI4=
 github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713/go.mod h1:nHau3a0kI/Bu2f2Jxt9EMBP0p6UWmS5U10HxqwHPi9g=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

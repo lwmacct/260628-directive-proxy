@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
-	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/exchange/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -504,43 +505,10 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/oidcauth/session", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/auth/session", nil))
 
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("unexpected Cache-Control: %q", got)
-	}
-}
-
-func TestPreferTokenAccessSelectsTokenWithoutDowngradingAuthorization(t *testing.T) {
-	const (
-		tokenStatus    = 298
-		fallbackStatus = 299
-	)
-	handler := preferTokenAccess(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tokenStatus) }),
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(fallbackStatus) }),
-		func(r *http.Request) bool { return r.Header.Get("X-Token-Session") == "valid" },
-	)
-	for _, test := range []struct {
-		name       string
-		headers    map[string]string
-		wantStatus int
-	}{
-		{name: "fallback", wantStatus: fallbackStatus},
-		{name: "token cookie", headers: map[string]string{"X-Token-Session": "valid"}, wantStatus: tokenStatus},
-		{name: "authorization cannot downgrade", headers: map[string]string{"Authorization": "Bearer invalid"}, wantStatus: tokenStatus},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, "http://control.local/api/settings", nil)
-			for name, value := range test.headers {
-				request.Header.Set(name, value)
-			}
-			recorder := httptest.NewRecorder()
-			handler.ServeHTTP(recorder, request)
-			if recorder.Code != test.wantStatus {
-				t.Fatalf("unexpected status: got %d, want %d", recorder.Code, test.wantStatus)
-			}
-		})
 	}
 }
 
@@ -548,39 +516,41 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	const token = "0123456789abcdef0123456789abcdef"
 	cfg := config.DefaultConfig()
 	cfg.Server.HTTP.Auth.Methods = []config.AuthMethod{config.AuthMethodToken}
-	cfg.Server.HTTP.Auth.Token.Tokens = []string{token}
-	auth, err := tokenauth.New(cfg.Server.HTTP.Auth.Token, tokenauth.Options{})
+	cfg.Server.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
+	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
+	cfg.Server.HTTP.Auth.Token.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Secret: token}}
+	auth, err := newControlAuth(t.Context(), cfg.Server.HTTP)
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)
 	}
 	rt := &runtime{
-		exchanges: service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes),
-		tokenAuth: auth,
+		exchanges:   service.NewExchangeService(exchange.DefaultCapacity, exchange.DefaultMaxBodyBytes),
+		controlAuth: auth,
 	}
 	handler := newHTTPServer(&cfg, rt).Handler
 
-	authConfig := httptest.NewRecorder()
-	handler.ServeHTTP(authConfig, httptest.NewRequest(http.MethodGet, "http://control.local/auth/config", nil))
-	if authConfig.Code != http.StatusOK || authConfig.Header().Get("Cache-Control") != "no-store" ||
-		!strings.Contains(authConfig.Body.String(), `"methods":["token"]`) {
-		t.Fatalf("unexpected auth config: status=%d body=%s", authConfig.Code, authConfig.Body.String())
+	authSession := httptest.NewRecorder()
+	handler.ServeHTTP(authSession, httptest.NewRequest(http.MethodGet, "http://localhost/auth/session", nil))
+	if authSession.Code != http.StatusOK || authSession.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(authSession.Body.String(), `"id":"token"`) || !strings.Contains(authSession.Body.String(), `"status":"signed-out"`) {
+		t.Fatalf("unexpected auth session: status=%d body=%s", authSession.Code, authSession.Body.String())
 	}
 
 	unauthenticated := httptest.NewRecorder()
-	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil))
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-exchanges", nil))
 	if unauthenticated.Code != http.StatusUnauthorized {
 		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
 	}
 
-	loginRequest := httptest.NewRequest(http.MethodPost, "http://control.local/tokenauth/login", strings.NewReader(`{"token":"`+token+`"}`))
-	loginRequest.Header.Set("Origin", "http://control.local")
+	loginRequest := httptest.NewRequest(http.MethodPost, "http://localhost/auth/login/token", strings.NewReader(`{"token":"`+token+`"}`))
+	loginRequest.Header.Set("Origin", "http://localhost")
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, loginRequest)
 	if login.Code != http.StatusNoContent || login.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
 	}
 
-	protectedRequest := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
+	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-exchanges", nil)
 	protectedRequest.AddCookie(login.Result().Cookies()[0])
 	protected := httptest.NewRecorder()
 	handler.ServeHTTP(protected, protectedRequest)
@@ -588,7 +558,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
 	}
 
-	bearerRequest := httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-exchanges", nil)
+	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-exchanges", nil)
 	bearerRequest.Header.Set("Authorization", "Bearer "+token)
 	bearer := httptest.NewRecorder()
 	handler.ServeHTTP(bearer, bearerRequest)

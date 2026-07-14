@@ -2,7 +2,9 @@ package config
 
 import (
 	"context"
+	"encoding/base64"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
@@ -23,14 +25,15 @@ func TestDefaultAuthUsesAPIAccessToken(t *testing.T) {
 	if !slices.Equal(cfg.Server.HTTP.Auth.Methods, []AuthMethod{AuthMethodToken}) {
 		t.Fatalf("unexpected default auth methods: %v", cfg.Server.HTTP.Auth.Methods)
 	}
-	if !slices.Equal(cfg.Server.HTTP.Auth.Token.Tokens, []string{"${API_ACCESS_TOKEN}"}) {
-		t.Fatalf("unexpected default token auth config: %v", cfg.Server.HTTP.Auth.Token.Tokens)
+	if len(cfg.Server.HTTP.Auth.Token.Credentials) != 1 || cfg.Server.HTTP.Auth.Token.Credentials[0].Secret != "${API_ACCESS_TOKEN}" {
+		t.Fatalf("unexpected default token auth config: %v", cfg.Server.HTTP.Auth.Token.Credentials)
 	}
 }
 
 func TestDefaultAuthExpandsAPIAccessToken(t *testing.T) {
 	const token = "0123456789abcdef0123456789abcdef"
 	t.Setenv("API_ACCESS_TOKEN", token)
+	t.Setenv("AUTH_SESSION_KEY", base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32))))
 
 	cfg, err := cfgm.Load(context.Background(), DefaultConfig(), cfgm.NoDefaultPaths())
 	if err != nil {
@@ -40,13 +43,14 @@ func TestDefaultAuthExpandsAPIAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate loaded default config: %v", err)
 	}
-	if !slices.Equal(validated.Server.HTTP.Auth.Token.Tokens, []string{token}) {
-		t.Fatalf("unexpected expanded tokens: %v", validated.Server.HTTP.Auth.Token.Tokens)
+	if validated.Server.HTTP.Auth.Token.Credentials[0].Secret != token {
+		t.Fatalf("unexpected expanded token: %v", validated.Server.HTTP.Auth.Token.Credentials)
 	}
 }
 
 func TestDefaultAuthRequiresAPIAccessToken(t *testing.T) {
 	t.Setenv("API_ACCESS_TOKEN", "")
+	t.Setenv("AUTH_SESSION_KEY", base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32))))
 
 	cfg, err := cfgm.Load(context.Background(), DefaultConfig(), cfgm.NoDefaultPaths())
 	if err != nil {
@@ -54,6 +58,19 @@ func TestDefaultAuthRequiresAPIAccessToken(t *testing.T) {
 	}
 	if _, err := Validate(*cfg); err != ErrInvalidAuth {
 		t.Fatalf("expected missing API_ACCESS_TOKEN to fail auth validation, got %v", err)
+	}
+}
+
+func TestDefaultAuthRequiresSessionKey(t *testing.T) {
+	t.Setenv("API_ACCESS_TOKEN", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AUTH_SESSION_KEY", "")
+
+	cfg, err := cfgm.Load(context.Background(), DefaultConfig(), cfgm.NoDefaultPaths())
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	if _, err := Validate(*cfg); err != ErrInvalidAuth {
+		t.Fatalf("expected missing AUTH_SESSION_KEY to fail auth validation, got %v", err)
 	}
 }
 

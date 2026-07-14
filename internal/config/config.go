@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-oidcauth/pkg/oidcauth/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-tokenauth/pkg/tokenauth"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
@@ -47,9 +48,23 @@ type ServerHTTP struct {
 }
 
 type Auth struct {
-	Methods []AuthMethod     `json:"methods" desc:"认证方式，可选 oidc、token 或同时启用"`
-	OIDC    dexgithub.Config `json:"oidc"    desc:"OIDC 认证配置"`
-	Token   tokenauth.Config `json:"token"   desc:"Token 认证配置"`
+	Methods      []AuthMethod           `json:"methods"       desc:"认证方式，可选 oidc、token 或同时启用"`
+	ExternalURLs []string               `json:"external-urls" desc:"允许浏览器访问应用的可信 origin"`
+	Session      httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
+	OIDC         OIDCAuth               `json:"oidc"          desc:"OIDC 认证配置"`
+	Token        statictoken.Config     `json:"token"         desc:"Token 认证配置"`
+}
+
+type OIDCAuth struct {
+	Issuer       string        `json:"issuer"        desc:"Dex issuer URL"`
+	ClientID     string        `json:"client-id"     desc:"Dex OIDC client ID"`
+	ClientSecret string        `json:"client-secret" desc:"Dex confidential client secret；public client 留空"`
+	AllowedUsers []string      `json:"allowed-users" desc:"允许访问应用的 GitHub 用户名"`
+	SessionTTL   time.Duration `json:"session-ttl"   desc:"OIDC 身份 Session 最长有效时间"`
+}
+
+func (c OIDCAuth) MethodConfig() oidc.Config {
+	return oidc.Config{ID: "github", Label: "GitHub", Issuer: c.Issuer, ClientID: c.ClientID, ClientSecret: c.ClientSecret, SessionTTL: c.SessionTTL}
 }
 
 type Proxy struct {
@@ -104,16 +119,20 @@ func DefaultConfig() Config {
 			HTTP: ServerHTTP{
 				Listen: ":23198",
 				Auth: Auth{
-					Methods: []AuthMethod{AuthMethodToken},
-					OIDC: dexgithub.Config{
+					Methods:      []AuthMethod{AuthMethodToken},
+					ExternalURLs: []string{"http://localhost:23199"},
+					Session: httpauth.SessionConfig{
+						Keys: []httpauth.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
+						TTL:  24 * time.Hour,
+					},
+					OIDC: OIDCAuth{
 						Issuer:       "https://2008.s.lwmacct.com:20088",
 						ClientID:     "dproxy",
-						ExternalURLs: []string{"http://localhost:23199"},
 						AllowedUsers: []string{"lwmacct"},
 						SessionTTL:   24 * time.Hour,
 					},
-					Token: tokenauth.Config{
-						Tokens: []string{"${API_ACCESS_TOKEN}"},
+					Token: statictoken.Config{
+						Credentials: []statictoken.Credential{{ID: "admin", Name: "Administrator", Secret: "${API_ACCESS_TOKEN}"}},
 					},
 				},
 				ReadTimeout:     30 * time.Second,
