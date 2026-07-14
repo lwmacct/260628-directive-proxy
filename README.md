@@ -2,9 +2,9 @@
 
 `260628-directive-proxy`（Directive Proxy）是由 directive token 驱动的通用 HTTP 反向代理 data plane。
 
-`dproxy` 是 Directive Proxy 的协议前缀，当前用于 `dproxy.14.*` directive token 和 `dproxy.resolve.v1` 远端解析协议。
+`dproxy` 是 Directive Proxy 的协议前缀，当前用于 `dproxy.15.*` directive token 和 `dproxy.resolve.v1` 远端解析协议。
 
-项目只负责解析 `Authorization: Bearer dproxy.14...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.15...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
@@ -41,13 +41,17 @@ proxy:
     max-inflight-bytes: 1073741824
 ```
 
-## Fluentd 生命周期 capture
+## 可观测插件与输出
 
-Capture 不在进程内保留历史记录，也不提供历史查询 API。请求头、请求正文 chunk、attempt、响应头、响应正文 chunk、SSE 语义事件和完成状态都作为独立 Forward 记录同步发送到 Fluentd，并通过 `trace_id`、`attempt_id`、`record_id` 和请求内递增 `sequence` 关联。
+代理只产生进程内生命周期 Signal；内置观测插件把 Signal 转换为统一的 `dproxy.event.v1` Record，输出插件负责外部投递。当前提供：
 
-默认 tag 为 `dproxy.capture.lifecycle`、`request.headers`、`request.metadata`、`request.body`、`attempt`、`response.headers`、`response.body` 和 `response.sse`。正文使用 Base64 chunk、绝对 offset 和 SHA-256 end 记录，SSE 同时保存原始响应字节和解析后的每条 event/comment。
+- `builtin.capture`：请求/响应 header、Metadata、body chunk/hash、attempt、SSE 语义事件和完成状态。
+- `builtin.llmusage`：从上游 JSON/SSE 响应增量提取 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Google GenerateContent token usage。
+- `fluent` output：按 topic 路由 Record，经有界队列异步发送到 Fluent Forward endpoint。
 
-Exporter 使用 `260714-go-pkg-fluent` 的有界队列和同步 `Send` 等待投递结果；建议连接本机 Unix socket，并由 Fluentd 使用文件 buffer。启用 capture 时启动阶段无法连接 Fluentd 会导致服务启动失败；运行阶段发送失败采用 fail-open，代理继续处理请求，并在 `/health` 的 `capture` 字段报告 degraded 状态。
+Capture 解析成功写给下游的响应字节；LLM Usage 解析代理从上游实际读取的响应字节。插件同步消费临时 body slice，生成的 Record 再按 `trace_id` 分片进入异步输出队列。输出故障和解析失败均 fail-open，不改变代理响应；队列溢出与输出故障会在 `/health` 的 `observability` 字段报告 degraded。
+
+插件和输出必须成对启用；完整配置见 [`config/config.example.yaml`](config/config.example.yaml)，架构和扩展约束见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
 
 完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
 
@@ -214,11 +218,11 @@ proxy:
 唯一入口是：
 
 ```http
-Authorization: Bearer dproxy.14.i.<base64url-directive-json>
-Authorization: Bearer dproxy.14.r.<base64url-remote-spec-json>
+Authorization: Bearer dproxy.15.i.<base64url-directive-json>
+Authorization: Bearer dproxy.15.r.<base64url-remote-spec-json>
 ```
 
-`dproxy.` token family 由代理保留，当前只接受 `dproxy.14.i` 和 `dproxy.14.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
+`dproxy.` token family 由代理保留，当前只接受 `dproxy.15.i` 和 `dproxy.15.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
 
 - `i` 直接从 token 读取完整 directive JSON。
 - `r` 从 token 读取自包含的 HTTP 或 Redis `RemoteSpec`，远端响应就是完整 directive JSON。
@@ -248,6 +252,15 @@ payload schema：
       { "op": "=", "name": "X-Dproxy-key2", "values": ["value2"] },
       { "op": "=", "name": "X-Upstream-Tenant", "values": ["tenant-a"] }
     ]
+  },
+  "plugins": {
+    "llmusage": {
+      "protocol": "openai.responses",
+      "labels": {
+        "provider": "openai",
+        "account": "primary"
+      }
+    }
   }
 }
 ```
@@ -263,7 +276,7 @@ payload schema：
 - Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
 - ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
 
-HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并作为独立 Capture 记录输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
+HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并可由 Capture 插件输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 的 `plugins` 是按 attempt 生效的插件配置；引用未启用插件或提交非法插件配置会在发起上游请求前失败。携带 dproxy token 的入站 `Authorization` 会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
 HTTP RemoteSpec：
 

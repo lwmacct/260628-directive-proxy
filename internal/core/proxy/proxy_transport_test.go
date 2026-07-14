@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-type noopResolver struct{}
-
-func (noopResolver) Prepare(*http.Request) (PreparedDirective, error) {
-	return staticPrepared{}, nil
-}
-
 func TestNewProxyAwareTransportUsesRequestProxy(t *testing.T) {
 	transport := NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))
 

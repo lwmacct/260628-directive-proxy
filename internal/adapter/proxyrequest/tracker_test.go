@@ -5,45 +5,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
+	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
+	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
 
-type recordingSink struct {
-	mu     sync.Mutex
-	tags   []string
-	events []capture.Event
-}
-
-func (s *recordingSink) Emit(tag string, event capture.Event) error {
-	s.mu.Lock()
-	s.tags = append(s.tags, tag)
-	s.events = append(s.events, event)
-	s.mu.Unlock()
-	return nil
-}
-
-func (s *recordingSink) Close() error { return nil }
-func (s *recordingSink) CaptureHealth() capture.HealthStatus {
-	return capture.HealthStatus{Status: "ok"}
-}
-
 func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
-	sink := &recordingSink{}
+	pipeline, output := newCapturePipeline(t, captureplugin.Config{
+		BodyChunkBytes: 4, MaxSSEEventBytes: 1024, RedactHeaders: []string{"authorization"}, RedactQuery: []string{"token"},
+	})
 	tracker := NewProxyRequestService(ProxyRequestOptions{
-		RetryAfter:       0,
-		MaxAttempts:      3,
-		InstanceID:       "test-instance",
-		BodyChunkBytes:   4,
-		MaxSSEEventBytes: 1024,
-		RedactHeaders:    []string{"authorization"},
-		RedactQuery:      []string{"token"},
-	}, sink)
+		RetryAfter: 0, MaxAttempts: 3, InstanceID: "test-instance",
+	}, pipeline)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	session := tracker.Start(req)
@@ -100,41 +78,43 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	if recorder.Header().Get("X-Dproxy-Trace-ID") != session.TraceID() {
 		t.Fatalf("tracking response header missing: %#v", recorder.Header())
 	}
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
+	if err := pipeline.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	events := output.Records()
 	var sawSSE, sawComment, sawRedacted, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata bool
 	var previous uint64
-	for _, event := range sink.events {
+	for _, event := range events {
 		if event.Sequence <= previous {
-			t.Fatalf("capture sequence is not increasing: %#v", sink.events)
+			t.Fatalf("capture sequence is not increasing: %#v", events)
 		}
 		previous = event.Sequence
-		switch event.Kind {
-		case "directive.resolve.started":
-			sawResolveStarted = event.AttemptID != ""
-		case "directive.resolve.finished":
+		switch event.Topic {
+		case "capture.directive.resolve.started":
+			sawResolveStarted = event.Attempt > 0
+		case "capture.directive.resolve.finished":
 			sawResolveFinished = event.Data["target_url"] == "https://upstream.example/v1/chat?token=%3Credacted%3E"
-		case "attempt.upstream.started":
-			sawUpstreamStarted = event.AttemptID != ""
-		case "request.metadata.bound":
+		case "capture.attempt.upstream.started":
+			sawUpstreamStarted = event.Attempt > 0
+		case "capture.request.metadata.bound":
 			sawMetadata = event.Data["metadata"] != nil
-		case "request.headers":
+		case "capture.request.headers":
 			headers := event.Data["headers"].(map[string][]string)
 			sawRedacted = headers["Authorization"][0] == "<redacted>"
-		case "response.sse.event":
+		case "capture.response.sse.event":
 			sawSSE = event.Data["data"] == "one\ntwo" && event.Data["upstream_event_id"] == "9"
-		case "response.sse.comment":
+		case "capture.response.sse.comment":
 			sawComment = true
 		}
 	}
 	if !sawSSE || !sawComment || !sawRedacted || !sawResolveStarted || !sawResolveFinished || !sawUpstreamStarted || !sawMetadata {
-		t.Fatalf("missing capture events: sse=%t comment=%t redacted=%t resolve_started=%t resolve_finished=%t upstream_started=%t metadata=%t events=%#v", sawSSE, sawComment, sawRedacted, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata, sink.events)
+		t.Fatalf("missing capture events: sse=%t comment=%t redacted=%t resolve_started=%t resolve_finished=%t upstream_started=%t metadata=%t events=%#v", sawSSE, sawComment, sawRedacted, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata, events)
 	}
 }
 
 func TestProxyRequestRetryByMetadataRequiresUniqueMatchAndUsesCAS(t *testing.T) {
-	sink := &recordingSink{}
-	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: 0, MaxAttempts: 3}, sink)
+	pipeline, output := newCapturePipeline(t, captureplugin.Config{})
+	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: 0, MaxAttempts: 3}, pipeline)
 	newActive := func(path, requestID, tenant string, canceled *bool) proxyrequest.Session {
 		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/"+path, nil))
 		attempt := session.BeginAttempt(func() { *canceled = true }, "inline", "", "", "")
@@ -166,29 +146,29 @@ func TestProxyRequestRetryByMetadataRequiresUniqueMatchAndUsesCAS(t *testing.T) 
 	if _, err := tracker.RetryByMetadata(unique, 1, proxyrequest.RetryTriggerRequesterAPI); err != proxyrequest.ErrRetryInProgress {
 		t.Fatalf("duplicate retry was not rejected: %v", err)
 	}
-	sink.mu.Lock()
+	first.Complete()
+	second.Complete()
+	if err := pipeline.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	sawSelectorCapture := false
-	for _, event := range sink.events {
-		if event.Kind != "retry.requested" || event.Data["trigger"] != string(proxyrequest.RetryTriggerRequesterAPI) {
+	for _, event := range output.Records() {
+		if event.Topic != "capture.retry.requested" || event.Data["trigger"] != string(proxyrequest.RetryTriggerRequesterAPI) {
 			continue
 		}
 		selector := event.Data["selector_metadata"].(map[string][]string)
 		sawSelectorCapture = selector["X-Dproxy-Request-Id"][0] == "shared" && selector["X-Dproxy-Tenant"][0] == "two"
 	}
-	sink.mu.Unlock()
 	if !sawSelectorCapture {
 		t.Fatal("requester retry selector was not captured")
 	}
-	first.Complete()
-	second.Complete()
 }
 
 func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
-	sink := &recordingSink{}
+	pipeline, output := newCapturePipeline(t, captureplugin.Config{RedactHeaders: []string{"x-dproxy-secret-*"}})
 	tracker := NewProxyRequestService(ProxyRequestOptions{
-		MaxAttempts:   2,
-		RedactHeaders: []string{"x-dproxy-secret-*"},
-	}, sink)
+		MaxAttempts: 2,
+	}, pipeline)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
 	session.BindMetadata(attempt, requestmeta.Metadata{
@@ -196,10 +176,11 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 		"X-Dproxy-Secret-Key": {"secret"},
 	})
 	session.Complete()
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
-	for _, event := range sink.events {
-		if event.Kind != "request.metadata.bound" {
+	if err := pipeline.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range output.Records() {
+		if event.Topic != "capture.request.metadata.bound" {
 			continue
 		}
 		metadata := event.Data["metadata"].(map[string][]string)
@@ -212,7 +193,7 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 }
 
 func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
-	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: time.Hour, MaxAttempts: 2}, capture.DiscardSink{})
+	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: time.Hour, MaxAttempts: 2}, nil)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
 	if active, ok := tracker.GetActive(session.TraceID()); !ok || active.State != proxyrequest.StateResolvingDirective || !active.RetryableAt.IsZero() {
@@ -233,7 +214,7 @@ func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
 }
 
 func TestProxyRequestTrackerBoundsActiveRequests(t *testing.T) {
-	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2, MaxActiveRequests: 1}, capture.DiscardSink{})
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2, MaxActiveRequests: 1}, nil)
 	first := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/one", nil))
 	second := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/two", nil))
 	if attempt := first.BeginAttempt(func() {}, "inline", "", "", ""); attempt != 1 {
@@ -244,6 +225,18 @@ func TestProxyRequestTrackerBoundsActiveRequests(t *testing.T) {
 	}
 	first.Complete()
 	second.Complete()
+}
+
+func newCapturePipeline(t *testing.T, config captureplugin.Config) (*observability.Pipeline, *recordoutput.Output) {
+	t.Helper()
+	output := recordoutput.New("memory")
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(config)}, []observability.OutputBinding{{
+		Output: output, Routes: []string{"**"}, QueueCapacity: 1024, QueueMaxBytes: 8 << 20,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pipeline, output
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {

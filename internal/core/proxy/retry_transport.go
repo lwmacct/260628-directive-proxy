@@ -116,6 +116,16 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, ErrResolverFailed
 		}
 		resolution.Plan.Metadata = normalizedMetadata
+		if configureErr := session.ConfigureAttempt(attempt, resolution.Plan.PluginSpecs); configureErr != nil {
+			pluginErr := error(ErrInvalidDirective)
+			if source.Mode == "remote" {
+				pluginErr = ErrRemoteDirectiveInvalid
+			}
+			session.DirectiveFailed(attempt, resolveDuration, "invalid_plugin_config")
+			session.FinishAttempt(attempt, false, pluginErr)
+			cancel()
+			return nil, pluginErr
+		}
 		fingerprint := planFingerprint(resolution.Plan)
 		planChanged := previousFingerprint != "" && previousFingerprint != fingerprint
 		previousFingerprint = fingerprint
@@ -174,6 +184,7 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			cancel()
 			return response, roundTripErr
 		}
+		session.ObserveUpstreamResponse(attempt, response)
 		response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancel}
 		return response, roundTripErr
 	}
@@ -224,19 +235,21 @@ func planFingerprint(plan *Plan) string {
 		return ""
 	}
 	data, err := json.Marshal(struct {
-		Target     string
-		Proxy      string
-		HeaderMode HeaderMode
-		HeaderOps  []HeaderOp
-		Metadata   map[string][]string
-		JoinPath   bool
+		Target      string
+		Proxy       string
+		HeaderMode  HeaderMode
+		HeaderOps   []HeaderOp
+		Metadata    map[string][]string
+		PluginSpecs map[string][]byte
+		JoinPath    bool
 	}{
-		Target:     urlString(plan.Target),
-		Proxy:      urlString(plan.Proxy),
-		HeaderMode: plan.HeaderMode,
-		HeaderOps:  plan.HeaderOps,
-		Metadata:   plan.Metadata,
-		JoinPath:   plan.JoinPath,
+		Target:      urlString(plan.Target),
+		Proxy:       urlString(plan.Proxy),
+		HeaderMode:  plan.HeaderMode,
+		HeaderOps:   plan.HeaderOps,
+		Metadata:    plan.Metadata,
+		PluginSpecs: plan.PluginSpecs,
+		JoinPath:    plan.JoinPath,
 	})
 	if err != nil {
 		return ""

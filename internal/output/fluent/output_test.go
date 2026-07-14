@@ -1,6 +1,7 @@
-package fluentcapture
+package fluentoutput
 
 import (
+	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -8,15 +9,19 @@ import (
 
 	"github.com/tinylib/msgp/msgp"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 )
 
-func TestExporterSendsAcknowledgedForwardRecord(t *testing.T) {
+func TestOutputSendsAcknowledgedForwardRecord(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		if closeErr := listener.Close(); closeErr != nil {
+			t.Errorf("close Fluent listener: %v", closeErr)
+		}
+	})
 	received := make(chan []any, 1)
 	errors := make(chan error, 1)
 	go func() {
@@ -25,7 +30,7 @@ func TestExporterSendsAcknowledgedForwardRecord(t *testing.T) {
 			errors <- acceptErr
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		value, readErr := msgp.NewReader(conn).ReadIntf()
 		if readErr != nil {
 			errors <- readErr
@@ -54,42 +59,32 @@ func TestExporterSendsAcknowledgedForwardRecord(t *testing.T) {
 
 	host, portValue, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portValue)
-	exporter, err := New(Config{
-		Endpoint:            "tcp://" + net.JoinHostPort(host, strconv.Itoa(port)),
-		Connections:         1,
-		QueueCapacity:       16,
-		ConnectTimeout:      time.Second,
-		HandshakeTimeout:    time.Second,
-		WriteTimeout:        time.Second,
-		ACKTimeout:          time.Second,
-		RetryMaxAttempts:    1,
-		RetryMinBackoff:     time.Millisecond,
-		RetryMaxBackoff:     time.Millisecond,
-		TagPrefix:           "dproxy.capture",
-		DeliveryAtLeastOnce: true,
+	output := New(Config{
+		Name: "fluent-test", Endpoint: "tcp://" + net.JoinHostPort(host, strconv.Itoa(port)),
+		Connections: 1, ClientQueueCapacity: 16, ConnectTimeout: time.Second, HandshakeTimeout: time.Second,
+		WriteTimeout: time.Second, ACKTimeout: time.Second, RetryMaxAttempts: 1,
+		RetryMinBackoff: time.Millisecond, RetryMaxBackoff: time.Millisecond, TagPrefix: "dproxy", DeliveryAtLeastOnce: true,
+	})
+	if err := output.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := output.Close(context.Background()); closeErr != nil {
+			t.Errorf("close Fluent output: %v", closeErr)
+		}
+	})
+	now := time.Now().UTC()
+	err = output.Write(context.Background(), observability.Record{
+		SchemaVersion: observability.SchemaVersion, Plugin: "builtin.capture", Topic: "capture.request.started",
+		RecordID: "trace:00000001", TraceID: "trace", InstanceID: "instance", Sequence: 1,
+		OccurredAt: now.Format(time.RFC3339Nano), Data: map[string]any{"method": "POST"}, Time: now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer exporter.Close()
-	now := time.Now().UTC()
-	err = exporter.Emit("lifecycle", capture.Event{
-		SchemaVersion: capture.SchemaVersion,
-		RecordID:      "trace:0001",
-		TraceID:       "trace",
-		InstanceID:    "instance",
-		Sequence:      1,
-		Kind:          "request.started",
-		OccurredAt:    now.Format(time.RFC3339Nano),
-		Data:          map[string]any{"method": "POST"},
-		Time:          now,
-	})
-	if err != nil {
-		t.Fatalf("emit failed: %v", err)
-	}
 	select {
 	case message := <-received:
-		if message[0] != "dproxy.capture.lifecycle" {
+		if message[0] != "dproxy.capture.request.started" {
 			t.Fatalf("unexpected tag: %#v", message[0])
 		}
 	case err = <-errors:
@@ -97,8 +92,8 @@ func TestExporterSendsAcknowledgedForwardRecord(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for fluent record")
 	}
-	if status := exporter.CaptureHealth(); status.Status != "ok" {
-		t.Fatalf("unexpected capture health: %#v", status)
+	if status := output.Health(); status.Status != "ok" {
+		t.Fatalf("unexpected output health: %#v", status)
 	}
 }
 

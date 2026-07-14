@@ -19,5 +19,5 @@ func (e *SystemEndpoint) Handler() http.Handler {
 }
 
 func (e *SystemEndpoint) Register(api huma.API) {
-	RegisterHealth(api, e.services.Capture)
+	RegisterHealth(api, e.services.Observability)
 }

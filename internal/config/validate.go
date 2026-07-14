@@ -89,13 +89,14 @@ func Validate(cfg Config) (Config, error) {
 			cfg.Proxy.Retry.MaxActiveRequests = 4096
 		}
 	}
-	if cfg.Proxy.Capture.Enabled {
-		validatedCapture, err := validateCapture(cfg.Proxy.Capture)
-		if err != nil {
-			return cfg, ErrInvalidCapture
-		}
-		cfg.Proxy.Capture = validatedCapture
+	if retry.BufferChunkBytes <= 0 {
+		return cfg, ErrInvalidRetry
 	}
+	validatedObservability, err := validateObservability(cfg.Observability)
+	if err != nil {
+		return cfg, ErrInvalidObservability
+	}
+	cfg.Observability = validatedObservability
 	remote := cfg.Proxy.Directive.Remote
 	if cfg.Proxy.Directive.MaxTokenBytes <= 0 || cfg.Proxy.Directive.MaxInlineBytes <= 0 ||
 		cfg.Proxy.Directive.MaxInlineBytes > cfg.Proxy.Directive.MaxTokenBytes ||
@@ -106,22 +107,123 @@ func Validate(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-func validateCapture(cfg ProxyCapture) (ProxyCapture, error) {
+func validateObservability(cfg Observability) (Observability, error) {
+	pluginNames := make(map[string]struct{}, len(cfg.Plugins))
+	pluginTypes := make(map[string]struct{}, len(cfg.Plugins))
+	enabledPlugins := 0
+	for index := range cfg.Plugins {
+		plugin := &cfg.Plugins[index]
+		plugin.Name = strings.TrimSpace(plugin.Name)
+		plugin.Type = strings.TrimSpace(plugin.Type)
+		if !validComponentName(plugin.Name) || plugin.Type == "" {
+			return cfg, ErrInvalidObservability
+		}
+		if _, exists := pluginNames[plugin.Name]; exists {
+			return cfg, ErrInvalidObservability
+		}
+		pluginNames[plugin.Name] = struct{}{}
+		if _, exists := pluginTypes[plugin.Type]; exists {
+			return cfg, ErrInvalidObservability
+		}
+		pluginTypes[plugin.Type] = struct{}{}
+		if !plugin.Enabled {
+			continue
+		}
+		enabledPlugins++
+		switch plugin.Type {
+		case ObservationPluginCapture:
+			if plugin.Capture == nil || plugin.LLMUsage != nil {
+				return cfg, ErrInvalidObservability
+			}
+			validated, err := validateCapturePlugin(*plugin.Capture)
+			if err != nil {
+				return cfg, err
+			}
+			plugin.Capture = &validated
+		case ObservationPluginLLMUsage:
+			if plugin.LLMUsage == nil || plugin.Capture != nil || plugin.LLMUsage.MaxSSEMetadataBytes < 0 || plugin.LLMUsage.MaxResultBytes < 0 || plugin.LLMUsage.MaxNestingDepth < 0 {
+				return cfg, ErrInvalidObservability
+			}
+		default:
+			return cfg, ErrInvalidObservability
+		}
+	}
+	outputNames := make(map[string]struct{}, len(cfg.Outputs))
+	enabledOutputs := 0
+	for index := range cfg.Outputs {
+		output := &cfg.Outputs[index]
+		output.Name = strings.TrimSpace(output.Name)
+		output.Type = strings.TrimSpace(output.Type)
+		if !validComponentName(output.Name) || output.Type == "" {
+			return cfg, ErrInvalidObservability
+		}
+		if _, exists := outputNames[output.Name]; exists {
+			return cfg, ErrInvalidObservability
+		}
+		outputNames[output.Name] = struct{}{}
+		if !output.Enabled {
+			continue
+		}
+		enabledOutputs++
+		if output.Workers <= 0 || output.Queue.Capacity <= 0 || output.Queue.MaxBytes <= 0 || len(output.Routes) == 0 {
+			return cfg, ErrInvalidObservability
+		}
+		for routeIndex, route := range output.Routes {
+			route = strings.TrimSpace(route)
+			if route == "" || strings.ContainsAny(route, "\x00\r\n") {
+				return cfg, ErrInvalidObservability
+			}
+			output.Routes[routeIndex] = route
+		}
+		switch output.Type {
+		case ObservabilityOutputFluent:
+			if output.Fluent == nil {
+				return cfg, ErrInvalidObservability
+			}
+			validated, err := validateFluentOutput(*output.Fluent)
+			if err != nil {
+				return cfg, err
+			}
+			output.Fluent = &validated
+		default:
+			return cfg, ErrInvalidObservability
+		}
+	}
+	if (enabledPlugins == 0) != (enabledOutputs == 0) {
+		return cfg, ErrInvalidObservability
+	}
+	return cfg, nil
+}
+
+func validComponentName(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for index, char := range value {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || (char == '-' || char == '_') && index > 0 && index < len(value)-1 {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validateCapturePlugin(cfg CapturePluginConfig) (CapturePluginConfig, error) {
 	if cfg.BodyChunkBytes <= 0 || cfg.MaxSSEEventBytes <= 0 || len(cfg.RedactHeaders) == 0 {
-		return cfg, ErrInvalidCapture
+		return cfg, ErrInvalidObservability
 	}
 	for index, values := range [][]string{cfg.RedactHeaders, cfg.RedactQuery} {
 		seen := make(map[string]struct{}, len(values))
 		for itemIndex, value := range values {
 			value = strings.ToLower(strings.TrimSpace(value))
 			if value == "" {
-				return cfg, ErrInvalidCapture
+				return cfg, ErrInvalidObservability
 			}
 			if _, err := path.Match(value, "capture-test-value"); err != nil {
-				return cfg, ErrInvalidCapture
+				return cfg, ErrInvalidObservability
 			}
 			if _, exists := seen[value]; exists {
-				return cfg, ErrInvalidCapture
+				return cfg, ErrInvalidObservability
 			}
 			seen[value] = struct{}{}
 			values[itemIndex] = value
@@ -132,34 +234,38 @@ func validateCapture(cfg ProxyCapture) (ProxyCapture, error) {
 			cfg.RedactQuery = values
 		}
 	}
-	fluent := &cfg.Fluent
+	return cfg, nil
+}
+
+func validateFluentOutput(cfg FluentOutput) (FluentOutput, error) {
+	fluent := &cfg
 	fluent.Endpoint = strings.TrimSpace(fluent.Endpoint)
 	fluent.Delivery = strings.ToLower(strings.TrimSpace(fluent.Delivery))
 	fluent.TagPrefix = strings.Trim(strings.TrimSpace(fluent.TagPrefix), ".")
-	if fluent.Connections <= 0 || fluent.QueueCapacity <= 0 || fluent.ConnectTimeout <= 0 ||
+	if fluent.Connections <= 0 || fluent.ClientQueueCapacity <= 0 || fluent.ConnectTimeout <= 0 ||
 		fluent.HandshakeTimeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ACKTimeout <= 0 ||
 		fluent.RetryMaxAttempts <= 0 || fluent.RetryMinBackoff <= 0 ||
 		fluent.RetryMaxBackoff < fluent.RetryMinBackoff || fluent.TagPrefix == "" {
-		return cfg, ErrInvalidCapture
+		return cfg, ErrInvalidObservability
 	}
 	endpoint, err := url.Parse(fluent.Endpoint)
 	if err != nil || endpoint.Scheme == "" {
-		return cfg, ErrInvalidCapture
+		return cfg, ErrInvalidObservability
 	}
 	switch strings.ToLower(endpoint.Scheme) {
 	case "tcp", "tls", "ws", "wss":
 		if endpoint.Host == "" {
-			return cfg, ErrInvalidCapture
+			return cfg, ErrInvalidObservability
 		}
 	case "unix":
 		if endpoint.Path == "" {
-			return cfg, ErrInvalidCapture
+			return cfg, ErrInvalidObservability
 		}
 	default:
-		return cfg, ErrInvalidCapture
+		return cfg, ErrInvalidObservability
 	}
 	if fluent.Delivery != FluentDeliveryUnconfirmed && fluent.Delivery != FluentDeliveryAtLeastOnce {
-		return cfg, ErrInvalidCapture
+		return cfg, ErrInvalidObservability
 	}
 	return cfg, nil
 }

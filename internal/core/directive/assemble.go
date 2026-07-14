@@ -1,6 +1,8 @@
 package directive
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/url"
 	"path"
 	"strings"
@@ -12,6 +14,12 @@ import (
 type AssembleOptions struct {
 	StripHeaders []string
 }
+
+const (
+	maxPluginSpecs     = 16
+	maxPluginNameBytes = 64
+	maxPluginSpecBytes = 64 << 10
+)
 
 func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	targetURL := strings.TrimSpace(payload.Target.URL)
@@ -39,6 +47,10 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	pluginSpecs, err := parsePluginSpecs(payload.Plugins)
+	if err != nil {
+		return nil, err
+	}
 	ops := make([]proxy.HeaderOp, 0, len(opts.StripHeaders)+len(headerOps))
 	for _, name := range opts.StripHeaders {
 		name = strings.TrimSpace(name)
@@ -62,13 +74,46 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	}
 
 	return &proxy.Plan{
-		Target:     target,
-		Proxy:      proxyURL,
-		HeaderMode: toHeaderMode(headerMode),
-		HeaderOps:  ops,
-		Metadata:   metadata,
-		JoinPath:   joinPath,
+		Target:      target,
+		Proxy:       proxyURL,
+		HeaderMode:  toHeaderMode(headerMode),
+		HeaderOps:   ops,
+		Metadata:    metadata,
+		PluginSpecs: pluginSpecs,
+		JoinPath:    joinPath,
 	}, nil
+}
+
+func parsePluginSpecs(raw map[string]json.RawMessage) (map[string][]byte, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if len(raw) > maxPluginSpecs {
+		return nil, ErrInvalidPayload
+	}
+	result := make(map[string][]byte, len(raw))
+	for rawName, spec := range raw {
+		name := strings.TrimSpace(rawName)
+		if name == "" || name != rawName || len(name) > maxPluginNameBytes || !isPluginName(name) || len(spec) == 0 || len(spec) > maxPluginSpecBytes || !json.Valid(spec) {
+			return nil, ErrInvalidPayload
+		}
+		compact := bytes.NewBuffer(make([]byte, 0, len(spec)))
+		if err := json.Compact(compact, spec); err != nil {
+			return nil, ErrInvalidPayload
+		}
+		result[name] = append([]byte(nil), compact.Bytes()...)
+	}
+	return result, nil
+}
+
+func isPluginName(value string) bool {
+	for index, char := range value {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-' && index > 0 && index < len(value)-1 {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func isHTTPURL(u *url.URL) bool {

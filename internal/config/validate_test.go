@@ -221,6 +221,7 @@ func TestValidateRetryConfiguration(t *testing.T) {
 		func(cfg *ProxyRetry) { cfg.MaxActiveRequests = 0 },
 		func(cfg *ProxyRetry) { cfg.MaxBodyBytes = 0 },
 		func(cfg *ProxyRetry) { cfg.MaxInflightBytes = cfg.MaxBodyBytes - 1 },
+		func(cfg *ProxyRetry) { cfg.BufferChunkBytes = 0 },
 	} {
 		cfg := validDefaultConfig()
 		mutate(&cfg.Proxy.Retry)
@@ -236,27 +237,36 @@ func TestValidateRetryConfiguration(t *testing.T) {
 	}
 }
 
-func TestValidateCaptureConfiguration(t *testing.T) {
+func TestValidateObservabilityConfiguration(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Proxy.Capture.Enabled = true
+	cfg.Observability.Plugins[0].Enabled = true
+	cfg.Observability.Plugins[1].Enabled = true
+	cfg.Observability.Outputs[0].Enabled = true
 	validated, err := Validate(cfg)
-	if err != nil || validated.Proxy.Capture.Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
-		t.Fatalf("valid capture config was rejected: cfg=%#v err=%v", validated.Proxy.Capture, err)
+	if err != nil || validated.Observability.Outputs[0].Fluent == nil || validated.Observability.Outputs[0].Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
+		t.Fatalf("valid observability config was rejected: cfg=%#v err=%v", validated.Observability, err)
 	}
-	for _, mutate := range []func(*ProxyCapture){
-		func(cfg *ProxyCapture) { cfg.BodyChunkBytes = 0 },
-		func(cfg *ProxyCapture) { cfg.MaxSSEEventBytes = 0 },
-		func(cfg *ProxyCapture) { cfg.RedactHeaders = []string{"[invalid"} },
-		func(cfg *ProxyCapture) { cfg.Fluent.Endpoint = "udp://127.0.0.1:24224" },
-		func(cfg *ProxyCapture) { cfg.Fluent.Connections = 0 },
-		func(cfg *ProxyCapture) { cfg.Fluent.ACKTimeout = 0 },
-		func(cfg *ProxyCapture) { cfg.Fluent.Delivery = "exactly-once" },
+	for _, mutate := range []func(*Observability){
+		func(cfg *Observability) { cfg.Plugins[0].Capture.BodyChunkBytes = 0 },
+		func(cfg *Observability) { cfg.Plugins[0].Capture.MaxSSEEventBytes = 0 },
+		func(cfg *Observability) { cfg.Plugins[0].Capture.RedactHeaders = []string{"[invalid"} },
+		func(cfg *Observability) { cfg.Outputs[0].Fluent.Endpoint = "udp://127.0.0.1:24224" },
+		func(cfg *Observability) { cfg.Outputs[0].Fluent.Connections = 0 },
+		func(cfg *Observability) { cfg.Outputs[0].Fluent.ACKTimeout = 0 },
+		func(cfg *Observability) { cfg.Outputs[0].Fluent.Delivery = "exactly-once" },
+		func(cfg *Observability) { cfg.Outputs[0].Queue.MaxBytes = 0 },
 	} {
 		cfg := validDefaultConfig()
-		cfg.Proxy.Capture.Enabled = true
-		mutate(&cfg.Proxy.Capture)
-		if _, err := Validate(cfg); err != ErrInvalidCapture {
-			t.Fatalf("expected invalid capture config, got %v", err)
+		cfg.Observability.Plugins[0].Enabled = true
+		cfg.Observability.Outputs[0].Enabled = true
+		mutate(&cfg.Observability)
+		if _, err := Validate(cfg); err != ErrInvalidObservability {
+			t.Fatalf("expected invalid observability config, got %v", err)
 		}
+	}
+	unpaired := validDefaultConfig()
+	unpaired.Observability.Plugins[0].Enabled = true
+	if _, err := Validate(unpaired); err != ErrInvalidObservability {
+		t.Fatalf("enabled plugin without output was accepted: %v", err)
 	}
 }

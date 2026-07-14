@@ -4,22 +4,18 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"hash"
-	"mime"
+	"io"
 	"net/http"
 	"net/url"
-	"path"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/sse"
 )
 
 type ProxyRequestOptions struct {
@@ -27,15 +23,12 @@ type ProxyRequestOptions struct {
 	MaxAttempts       int
 	MaxActiveRequests int
 	InstanceID        string
-	BodyChunkBytes    int
-	MaxSSEEventBytes  int
-	RedactHeaders     []string
-	RedactQuery       []string
 }
 
 type proxyRequestSession struct {
 	service       *ProxyRequestService
 	ctx           context.Context
+	trace         *observability.Trace
 	traceID       string
 	startedAt     time.Time
 	method        string
@@ -43,36 +36,20 @@ type proxyRequestSession struct {
 	targetURL     string
 	metadata      requestmeta.Metadata
 	metadataBound bool
+	attemptMeta   requestmeta.Metadata
+	pluginSpecs   map[string][]byte
 	state         proxyrequest.State
 	attempt       int
 	attemptAt     time.Time
 	upstreamAt    time.Time
 	cancelAttempt func()
 
-	emitMu   sync.Mutex
-	sequence uint64
-
 	bodyMu           sync.Mutex
 	requestBodyEnded bool
-	requestChunks    int64
-	responseBodyHash hash.Hash
-	responseOffset   int64
-	responseChunks   int64
-	responseEnded    bool
 	responseStatus   int
-	responseIsSSE    bool
-	sseParser        *sse.Parser
-	sseEvents        uint64
-	sseComments      uint64
+	downstreamEnded  bool
 
 	completeOnce sync.Once
-}
-
-type capturePolicy struct {
-	bodyChunkBytes   int
-	maxSSEEventBytes int
-	redactHeaders    []string
-	redactQuery      []string
 }
 
 type proxyResponseWriter struct {
@@ -80,6 +57,13 @@ type proxyResponseWriter struct {
 	session *proxyRequestSession
 	wrote   bool
 	status  int
+}
+
+type observedResponseBody struct {
+	io.ReadCloser
+	session *proxyRequestSession
+	attempt int
+	done    atomic.Bool
 }
 
 func (s *proxyRequestSession) TraceID() string { return s.traceID }
@@ -92,28 +76,17 @@ func (s *proxyRequestSession) WrapResponseWriter(w http.ResponseWriter) http.Res
 	return &proxyResponseWriter{ResponseWriter: w, session: s}
 }
 
+func (s *proxyRequestSession) observe(attempt int, value any) {
+	if s != nil && s.trace != nil {
+		s.trace.Observe(observability.Signal{Attempt: attempt, Value: value})
+	}
+}
+
 func (s *proxyRequestSession) RequestBodyChunk(data []byte, offset int64) {
 	if s == nil || len(data) == 0 {
 		return
 	}
-	chunkBytes := s.service.policy.bodyChunkBytes
-	for len(data) > 0 {
-		length := min(len(data), chunkBytes)
-		chunk := data[:length]
-		s.bodyMu.Lock()
-		s.requestChunks++
-		chunkIndex := s.requestChunks
-		s.bodyMu.Unlock()
-		s.emit("request.body", "request.body.chunk", 0, map[string]any{
-			"chunk_index": chunkIndex,
-			"offset":      offset,
-			"length":      length,
-			"encoding":    "base64",
-			"data":        base64.StdEncoding.EncodeToString(chunk),
-		})
-		offset += int64(length)
-		data = data[length:]
-	}
+	s.observe(0, observability.RequestBodyChunk{Data: data, Offset: offset})
 }
 
 func (s *proxyRequestSession) RequestBodyEnd(total int64, digest string, complete bool) {
@@ -126,14 +99,8 @@ func (s *proxyRequestSession) RequestBodyEnd(total int64, digest string, complet
 		return
 	}
 	s.requestBodyEnded = true
-	chunks := s.requestChunks
 	s.bodyMu.Unlock()
-	s.emit("request.body", "request.body.end", 0, map[string]any{
-		"total_bytes": total,
-		"sha256":      digest,
-		"complete":    complete,
-		"chunks":      chunks,
-	})
+	s.observe(0, observability.RequestBodyEnded{Total: total, SHA256: digest, Complete: complete})
 }
 
 func (s *proxyRequestSession) BeginAttempt(cancel func(), mode, backend, endpoint, key string) int {
@@ -143,26 +110,23 @@ func (s *proxyRequestSession) BeginAttempt(cancel func(), mode, backend, endpoin
 	now := time.Now().UTC()
 	s.service.mu.Lock()
 	if _, exists := s.service.active[s.traceID]; !exists && s.service.maxActive > 0 && len(s.service.active) >= s.service.maxActive {
+		rejected := s.attempt + 1
 		s.service.mu.Unlock()
-		s.emit("lifecycle", "attempt.rejected", s.attempt+1, map[string]any{"reason": "active_capacity"})
+		s.observe(rejected, observability.AttemptRejected{Reason: "active_capacity"})
 		return 0
 	}
 	s.attempt++
 	s.attemptAt = now
 	s.upstreamAt = time.Time{}
 	s.cancelAttempt = cancel
+	s.attemptMeta = nil
+	s.pluginSpecs = nil
 	s.state = proxyrequest.StateResolvingDirective
 	s.service.active[s.traceID] = s
 	attempt := s.attempt
 	s.service.mu.Unlock()
 
-	s.emit("attempt", "attempt.started", attempt, map[string]any{"attempt": attempt})
-	s.emit("lifecycle", "directive.resolve.started", attempt, map[string]any{
-		"mode":     mode,
-		"backend":  backend,
-		"endpoint": redactURL(endpoint, s.service.policy.redactQuery),
-		"key":      key,
-	})
+	s.observe(attempt, observability.AttemptStarted{Mode: mode, Backend: backend, Endpoint: endpoint, Key: key})
 	return attempt
 }
 
@@ -190,15 +154,14 @@ func (s *proxyRequestSession) BindMetadata(attempt int, observed requestmeta.Met
 		s.service.mu.Unlock()
 		return false
 	}
+	s.attemptMeta = requestmeta.Clone(normalized)
 	if !s.metadataBound {
 		s.metadata = requestmeta.Clone(normalized)
 		s.metadataBound = true
 		bound := requestmeta.Clone(s.metadata)
 		s.service.mu.Unlock()
 		if len(bound) > 0 {
-			s.emit("request.metadata", "request.metadata.bound", attempt, map[string]any{
-				"metadata": redactMetadata(bound, s.service.policy.redactHeaders),
-			})
+			s.observe(attempt, observability.MetadataBound{Metadata: bound})
 		}
 		return false
 	}
@@ -206,41 +169,52 @@ func (s *proxyRequestSession) BindMetadata(attempt int, observed requestmeta.Met
 	changed := !requestmeta.Equal(bound, normalized)
 	s.service.mu.Unlock()
 	if changed {
-		s.emit("request.metadata", "request.metadata.changed", attempt, map[string]any{
-			"bound_metadata":    redactMetadata(bound, s.service.policy.redactHeaders),
-			"observed_metadata": redactMetadata(normalized, s.service.policy.redactHeaders),
-		})
+		s.observe(attempt, observability.MetadataChanged{Bound: bound, Observed: normalized})
 	}
 	return changed
+}
+
+func (s *proxyRequestSession) ConfigureAttempt(attempt int, specs map[string][]byte) error {
+	if s == nil {
+		return nil
+	}
+	if s.service.pipeline == nil {
+		if len(specs) > 0 {
+			return fmt.Errorf("observability pipeline is unavailable")
+		}
+	} else if err := s.service.pipeline.ValidatePluginSpecs(specs); err != nil {
+		return err
+	}
+	s.service.mu.Lock()
+	defer s.service.mu.Unlock()
+	if s.attempt != attempt {
+		return context.Canceled
+	}
+	s.pluginSpecs = clonePluginSpecs(specs)
+	return nil
 }
 
 func (s *proxyRequestSession) DirectiveResolved(attempt int, target *url.URL, duration time.Duration, payloadSHA256 string, targetChanged, planChanged bool) {
 	if s == nil || target == nil {
 		return
 	}
-	targetURL := redactURL(target.String(), s.service.policy.redactQuery)
 	s.service.mu.Lock()
 	if s.attempt == attempt {
-		s.targetURL = targetURL
+		s.targetURL = safeControlURL(target.String())
 	}
+	metadata := requestmeta.Clone(s.attemptMeta)
+	pluginSpecs := clonePluginSpecs(s.pluginSpecs)
 	s.service.mu.Unlock()
-	s.emit("lifecycle", "directive.resolve.finished", attempt, map[string]any{
-		"duration_millis": duration.Milliseconds(),
-		"payload_sha256":  payloadSHA256,
-		"target_url":      targetURL,
-		"target_changed":  targetChanged,
-		"plan_changed":    planChanged,
+	s.observe(attempt, observability.DirectiveResolved{
+		Duration: duration, PayloadSHA256: payloadSHA256, Target: cloneURL(target), TargetChanged: targetChanged,
+		PlanChanged: planChanged, Metadata: metadata, PluginSpecs: pluginSpecs,
 	})
 }
 
 func (s *proxyRequestSession) DirectiveFailed(attempt int, duration time.Duration, code string) {
-	if s == nil {
-		return
+	if s != nil {
+		s.observe(attempt, observability.DirectiveFailed{Duration: duration, Code: code})
 	}
-	s.emit("lifecycle", "directive.resolve.failed", attempt, map[string]any{
-		"duration_millis": duration.Milliseconds(),
-		"error_code":      code,
-	})
 }
 
 func (s *proxyRequestSession) BeginUpstream(attempt int, req *http.Request) bool {
@@ -257,11 +231,11 @@ func (s *proxyRequestSession) BeginUpstream(attempt int, req *http.Request) bool
 	s.state = proxyrequest.StateAwaitingResponse
 	targetURL := s.targetURL
 	s.service.mu.Unlock()
-	data := map[string]any{"target_url": targetURL}
+	var headers http.Header
 	if req != nil {
-		data["headers"] = redactHTTPHeaders(req.Header, s.service.policy.redactHeaders)
+		headers = req.Header.Clone()
 	}
-	s.emit("attempt", "attempt.upstream.started", attempt, data)
+	s.observe(attempt, observability.UpstreamStarted{TargetURL: targetURL, Header: headers})
 	return true
 }
 
@@ -288,11 +262,22 @@ func (s *proxyRequestSession) FinishAttempt(attempt int, responseStarted bool, a
 	} else if !responseStarted {
 		outcome = "ended_without_response"
 	}
-	s.emit("attempt", "attempt.finished", attempt, map[string]any{
-		"attempt": attempt,
-		"outcome": outcome,
-	})
+	s.observe(attempt, observability.AttemptFinished{Outcome: outcome})
 	return action
+}
+
+func (s *proxyRequestSession) ObserveUpstreamResponse(attempt int, response *http.Response) {
+	if s == nil || response == nil || response.Body == nil {
+		return
+	}
+	s.service.mu.RLock()
+	metadata := requestmeta.Clone(s.attemptMeta)
+	pluginSpecs := clonePluginSpecs(s.pluginSpecs)
+	s.service.mu.RUnlock()
+	s.observe(attempt, observability.UpstreamResponseStarted{
+		StatusCode: response.StatusCode, Header: response.Header.Clone(), AttemptMetadata: metadata, PluginSpecs: pluginSpecs,
+	})
+	response.Body = &observedResponseBody{ReadCloser: response.Body, session: s, attempt: attempt}
 }
 
 func (s *proxyRequestSession) Complete() {
@@ -306,7 +291,7 @@ func (s *proxyRequestSession) Complete() {
 		s.service.mu.Unlock()
 
 		s.RequestBodyEnd(0, "", false)
-		s.finishResponseBody()
+		s.finishDownstream()
 		outcome := "completed"
 		if s.ctx.Err() != nil {
 			outcome = "client_canceled"
@@ -314,11 +299,12 @@ func (s *proxyRequestSession) Complete() {
 		s.bodyMu.Lock()
 		status := s.responseStatus
 		s.bodyMu.Unlock()
-		s.emit("lifecycle", "request.completed", s.currentAttempt(), map[string]any{
-			"outcome":         outcome,
-			"status_code":     status,
-			"duration_millis": time.Since(s.startedAt).Milliseconds(),
+		s.observe(s.currentAttempt(), observability.RequestCompleted{
+			Outcome: outcome, StatusCode: status, Duration: time.Since(s.startedAt),
 		})
+		if s.trace != nil {
+			s.trace.Close()
+		}
 	})
 }
 
@@ -332,125 +318,25 @@ func (s *proxyRequestSession) currentAttempt() int {
 func (s *proxyRequestSession) responseHeaders(status int, headers http.Header) {
 	s.bodyMu.Lock()
 	s.responseStatus = status
-	mediaType, _, _ := mime.ParseMediaType(headers.Get("Content-Type"))
-	isSSE := strings.EqualFold(mediaType, "text/event-stream")
-	s.responseIsSSE = isSSE
-	if isSSE && strings.TrimSpace(headers.Get("Content-Encoding")) == "" {
-		s.sseParser = s.newSSEParser()
-	}
 	s.bodyMu.Unlock()
-	s.emit("response.headers", "response.headers", s.currentAttempt(), map[string]any{
-		"status_code": status,
-		"headers":     redactHTTPHeaders(headers, s.service.policy.redactHeaders),
-		"sse":         isSSE,
-	})
+	s.observe(s.currentAttempt(), observability.DownstreamResponseStarted{StatusCode: status, Header: headers.Clone()})
 }
 
 func (s *proxyRequestSession) responseBodyChunk(data []byte) {
-	if len(data) == 0 {
-		return
+	if len(data) > 0 {
+		s.observe(s.currentAttempt(), observability.DownstreamBodyChunk{Data: data})
 	}
-	s.bodyMu.Lock()
-	chunkBytes := s.service.policy.bodyChunkBytes
-	for len(data) > 0 {
-		length := min(len(data), chunkBytes)
-		chunk := data[:length]
-		offset := s.responseOffset
-		s.responseOffset += int64(length)
-		s.responseChunks++
-		chunkIndex := s.responseChunks
-		_, _ = s.responseBodyHash.Write(chunk)
-		s.emit("response.body", "response.body.chunk", s.currentAttempt(), map[string]any{
-			"chunk_index": chunkIndex,
-			"offset":      offset,
-			"length":      length,
-			"encoding":    "base64",
-			"data":        base64.StdEncoding.EncodeToString(chunk),
-		})
-		if s.sseParser != nil {
-			s.sseParser.Feed(chunk)
-		}
-		data = data[length:]
-	}
-	s.bodyMu.Unlock()
 }
 
-func (s *proxyRequestSession) finishResponseBody() {
+func (s *proxyRequestSession) finishDownstream() {
 	s.bodyMu.Lock()
-	if s.responseEnded {
+	if s.downstreamEnded {
 		s.bodyMu.Unlock()
 		return
 	}
-	s.responseEnded = true
-	if s.sseParser != nil {
-		s.sseParser.Close()
-	}
-	total := s.responseOffset
-	chunks := s.responseChunks
-	digest := hex.EncodeToString(s.responseBodyHash.Sum(nil))
-	events := s.sseEvents
-	comments := s.sseComments
+	s.downstreamEnded = true
 	s.bodyMu.Unlock()
-	s.emit("response.body", "response.body.end", s.currentAttempt(), map[string]any{
-		"total_bytes":  total,
-		"chunks":       chunks,
-		"sha256":       digest,
-		"sse_events":   events,
-		"sse_comments": comments,
-	})
-}
-
-func (s *proxyRequestSession) newSSEParser() *sse.Parser {
-	return sse.NewParser(s.service.policy.maxSSEEventBytes, func(event sse.Event) {
-		s.sseEvents++
-		data := map[string]any{
-			"sse_sequence":      event.Sequence,
-			"sse_event_id":      fmt.Sprintf("%s:e%d", s.traceID, event.Sequence),
-			"upstream_event_id": event.ID,
-			"event":             event.Type,
-			"data":              event.Data,
-			"truncated":         event.Truncated,
-		}
-		if event.RetryMillis != nil {
-			data["retry_millis"] = *event.RetryMillis
-		}
-		s.emit("response.sse", "response.sse.event", s.currentAttempt(), data)
-	}, func(comment string) {
-		s.sseComments++
-		s.emit("response.sse", "response.sse.comment", s.currentAttempt(), map[string]any{
-			"comment_sequence": s.sseComments,
-			"comment":          comment,
-		})
-	})
-}
-
-func (s *proxyRequestSession) emit(tag, kind string, attempt int, data map[string]any) {
-	if s == nil || s.service == nil {
-		return
-	}
-	s.emitMu.Lock()
-	defer s.emitMu.Unlock()
-	s.sequence++
-	now := time.Now().UTC()
-	attemptID := ""
-	if attempt > 0 {
-		attemptID = fmt.Sprintf("%s:a%d", s.traceID, attempt)
-	}
-	event := capture.Event{
-		SchemaVersion: capture.SchemaVersion,
-		RecordID:      fmt.Sprintf("%s:%08d", s.traceID, s.sequence),
-		TraceID:       s.traceID,
-		AttemptID:     attemptID,
-		InstanceID:    s.service.instanceID,
-		Sequence:      s.sequence,
-		Kind:          kind,
-		OccurredAt:    now.Format(time.RFC3339Nano),
-		Data:          data,
-		Time:          now,
-	}
-	if err := s.service.sink.Emit(tag, event); err != nil {
-		s.service.logCaptureError(err)
-	}
+	s.observe(s.currentAttempt(), observability.DownstreamBodyEnded{})
 }
 
 func (w *proxyResponseWriter) WriteHeader(status int) {
@@ -472,12 +358,6 @@ func (w *proxyResponseWriter) Write(data []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	written, err := w.ResponseWriter.Write(data)
-	w.session.bodyMu.Lock()
-	isSSE := w.session.responseIsSSE
-	w.session.bodyMu.Unlock()
-	if isSSE {
-		_ = http.NewResponseController(w.ResponseWriter).Flush()
-	}
 	if written > 0 {
 		w.session.responseBodyChunk(data[:written])
 	}
@@ -485,6 +365,33 @@ func (w *proxyResponseWriter) Write(data []byte) (int, error) {
 }
 
 func (w *proxyResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (b *observedResponseBody) Read(data []byte) (int, error) {
+	n, err := b.ReadCloser.Read(data)
+	if n > 0 {
+		b.session.observe(b.attempt, observability.UpstreamBodyChunk{Data: data[:n]})
+	}
+	if err != nil {
+		b.finish(err)
+	}
+	return n, err
+}
+
+func (b *observedResponseBody) Close() error {
+	err := b.ReadCloser.Close()
+	cause := err
+	if cause == nil {
+		cause = io.ErrUnexpectedEOF
+	}
+	b.finish(cause)
+	return err
+}
+
+func (b *observedResponseBody) finish(err error) {
+	if b != nil && b.done.CompareAndSwap(false, true) {
+		b.session.observe(b.attempt, observability.UpstreamBodyEnded{Cause: err})
+	}
+}
 
 func newTraceID() string {
 	data := make([]byte, 16)
@@ -509,68 +416,34 @@ func requestURL(req *http.Request) string {
 	return value.String()
 }
 
-func redactURL(value string, patterns []string) string {
-	parsed, err := url.Parse(value)
+func safeControlURL(raw string) string {
+	parsed, err := url.Parse(raw)
 	if err != nil {
-		return value
+		return raw
 	}
-	if parsed.RawQuery != "" {
-		query := parsed.Query()
-		for name := range query {
-			if matchesPattern(name, patterns) {
-				query[name] = []string{"<redacted>"}
-			}
-		}
-		parsed.RawQuery = query.Encode()
+	query := parsed.Query()
+	for name := range query {
+		query[name] = []string{"<redacted>"}
 	}
+	parsed.RawQuery = query.Encode()
 	return parsed.Redacted()
 }
 
-func redactHTTPHeaders(headers http.Header, patterns []string) map[string][]string {
-	if len(headers) == 0 {
+func clonePluginSpecs(in map[string][]byte) map[string][]byte {
+	if len(in) == 0 {
 		return nil
 	}
-	result := make(map[string][]string, len(headers))
-	for name, values := range headers {
-		canonical := http.CanonicalHeaderKey(name)
-		if matchesPattern(canonical, patterns) {
-			result[canonical] = []string{"<redacted>"}
-		} else {
-			result[canonical] = append([]string(nil), values...)
-		}
+	out := make(map[string][]byte, len(in))
+	for name, raw := range in {
+		out[name] = append([]byte(nil), raw...)
 	}
-	return result
+	return out
 }
 
-func redactMetadata(metadata requestmeta.Metadata, patterns []string) map[string][]string {
-	if len(metadata) == 0 {
+func cloneURL(in *url.URL) *url.URL {
+	if in == nil {
 		return nil
 	}
-	headers := make(http.Header, len(metadata))
-	for name, values := range metadata {
-		headers[name] = append([]string(nil), values...)
-	}
-	return redactHTTPHeaders(headers, patterns)
-}
-
-func normalizePatterns(values []string) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.ToLower(strings.TrimSpace(value))
-		if value != "" {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
-func matchesPattern(value string, patterns []string) bool {
-	value = strings.ToLower(value)
-	for _, pattern := range patterns {
-		matched, err := path.Match(pattern, value)
-		if err == nil && matched {
-			return true
-		}
-	}
-	return false
+	out := *in
+	return &out
 }

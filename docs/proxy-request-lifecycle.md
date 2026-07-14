@@ -1,51 +1,69 @@
-# Proxy request lifecycle
+# Proxy request lifecycle and observability
 
 ## Identity
 
 - `trace_id`：32 字符小写十六进制字符串，标识一个逻辑代理请求，所有 retry attempt 共用。
-- `attempt_id`：`<trace_id>:a<N>`，标识一次完整尝试（指令解析，以及解析成功后的可选上游 `RoundTrip`）。
-- `record_id`：`<trace_id>:<sequence>`，ACK 丢失导致重发时保持不变，外部存储必须据此幂等。
-- `sequence`：单个 trace 内从 1 开始严格递增。不同 trace 不保证全局顺序。
+- `record_id`：`<trace_id>:<sequence>`，输出重试时保持不变，接收端应据此幂等。
+- `sequence`：单个 trace 内从 1 开始严格递增；所有观测插件共享同一序列。
+- `attempt`：产生该 Record 的上游尝试序号；请求级 Record 可以省略。
 
-`trace_id` 同时用于活动请求 Control API 和 `X-Dproxy-Trace-ID` 响应头。
+每条外部 Record 包含 `schema_version=dproxy.event.v1`、`plugin`、`topic`、`record_id`、`trace_id`、可选 `attempt`、`instance_id`、`sequence`、RFC3339Nano `occurred_at` 和 `data`。
 
-活动控制表由 `proxy.retry.max-active-requests` 限制；达到上限的新请求会在发起上游连接前返回 `503 active_request_capacity_unavailable`。
+## Signal pipeline
 
-## Fluent tags
+Proxy、RetryTransport 和 downstream ResponseWriter 只产生进程内 Signal。Signal 中的 body slice 是 borrowed memory，只在插件回调期间有效；插件必须同步解析或复制。插件生成拥有完整数据所有权的 Record 后，Pipeline 才将其放入输出队列。
 
-| Tag suffix | Kinds |
-| --- | --- |
-| `lifecycle` | `request.started`, `directive.resolve.started`, `directive.resolve.finished`, `directive.resolve.failed`, `retry.requested`, `request.completed` |
-| `request.headers` | `request.headers` |
-| `request.metadata` | `request.metadata.bound`, `request.metadata.changed` |
-| `request.body` | `request.body.chunk`, `request.body.end` |
-| `attempt` | `attempt.started`, `attempt.upstream.started`, `attempt.finished` |
-| `response.headers` | `response.headers` |
-| `response.body` | `response.body.chunk`, `response.body.end` |
-| `response.sse` | `response.sse.event`, `response.sse.comment` |
+响应有两套明确边界：
 
-每条记录包含 `schema_version=dproxy.capture.v1`、`record_id`、`trace_id`、可选 `attempt_id`、`instance_id`、`sequence`、`kind`、RFC3339Nano `occurred_at` 和 `data`。
+- `UpstreamBodyChunk`：代理从上游读取到的字节，供 LLM Usage 等协议观测插件使用。
+- `DownstreamBodyChunk`：成功写给客户端的字节，供 Capture 审计使用。
 
-Remote token 的 envelope 与 `RemoteSpec` 只在请求进入时校验一次；每个 attempt 都重新读取、解码、校验并编译远端 payload。每次解析记录 sanitized endpoint、backend/key、耗时、payload SHA-256、最终 target，以及 target/plan 是否相对上一次发生变化；不输出原始远端 payload。Inline token 只编译一次并在 attempt 间深拷贝 plan。
+所有上游请求强制 `Accept-Encoding: identity`。非 identity 编码的 LLM 响应不会被解析。
 
-精确名称的 `X-Dproxy-*` directive header op 会被解析为请求 Metadata，并在第一次成功解析时输出 `request.metadata.bound`。后续 Remote directive 返回不同 Metadata 时输出 `request.metadata.changed`，逻辑请求继续使用首次绑定值。Metadata 和匿名 retry selector 都按照 header 脱敏规则输出到 Capture，且不会发送给上游。
+## Built-in capture plugin
 
-活动状态依次为 `resolving_directive`、首次请求特有的 `buffering_body`、`awaiting_response`，外部介入后短暂进入 `retry_requested`。只有 `awaiting_response` 可重试，阈值从实际发起上游 `RoundTrip` 时开始计算。匿名请求方使用 `POST /api/public/request-retries`；认证后的管理端使用 `GET /api/control/proxy-requests`、`GET /api/control/proxy-requests/{trace_id}` 和 `POST /api/control/proxy-requests/{trace_id}/retries`。
+`builtin.capture` 产生 `capture.**` topics，包括：
 
-## Body records
+- `capture.request.started`、`capture.request.headers`、`capture.request.metadata.*`；
+- `capture.request.body.chunk/end`；
+- `capture.directive.resolve.*`、`capture.attempt.*`、`capture.retry.requested`；
+- `capture.response.headers`、`capture.response.body.chunk/end`；
+- `capture.response.sse.event/comment`；
+- `capture.request.completed`。
 
-正文 chunk 的 `data` 使用 Base64，另含 `offset`、`length` 和 `encoding=base64`。end 记录包含 `total_bytes`、chunk 数及 SHA-256。Request body 在写入 retry 临时文件时输出；response body 只记录实际成功写给下游的字节。
+正文 chunk 使用 Base64，包含绝对 offset、length 和 chunk index；end Record 包含总字节数、chunk 数和 SHA-256。Response body 只记录实际成功写给下游的字节。
 
-Header 名称和 URL query 参数按照 `proxy.capture.redact-headers` 与 `redact-query` 的大小写不敏感 glob 脱敏。Body 默认不脱敏。
+Header 和 URL query 按插件配置的大小写不敏感 glob 脱敏。Body 默认不脱敏。SSE parser 支持 BOM、LF、CRLF、CR、多行 data、event、id、retry 和 comment；超过单事件上限时语义事件标记为 truncated，原始 downstream body 仍可重组。
 
-## SSE
+## Built-in LLM usage plugin
 
-上游请求强制 `Accept-Encoding: identity`。Capture 支持 BOM、LF、CRLF、CR、多行 `data`、`event`、`id`、`retry` 和 comment heartbeat。每个解析事件包含独立 `sse_event_id`、`sse_sequence` 和上游 `id`。
+`builtin.llmusage` 只在 directive 的当前 attempt 包含以下配置时启用：
 
-响应字节先写入并 flush 给下游，然后同步输出 raw body 与语义事件。超过 `max-sse-event-bytes` 的事件标记为 `truncated=true`；完整原始内容仍可从对应 response body chunk 重组。
+```json
+{
+  "plugins": {
+    "llmusage": {
+      "protocol": "openai.responses",
+      "labels": {
+        "provider": "openai"
+      }
+    }
+  }
+}
+```
 
-## Delivery
+支持 `auto`、`openai.responses`、`openai.chat-completions`、`anthropic.messages` 和 `google.generate-content`。Format 根据 `Content-Type` 选择 JSON 或 SSE。插件产生：
 
-`260714-go-pkg-fluent` 使用 MessagePack、亚秒时间戳和可配置的 `unconfirmed`/`at-least-once` 投递。多个客户端按 `trace_id` 分片，以保持单请求顺序并允许请求间并发。
+- `llm.usage.observed`：规范化 token counters、response ID、model、total source 和精确保留的 `raw_usage_json`；
+- `llm.usage.not_observed`：响应合法结束但没有报告 usage，例如 Chat stream 未启用 `stream_options.include_usage`；
+- `llm.usage.failed`：显式启用的响应无法解析或资源限制被触发。
 
-Capture 不提供事务性持久化。推荐本地 Fluentd Unix socket 配合文件 buffer。运行期输出失败不会中断代理流量；Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。
+协议表示 wire contract，不表示实际计费供应商。labels 由 directive 明确提供，插件不猜测 provider 或价格。
+
+## Outputs and delivery
+
+Output 按 topic route 接收 Record。每个 output 按 `trace_id` 分片到固定 worker，以保持单 trace 顺序；队列同时限制记录数和总字节数。队列满时丢弃新 Record 并将 output health 标记为 degraded，代理请求继续执行。
+
+Fluent output 将 Record topic 作为 tag suffix，支持 MessagePack、亚秒时间戳和 `unconfirmed`/`at-least-once`。推荐本机 Fluentd Unix socket 配合文件 buffer。Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。
+
+启动阶段启用的 required output 无法连接会导致服务启动失败。运行阶段输出失败、队列溢出、插件 panic 会反映在 `/health.observability`；单个 LLM payload 的解析失败属于数据事件，不会把插件全局健康状态标成 degraded。

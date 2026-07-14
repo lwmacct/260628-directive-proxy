@@ -89,7 +89,7 @@ func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", directive.ErrRemoteUnavailable, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNoContent || response.StatusCode == http.StatusNotFound {
 		return nil, directive.ErrRemoteNotFound
 	}

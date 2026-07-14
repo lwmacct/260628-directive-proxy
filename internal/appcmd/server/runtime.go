@@ -17,12 +17,14 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 
-	fluentcapture "github.com/lwmacct/260628-directive-proxy/internal/adapter/capture/fluent"
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
-	corecapture "github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	fluentoutput "github.com/lwmacct/260628-directive-proxy/internal/output/fluent"
+	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
+	llmusageplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmusage"
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
 )
 
@@ -31,7 +33,7 @@ const httpTLSMinVersion = tls.VersionTLS12
 type runtime struct {
 	requests        *proxyrequestadapter.ProxyRequestService
 	proxyTransport  http.RoundTripper
-	captureSink     corecapture.Sink
+	observability   *observability.Pipeline
 	controlAuth     *httpauth.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
@@ -61,15 +63,15 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
-	captureSink, err := newCaptureSink(cfg.Proxy.Capture)
+	observationPipeline, err := newObservabilityPipeline(ctx, cfg.Observability)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
 		tlsRuntime.Close()
-		return nil, fmt.Errorf("configure capture: %w", err)
+		return nil, fmt.Errorf("configure observability: %w", err)
 	}
-	instanceID := cfg.Proxy.Capture.InstanceID
+	instanceID := cfg.Observability.InstanceID
 	if instanceID == "" {
 		instanceID, _ = os.Hostname()
 	}
@@ -78,11 +80,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		MaxAttempts:       cfg.Proxy.Retry.MaxAttempts,
 		MaxActiveRequests: cfg.Proxy.Retry.MaxActiveRequests,
 		InstanceID:        instanceID,
-		BodyChunkBytes:    cfg.Proxy.Capture.BodyChunkBytes,
-		MaxSSEEventBytes:  cfg.Proxy.Capture.MaxSSEEventBytes,
-		RedactHeaders:     cfg.Proxy.Capture.RedactHeaders,
-		RedactQuery:       cfg.Proxy.Capture.RedactQuery,
-	}, captureSink)
+	}, observationPipeline)
 	baseTransport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -94,10 +92,10 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		TempDir:          cfg.Proxy.Retry.TempDir,
 		MaxBodyBytes:     cfg.Proxy.Retry.MaxBodyBytes,
 		MaxInflightBytes: cfg.Proxy.Retry.MaxInflightBytes,
-		ChunkBytes:       cfg.Proxy.Capture.BodyChunkBytes,
+		ChunkBytes:       cfg.Proxy.Retry.BufferChunkBytes,
 	})
 	if err != nil {
-		_ = captureSink.Close()
+		_ = observationPipeline.Close(context.Background())
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
@@ -109,7 +107,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	return &runtime{
 		requests:        requests,
 		proxyTransport:  retryTransport,
-		captureSink:     captureSink,
+		observability:   observationPipeline,
 		controlAuth:     controlAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
@@ -118,25 +116,62 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	}, nil
 }
 
-func newCaptureSink(cfg config.ProxyCapture) (corecapture.Sink, error) {
-	if !cfg.Enabled {
-		return corecapture.DiscardSink{}, nil
+func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*observability.Pipeline, error) {
+	plugins := make([]observability.Plugin, 0, len(cfg.Plugins))
+	for _, configured := range cfg.Plugins {
+		if !configured.Enabled {
+			continue
+		}
+		switch configured.Type {
+		case config.ObservationPluginCapture:
+			if configured.Capture == nil {
+				return nil, fmt.Errorf("capture plugin config is missing")
+			}
+			plugins = append(plugins, captureplugin.New(captureplugin.Config{
+				Name: configured.Name, BodyChunkBytes: configured.Capture.BodyChunkBytes, MaxSSEEventBytes: configured.Capture.MaxSSEEventBytes,
+				RedactHeaders: configured.Capture.RedactHeaders, RedactQuery: configured.Capture.RedactQuery,
+			}))
+		case config.ObservationPluginLLMUsage:
+			if configured.LLMUsage == nil {
+				return nil, fmt.Errorf("llm usage plugin config is missing")
+			}
+			plugins = append(plugins, llmusageplugin.New(llmusageplugin.Config{
+				Name: configured.Name, MaxSSEMetadataBytes: configured.LLMUsage.MaxSSEMetadataBytes,
+				MaxResultBytes: configured.LLMUsage.MaxResultBytes, MaxNestingDepth: configured.LLMUsage.MaxNestingDepth,
+			}))
+		default:
+			return nil, fmt.Errorf("unsupported observation plugin %q", configured.Type)
+		}
 	}
-	return fluentcapture.New(fluentcapture.Config{
-		Endpoint:              cfg.Fluent.Endpoint,
-		Connections:           cfg.Fluent.Connections,
-		QueueCapacity:         cfg.Fluent.QueueCapacity,
-		ConnectTimeout:        cfg.Fluent.ConnectTimeout,
-		HandshakeTimeout:      cfg.Fluent.HandshakeTimeout,
-		WriteTimeout:          cfg.Fluent.WriteTimeout,
-		ACKTimeout:            cfg.Fluent.ACKTimeout,
-		RetryMaxAttempts:      cfg.Fluent.RetryMaxAttempts,
-		RetryMinBackoff:       cfg.Fluent.RetryMinBackoff,
-		RetryMaxBackoff:       cfg.Fluent.RetryMaxBackoff,
-		TagPrefix:             cfg.Fluent.TagPrefix,
-		DeliveryAtLeastOnce:   cfg.Fluent.Delivery == config.FluentDeliveryAtLeastOnce,
-		TLSInsecureSkipVerify: cfg.Fluent.TLSInsecureSkipVerify,
-	})
+	bindings := make([]observability.OutputBinding, 0, len(cfg.Outputs))
+	for _, configured := range cfg.Outputs {
+		if !configured.Enabled {
+			continue
+		}
+		switch configured.Type {
+		case config.ObservabilityOutputFluent:
+			if configured.Fluent == nil {
+				return nil, fmt.Errorf("fluent output config is missing")
+			}
+			fluentConfig := *configured.Fluent
+			output := fluentoutput.New(fluentoutput.Config{
+				Name: configured.Name, Endpoint: fluentConfig.Endpoint, Connections: fluentConfig.Connections,
+				ClientQueueCapacity: fluentConfig.ClientQueueCapacity, ConnectTimeout: fluentConfig.ConnectTimeout,
+				HandshakeTimeout: fluentConfig.HandshakeTimeout, WriteTimeout: fluentConfig.WriteTimeout,
+				ACKTimeout: fluentConfig.ACKTimeout, RetryMaxAttempts: fluentConfig.RetryMaxAttempts,
+				RetryMinBackoff: fluentConfig.RetryMinBackoff, RetryMaxBackoff: fluentConfig.RetryMaxBackoff,
+				TagPrefix: fluentConfig.TagPrefix, DeliveryAtLeastOnce: fluentConfig.Delivery == config.FluentDeliveryAtLeastOnce,
+				TLSInsecureSkipVerify: fluentConfig.TLSInsecureSkipVerify,
+			})
+			bindings = append(bindings, observability.OutputBinding{
+				Output: output, Routes: configured.Routes, Workers: configured.Workers,
+				QueueCapacity: configured.Queue.Capacity, QueueMaxBytes: configured.Queue.MaxBytes,
+			})
+		default:
+			return nil, fmt.Errorf("unsupported observability output %q", configured.Type)
+		}
+	}
+	return observability.NewPipeline(ctx, plugins, bindings)
 }
 
 func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
@@ -212,7 +247,7 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, tracker 
 	})
 }
 
-func (rt *runtime) Close(_ context.Context) error {
+func (rt *runtime) Close(ctx context.Context) error {
 	if rt == nil {
 		return nil
 	}
@@ -232,11 +267,11 @@ func (rt *runtime) Close(_ context.Context) error {
 		}
 		rt.directiveReader = nil
 	}
-	if rt.captureSink != nil {
-		if err := rt.captureSink.Close(); err != nil {
+	if rt.observability != nil {
+		if err := rt.observability.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
-		rt.captureSink = nil
+		rt.observability = nil
 	}
 	return errors.Join(errs...)
 }

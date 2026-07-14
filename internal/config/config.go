@@ -13,18 +13,19 @@ import (
 )
 
 var (
-	ErrInvalidHTTP      = errors.New("invalid http config")
-	ErrInvalidAuth      = errors.New("invalid auth config")
-	ErrInvalidTransport = errors.New("invalid transport config")
-	ErrInvalidRetry     = errors.New("invalid retry config")
-	ErrInvalidCapture   = errors.New("invalid capture config")
-	ErrInvalidDirective = errors.New("invalid directive config")
-	ErrInvalidAccess    = errors.New("invalid source access config")
+	ErrInvalidHTTP          = errors.New("invalid http config")
+	ErrInvalidAuth          = errors.New("invalid auth config")
+	ErrInvalidTransport     = errors.New("invalid transport config")
+	ErrInvalidRetry         = errors.New("invalid retry config")
+	ErrInvalidObservability = errors.New("invalid observability config")
+	ErrInvalidDirective     = errors.New("invalid directive config")
+	ErrInvalidAccess        = errors.New("invalid source access config")
 )
 
 type Config struct {
-	Server Server `json:"server" desc:"服务运行配置"`
-	Proxy  Proxy  `json:"proxy"  desc:"代理配置"`
+	Server        Server        `json:"server"        desc:"服务运行配置"`
+	Proxy         Proxy         `json:"proxy"         desc:"代理配置"`
+	Observability Observability `json:"observability" desc:"可观测插件与输出配置"`
 }
 
 type Server struct {
@@ -72,7 +73,6 @@ func (c OIDCAuth) MethodConfig() oidc.Config {
 type Proxy struct {
 	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
 	Retry     ProxyRetry     `json:"retry"     desc:"等待上游响应时的外部介入重试配置"`
-	Capture   ProxyCapture   `json:"capture"   desc:"请求生命周期 Fluentd 捕获配置"`
 	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
 }
 
@@ -84,22 +84,55 @@ type ProxyRetry struct {
 	TempDir           string        `json:"temp-dir"           desc:"可重放请求正文临时文件目录，留空使用系统临时目录"`
 	MaxBodyBytes      int64         `json:"max-body-bytes"     desc:"单个可重放请求正文最大字节数"`
 	MaxInflightBytes  int64         `json:"max-inflight-bytes" desc:"所有进行中请求正文临时文件的总字节上限"`
+	BufferChunkBytes  int           `json:"buffer-chunk-bytes" desc:"读取并写入可重放请求正文时的分块大小"`
 }
 
-type ProxyCapture struct {
-	Enabled          bool          `json:"enabled"             desc:"是否将请求生命周期发送到 Fluentd"`
-	InstanceID       string        `json:"instance-id"         desc:"写入 capture 记录的代理实例标识，留空使用主机名"`
-	BodyChunkBytes   int           `json:"body-chunk-bytes"    desc:"请求和响应正文单条 capture 记录的最大字节数"`
-	MaxSSEEventBytes int           `json:"max-sse-event-bytes" desc:"单条 SSE 语义事件解析缓冲上限"`
-	RedactHeaders    []string      `json:"redact-headers"      desc:"需要脱敏的 HTTP header 名称或 glob"`
-	RedactQuery      []string      `json:"redact-query"        desc:"需要脱敏的 URL query 参数名称或 glob"`
-	Fluent           CaptureFluent `json:"fluent"              desc:"Fluent Forward 输出配置"`
+type Observability struct {
+	InstanceID string                `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
+	Plugins    []ObservationPlugin   `json:"plugins"     desc:"内置观测插件列表"`
+	Outputs    []ObservabilityOutput `json:"outputs"     desc:"观测记录输出插件列表"`
 }
 
-type CaptureFluent struct {
+type ObservationPlugin struct {
+	Name     string                `json:"name"      desc:"插件实例名称"`
+	Type     string                `json:"type"      desc:"插件类型：builtin.capture 或 builtin.llmusage"`
+	Enabled  bool                  `json:"enabled"   desc:"是否启用插件"`
+	Capture  *CapturePluginConfig  `json:"capture,omitempty"   desc:"builtin.capture 配置"`
+	LLMUsage *LLMUsagePluginConfig `json:"llmusage,omitempty" desc:"builtin.llmusage 配置"`
+}
+
+type CapturePluginConfig struct {
+	BodyChunkBytes   int      `json:"body-chunk-bytes"    desc:"请求和响应正文单条记录的最大字节数"`
+	MaxSSEEventBytes int      `json:"max-sse-event-bytes" desc:"单条 SSE 语义事件解析缓冲上限"`
+	RedactHeaders    []string `json:"redact-headers"      desc:"需要脱敏的 HTTP header 名称或 glob"`
+	RedactQuery      []string `json:"redact-query"        desc:"需要脱敏的 URL query 参数名称或 glob"`
+}
+
+type LLMUsagePluginConfig struct {
+	MaxSSEMetadataBytes int `json:"max-sse-metadata-bytes" desc:"单个 SSE event metadata 保留上限，0 使用库默认值"`
+	MaxResultBytes      int `json:"max-result-bytes"       desc:"协议识别字段和 raw usage 保留上限，0 使用库默认值"`
+	MaxNestingDepth     int `json:"max-nesting-depth"      desc:"JSON 最大嵌套深度，0 使用库默认值"`
+}
+
+type ObservabilityOutput struct {
+	Name    string        `json:"name"    desc:"输出实例名称"`
+	Type    string        `json:"type"    desc:"输出类型：fluent"`
+	Enabled bool          `json:"enabled" desc:"是否启用输出"`
+	Routes  []string      `json:"routes"  desc:"接收的 record topic 路由"`
+	Workers int           `json:"workers" desc:"按 trace ID 分片的输出 worker 数"`
+	Queue   OutputQueue   `json:"queue"   desc:"Pipeline 输出队列配置"`
+	Fluent  *FluentOutput `json:"fluent,omitempty"  desc:"Fluent Forward 输出配置"`
+}
+
+type OutputQueue struct {
+	Capacity int   `json:"capacity"  desc:"每个 worker 的记录队列容量"`
+	MaxBytes int64 `json:"max-bytes" desc:"输出所有 worker 合计的排队字节上限"`
+}
+
+type FluentOutput struct {
 	Endpoint              string        `json:"endpoint"                 desc:"Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss"`
 	Connections           int           `json:"connections"              desc:"按 trace ID 分片的 Fluent 客户端数"`
-	QueueCapacity         int           `json:"queue-capacity"           desc:"每个 Fluent 客户端的待发送队列容量"`
+	ClientQueueCapacity   int           `json:"client-queue-capacity"    desc:"每个 Fluent client 的内部发送队列容量"`
 	ConnectTimeout        time.Duration `json:"connect-timeout"          desc:"Fluent 建连超时"`
 	HandshakeTimeout      time.Duration `json:"handshake-timeout"        desc:"Fluent Forward 握手超时"`
 	WriteTimeout          time.Duration `json:"write-timeout"            desc:"Fluent 单条记录写入超时"`
@@ -111,6 +144,12 @@ type CaptureFluent struct {
 	Delivery              string        `json:"delivery"                 desc:"Fluent 投递模式：unconfirmed 或 at-least-once"`
 	TLSInsecureSkipVerify bool          `json:"tls-insecure-skip-verify" desc:"是否跳过 Fluent TLS 证书验证，仅用于开发"`
 }
+
+const (
+	ObservationPluginCapture  = "builtin.capture"
+	ObservationPluginLLMUsage = "builtin.llmusage"
+	ObservabilityOutputFluent = "fluent"
+)
 
 const (
 	FluentDeliveryUnconfirmed = "unconfirmed"
@@ -202,29 +241,7 @@ func DefaultConfig() Config {
 				MaxActiveRequests: 4096,
 				MaxBodyBytes:      32 << 20,
 				MaxInflightBytes:  1 << 30,
-			},
-			Capture: ProxyCapture{
-				Enabled:          false,
-				BodyChunkBytes:   32 << 10,
-				MaxSSEEventBytes: 1 << 20,
-				RedactHeaders: []string{
-					"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key",
-				},
-				RedactQuery: []string{"access_token", "api_key", "apikey", "key", "token"},
-				Fluent: CaptureFluent{
-					Endpoint:         "unix:///run/fluent/fluent.sock",
-					Connections:      4,
-					QueueCapacity:    8192,
-					ConnectTimeout:   500 * time.Millisecond,
-					HandshakeTimeout: 500 * time.Millisecond,
-					WriteTimeout:     500 * time.Millisecond,
-					ACKTimeout:       500 * time.Millisecond,
-					RetryMaxAttempts: 1,
-					RetryMinBackoff:  100 * time.Millisecond,
-					RetryMaxBackoff:  500 * time.Millisecond,
-					TagPrefix:        "dproxy.capture",
-					Delivery:         FluentDeliveryAtLeastOnce,
-				},
+				BufferChunkBytes:  32 << 10,
 			},
 			Directive: ProxyDirective{
 				MaxTokenBytes:  64 << 10,
@@ -253,6 +270,33 @@ func DefaultConfig() Config {
 				MaxConnsPerHost:     0,
 				IdleConnTimeout:     60 * time.Second,
 				DisableKeepAlives:   false,
+			},
+		},
+		Observability: Observability{
+			Plugins: []ObservationPlugin{
+				{
+					Name: "capture", Type: ObservationPluginCapture, Enabled: false,
+					Capture: &CapturePluginConfig{
+						BodyChunkBytes: 32 << 10, MaxSSEEventBytes: 1 << 20,
+						RedactHeaders: []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"},
+						RedactQuery:   []string{"access_token", "api_key", "apikey", "key", "token"},
+					},
+				},
+				{Name: "llmusage", Type: ObservationPluginLLMUsage, Enabled: false, LLMUsage: &LLMUsagePluginConfig{}},
+			},
+			Outputs: []ObservabilityOutput{
+				{
+					Name: "fluent-primary", Type: ObservabilityOutputFluent, Enabled: false,
+					Routes: []string{"capture.**", "llm.usage.**"}, Workers: 4,
+					Queue: OutputQueue{Capacity: 8192, MaxBytes: 256 << 20},
+					Fluent: &FluentOutput{
+						Endpoint: "unix:///run/fluent/fluent.sock", Connections: 4, ClientQueueCapacity: 1024,
+						ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
+						WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
+						RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
+						TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
+					},
+				},
 			},
 		},
 	}

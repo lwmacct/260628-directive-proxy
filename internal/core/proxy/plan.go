@@ -8,12 +8,13 @@ import (
 )
 
 type Plan struct {
-	Target     *url.URL
-	Proxy      *url.URL
-	HeaderMode HeaderMode
-	HeaderOps  []HeaderOp
-	Metadata   requestmeta.Metadata
-	JoinPath   bool
+	Target      *url.URL
+	Proxy       *url.URL
+	HeaderMode  HeaderMode
+	HeaderOps   []HeaderOp
+	Metadata    requestmeta.Metadata
+	PluginSpecs map[string][]byte
+	JoinPath    bool
 }
 
 type Resolution struct {
@@ -43,7 +44,19 @@ func ClonePlan(in *Plan) *Plan {
 		out.HeaderOps[i].Values = append([]string(nil), op.Values...)
 	}
 	out.Metadata = requestmeta.Clone(in.Metadata)
+	out.PluginSpecs = clonePluginSpecs(in.PluginSpecs)
 	return &out
+}
+
+func clonePluginSpecs(in map[string][]byte) map[string][]byte {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]byte, len(in))
+	for name, raw := range in {
+		out[name] = append([]byte(nil), raw...)
+	}
+	return out
 }
 
 type HeaderMode string

@@ -47,6 +47,8 @@ github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713 h1:C3eRbK0JFIa9qcZUupa
 github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713/go.mod h1:nHau3a0kI/Bu2f2Jxt9EMBP0p6UWmS5U10HxqwHPi9g=
 github.com/lwmacct/260714-go-pkg-fluent v0.2.260714 h1:flTgngqozZj6OfAb+dtZ+wtIPhBrOFShuErfUSV5ty8=
 github.com/lwmacct/260714-go-pkg-fluent v0.2.260714/go.mod h1:1o8WBQdJCF7a0DYfkuBq6GKKXYEEecwQdDn8vZhnfZU=
+github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714 h1:gPeFSHUlnJnkYgYgUD/XULWdkVgR0wAGdvuv81F4tko=
+github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714/go.mod h1:JKA87/dvFFQs+I/7wM+PwUQdV36Na4XOIlPq1sCG2pU=
 github.com/philhofer/fwd v1.2.0 h1:e6DnBTl7vGY+Gz322/ASL4Gyp1FspeMvx1RNDoToZuM=
 github.com/philhofer/fwd v1.2.0/go.mod h1:RqIHx9QI14HlwKwm98g9Re5prTQ6LdeRQn+gXJFxsJM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

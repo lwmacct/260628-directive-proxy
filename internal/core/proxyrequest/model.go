@@ -80,7 +80,9 @@ type Session interface {
 	BeginBodyBuffering(int)
 	DirectiveResolved(int, *url.URL, time.Duration, string, bool, bool)
 	DirectiveFailed(int, time.Duration, string)
+	ConfigureAttempt(int, map[string][]byte) error
 	BeginUpstream(int, *http.Request) bool
 	FinishAttempt(int, bool, error) AttemptAction
+	ObserveUpstreamResponse(int, *http.Response)
 	Complete()
 }

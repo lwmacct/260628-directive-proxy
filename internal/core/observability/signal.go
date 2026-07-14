@@ -1,0 +1,104 @@
+package observability
+
+import (
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
+)
+
+// Signal is an in-process observation. Body slices are borrowed and are only
+// valid for the duration of Trace.Observe.
+type Signal struct {
+	Attempt int
+	Value   any
+}
+
+type RequestStarted struct {
+	Method string
+	URL    string
+	Host   string
+	Header http.Header
+}
+
+type RequestBodyChunk struct {
+	Data   []byte
+	Offset int64
+}
+
+type RequestBodyEnded struct {
+	Total    int64
+	SHA256   string
+	Complete bool
+}
+
+type AttemptStarted struct {
+	Mode     string
+	Backend  string
+	Endpoint string
+	Key      string
+}
+
+type AttemptRejected struct{ Reason string }
+
+type DirectiveResolved struct {
+	Duration      time.Duration
+	PayloadSHA256 string
+	Target        *url.URL
+	TargetChanged bool
+	PlanChanged   bool
+	Metadata      requestmeta.Metadata
+	PluginSpecs   map[string][]byte
+}
+
+type DirectiveFailed struct {
+	Duration time.Duration
+	Code     string
+}
+
+type MetadataBound struct{ Metadata requestmeta.Metadata }
+
+type MetadataChanged struct {
+	Bound    requestmeta.Metadata
+	Observed requestmeta.Metadata
+}
+
+type UpstreamStarted struct {
+	TargetURL string
+	Header    http.Header
+}
+
+type AttemptFinished struct{ Outcome string }
+
+type RetryRequested struct {
+	Trigger          string
+	NextAttempt      int
+	SelectorMetadata requestmeta.Metadata
+}
+
+type UpstreamResponseStarted struct {
+	StatusCode      int
+	Header          http.Header
+	AttemptMetadata requestmeta.Metadata
+	PluginSpecs     map[string][]byte
+}
+
+type DownstreamResponseStarted struct {
+	StatusCode int
+	Header     http.Header
+}
+
+type UpstreamBodyChunk struct{ Data []byte }
+
+type UpstreamBodyEnded struct{ Cause error }
+
+type DownstreamBodyChunk struct{ Data []byte }
+
+type DownstreamBodyEnded struct{}
+
+type RequestCompleted struct {
+	Outcome    string
+	StatusCode int
+	Duration   time.Duration
+}

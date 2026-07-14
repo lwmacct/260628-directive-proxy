@@ -37,7 +37,9 @@ func newTestSource() *Source {
 func TestSourceReadsExactKey(t *testing.T) {
 	server := miniredis.RunT(t)
 	enableRedisJSON(t, server)
-	server.Set("team-a/service-a", `{"target":{"url":"https://api.example.com"}}`)
+	if err := server.Set("team-a/service-a", `{"target":{"url":"https://api.example.com"}}`); err != nil {
+		t.Fatalf("seed Redis directive: %v", err)
+	}
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
 	spec := directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "team-a/service-a"}

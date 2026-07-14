@@ -19,7 +19,6 @@ import (
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
-	corecapture "github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
@@ -119,7 +118,7 @@ func TestHTTPServerAllowsRequesterRetryByMetadataWithoutControlAuthentication(t 
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		RetryAfter:  0,
 		MaxAttempts: 3,
-	}, corecapture.DiscardSink{})
+	}, nil)
 	base := proxy.NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))
 	retryTransport, err := proxy.NewRetryTransport(base, proxy.RetryTransportOptions{
 		TempDir:          t.TempDir(),
@@ -157,7 +156,7 @@ func TestHTTPServerAllowsRequesterRetryByMetadataWithoutControlAuthentication(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &runtime{requests: tracker, proxyTransport: retryTransport, captureSink: corecapture.DiscardSink{}, controlAuth: controlAuth}
+	rt := &runtime{requests: tracker, proxyTransport: retryTransport, controlAuth: controlAuth}
 	handler := newHTTPServer(&cfg, rt).Handler
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
@@ -212,7 +211,9 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`)
+	if err := redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`); err != nil {
+		t.Fatalf("seed Redis directive: %v", err)
+	}
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
 		Type: directive.RemoteTypeRedis,
 		URL:  "redis://" + redisServer.Addr() + "/0",

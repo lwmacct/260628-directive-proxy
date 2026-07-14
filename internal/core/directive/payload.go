@@ -1,8 +1,10 @@
 package directive
 
+import "encoding/json"
+
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "14"
+	TokenVersion = "15"
 	TokenInline  = "i"
 	TokenRemote  = "r"
 )
@@ -32,9 +34,10 @@ type RemoteSpec struct {
 }
 
 type Payload struct {
-	Target  TargetSection  `json:"target"`
-	Proxy   string         `json:"proxy,omitempty"`
-	Headers *HeaderSection `json:"headers,omitempty"`
+	Target  TargetSection              `json:"target"`
+	Proxy   string                     `json:"proxy,omitempty"`
+	Headers *HeaderSection             `json:"headers,omitempty"`
+	Plugins map[string]json.RawMessage `json:"plugins,omitempty"`
 }
 
 type TargetSection struct {

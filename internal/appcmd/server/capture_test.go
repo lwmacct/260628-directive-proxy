@@ -2,37 +2,24 @@ package server
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
-	corecapture "github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
+	llmusageplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmusage"
+	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
-
-type serverCaptureSink struct {
-	mu     sync.Mutex
-	events []corecapture.Event
-}
-
-func (s *serverCaptureSink) Emit(_ string, event corecapture.Event) error {
-	s.mu.Lock()
-	s.events = append(s.events, event)
-	s.mu.Unlock()
-	return nil
-}
-
-func (s *serverCaptureSink) Close() error { return nil }
-func (s *serverCaptureSink) CaptureHealth() corecapture.HealthStatus {
-	return corecapture.HealthStatus{Status: "ok"}
-}
 
 func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.T) {
 	firstSent := make(chan struct{})
@@ -51,13 +38,17 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	}))
 	defer upstream.Close()
 
-	sink := &serverCaptureSink{}
+	output := recordoutput.New("memory")
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(captureplugin.Config{
+		BodyChunkBytes: 8, MaxSSEEventBytes: 1024,
+	})}, []observability.OutputBinding{{Output: output, Routes: []string{"**"}, QueueCapacity: 1024, QueueMaxBytes: 8 << 20}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pipeline.Close(context.Background()) })
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
-		RetryAfter:       0,
-		MaxAttempts:      3,
-		BodyChunkBytes:   8,
-		MaxSSEEventBytes: 1024,
-	}, sink)
+		RetryAfter: 0, MaxAttempts: 3,
+	}, pipeline)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{
 		TempDir:          t.TempDir(),
 		MaxBodyBytes:     1024,
@@ -67,7 +58,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig()
-	rt := &runtime{requests: tracker, proxyTransport: transport, captureSink: sink}
+	rt := &runtime{requests: tracker, proxyTransport: transport, observability: pipeline}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -85,7 +76,11 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("close proxy response body: %v", closeErr)
+		}
+	}()
 	select {
 	case <-firstSent:
 	case <-time.After(time.Second):
@@ -115,27 +110,84 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	var values []string
 	var metadataCaptured bool
 	for time.Now().Before(deadline) {
-		sink.mu.Lock()
 		values = values[:0]
-		for _, event := range sink.events {
-			if event.Kind == "response.sse.event" {
+		for _, event := range output.Records() {
+			if event.Topic == "capture.response.sse.event" {
 				values = append(values, event.Data["data"].(string))
 			}
-			if event.Kind == "request.metadata.bound" {
+			if event.Topic == "capture.request.metadata.bound" {
 				metadata := event.Data["metadata"].(map[string][]string)
 				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
 			}
 		}
-		sink.mu.Unlock()
 		if len(values) == 2 && metadataCaptured {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
 	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured {
-		sink.mu.Lock()
-		allEvents := append([]corecapture.Event(nil), sink.events...)
-		sink.mu.Unlock()
+		allEvents := output.Records()
 		t.Fatalf("unexpected captured events: values=%#v metadata=%t events=%#v", values, metadataCaptured, allEvents)
 	}
+}
+
+func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"resp_proxy","object":"response","model":"gpt-test","usage":{"input_tokens":8,"output_tokens":5,"total_tokens":13}}`)
+	}))
+	defer upstream.Close()
+
+	output := recordoutput.New("memory")
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{llmusageplugin.New(llmusageplugin.Config{})}, []observability.OutputBinding{{
+		Output: output, Routes: []string{"llm.usage.**"}, QueueCapacity: 128, QueueMaxBytes: 1 << 20,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pipeline.Close(context.Background()) })
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, pipeline)
+	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{TempDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultConfig()
+	rt := &runtime{requests: tracker, proxyTransport: transport, observability: pipeline}
+	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
+	defer proxyServer.Close()
+	token, err := directive.Encode(directive.Payload{
+		Target: directive.TargetSection{URL: upstream.URL},
+		Plugins: map[string]json.RawMessage{
+			llmusageplugin.DirectiveName: json.RawMessage(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if readErr != nil || !strings.Contains(string(body), "resp_proxy") {
+		t.Fatalf("unexpected proxy response: body=%q err=%v", body, readErr)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		for _, record := range output.Records() {
+			if record.Topic != "llm.usage.observed" {
+				continue
+			}
+			usage := record.Data["usage"].(map[string]any)
+			if usage["total_tokens"] != int64(13) || record.Data["response_id"] != "resp_proxy" {
+				t.Fatalf("unexpected usage record: %#v", record)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("usage record was not emitted: %#v", output.Records())
 }

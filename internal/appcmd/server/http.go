@@ -38,7 +38,7 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
-	services := handler.Services{Requests: rt.requests, Capture: rt.captureSink}
+	services := handler.Services{Requests: rt.requests, Observability: rt.observability}
 	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
 	controlAPI := limitRequestBody(handler.NewControlEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
 	if rt.controlAuth != nil {

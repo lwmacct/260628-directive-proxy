@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -21,6 +21,36 @@ type rotatingPrepared struct {
 	plans []*Plan
 	errs  []error
 	calls int
+}
+
+func TestRetryTransportRejectsDirectiveSpecForDisabledPluginBeforeUpstream(t *testing.T) {
+	pipeline, err := observability.NewPipeline(context.Background(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, pipeline)
+	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
+	session := tracker.Start(inbound)
+	called := false
+	transport, err := NewRetryTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
+		called = true
+		return nil, nil
+	}), RetryTransportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := url.Parse("https://upstream.example")
+	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
+	ctx = contextWithPreparedRequest(ctx, staticPrepared{resolution: Resolution{Plan: &Plan{
+		Target: target, PluginSpecs: map[string][]byte{"llmusage": []byte(`{"protocol":"openai.responses"}`)},
+	}}}, NewRequestTemplate(inbound))
+	if _, err = transport.RoundTrip(inbound.Clone(ctx)); !errors.Is(err, ErrInvalidDirective) {
+		t.Fatalf("unexpected plugin configuration error: %v", err)
+	}
+	if called {
+		t.Fatal("upstream was called for a disabled directive plugin")
+	}
+	session.Complete()
 }
 
 func (*rotatingPrepared) Kind() string { return "remote" }
@@ -42,7 +72,7 @@ func (p *rotatingPrepared) ResolveAttempt(context.Context, int) (Resolution, err
 }
 
 func TestRetryTransportDoesNotFallBackWhenRemoteRefreshFails(t *testing.T) {
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, capture.DiscardSink{})
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, nil)
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	session := tracker.Start(inbound)
 	target, _ := url.Parse("https://one.example")
@@ -83,7 +113,7 @@ func TestRetryTransportDoesNotFallBackWhenRemoteRefreshFails(t *testing.T) {
 }
 
 func TestRetryTransportReplaysBodyAfterManualRetry(t *testing.T) {
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, capture.DiscardSink{})
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, nil)
 	inbound, err := http.NewRequest(http.MethodPost, "http://proxy.local/chat", strings.NewReader("request-body"))
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +201,7 @@ func TestRetryTransportReplaysBodyAfterManualRetry(t *testing.T) {
 }
 
 func TestRetryTransportRejectsOversizedReplayBodyBeforeUpstream(t *testing.T) {
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, capture.DiscardSink{})
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, nil)
 	req, _ := http.NewRequest(http.MethodPost, "http://proxy.local/", strings.NewReader("too-large"))
 	session := tracker.Start(req)
 	called := false
@@ -195,7 +225,7 @@ func TestRetryTransportRejectsOversizedReplayBodyBeforeUpstream(t *testing.T) {
 }
 
 func TestRetryTransportRefreshesPlanAndRebuildsFromOriginalTemplate(t *testing.T) {
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, capture.DiscardSink{})
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, nil)
 	inbound, err := http.NewRequest(http.MethodPost, "http://proxy.local/chat", strings.NewReader("same-body"))
 	if err != nil {
 		t.Fatal(err)
