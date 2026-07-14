@@ -23,7 +23,7 @@ func Validate(cfg Config) (Config, error) {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	if !cfg.Server.HTTP.Auth.Token.Enabled && !cfg.Server.HTTP.Auth.OIDC.Enabled {
+	if len(cfg.Server.HTTP.Auth.Methods) == 0 {
 		return cfg, ErrInvalidAuth
 	}
 	validatedCore, err := (httpauth.Config{ExternalURLs: cfg.Server.HTTP.Auth.ExternalURLs, Session: cfg.Server.HTTP.Auth.Session}).Validate()
@@ -32,28 +32,36 @@ func Validate(cfg Config) (Config, error) {
 	}
 	cfg.Server.HTTP.Auth.ExternalURLs = validatedCore.ExternalURLs
 	cfg.Server.HTTP.Auth.Session = validatedCore.Session
-	if cfg.Server.HTTP.Auth.Token.Enabled {
-		_, err := cfg.Server.HTTP.Auth.Token.MethodConfig().Validate()
-		if err != nil {
+	seen := make(map[AuthMethod]struct{}, len(cfg.Server.HTTP.Auth.Methods))
+	for _, method := range cfg.Server.HTTP.Auth.Methods {
+		if _, exists := seen[method]; exists {
 			return cfg, ErrInvalidAuth
 		}
-	}
-	if cfg.Server.HTTP.Auth.OIDC.Enabled {
-		validatedAuth, err := cfg.Server.HTTP.Auth.OIDC.MethodConfig().Validate()
-		if err != nil {
+		seen[method] = struct{}{}
+		switch method {
+		case AuthMethodToken:
+			if _, err := cfg.Server.HTTP.Auth.Token.Validate(); err != nil {
+				return cfg, ErrInvalidAuth
+			}
+		case AuthMethodOIDC:
+			validatedAuth, err := cfg.Server.HTTP.Auth.OIDC.MethodConfig().Validate()
+			if err != nil {
+				return cfg, ErrInvalidAuth
+			}
+			cfg.Server.HTTP.Auth.OIDC.Issuer = validatedAuth.Issuer
+			cfg.Server.HTTP.Auth.OIDC.ClientID = validatedAuth.ClientID
+			cfg.Server.HTTP.Auth.OIDC.ClientSecret = validatedAuth.ClientSecret
+			cfg.Server.HTTP.Auth.OIDC.SessionTTL = validatedAuth.SessionTTL
+			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Server.HTTP.Auth.OIDC.AllowedUsers)
+			if err != nil {
+				return cfg, ErrInvalidAuth
+			}
+			_ = authorizer
+			for index, username := range cfg.Server.HTTP.Auth.OIDC.AllowedUsers {
+				cfg.Server.HTTP.Auth.OIDC.AllowedUsers[index] = strings.ToLower(strings.TrimSpace(username))
+			}
+		default:
 			return cfg, ErrInvalidAuth
-		}
-		cfg.Server.HTTP.Auth.OIDC.Issuer = validatedAuth.Issuer
-		cfg.Server.HTTP.Auth.OIDC.ClientID = validatedAuth.ClientID
-		cfg.Server.HTTP.Auth.OIDC.ClientSecret = validatedAuth.ClientSecret
-		cfg.Server.HTTP.Auth.OIDC.SessionTTL = validatedAuth.SessionTTL
-		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Server.HTTP.Auth.OIDC.AllowedUsers)
-		if err != nil {
-			return cfg, ErrInvalidAuth
-		}
-		_ = authorizer
-		for index, username := range cfg.Server.HTTP.Auth.OIDC.AllowedUsers {
-			cfg.Server.HTTP.Auth.OIDC.AllowedUsers[index] = strings.ToLower(strings.TrimSpace(username))
 		}
 	}
 	if cfg.Proxy.Directive.SourceAccess.Enabled {

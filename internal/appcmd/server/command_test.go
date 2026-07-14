@@ -14,7 +14,7 @@ import (
 )
 
 func TestOIDCOnlyConfigurationFromCLI(t *testing.T) {
-	t.Setenv("API_TOKEN_SHA256", "")
+	t.Setenv("AUTH_TOKEN_SHA256", "")
 	t.Setenv("AUTH_SESSION_KEY", base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32))))
 
 	var loaded *config.Config
@@ -34,8 +34,7 @@ func TestOIDCOnlyConfigurationFromCLI(t *testing.T) {
 	root := &cli.Command{Name: "app", Commands: []*cli.Command{server}}
 	err := root.Run(context.Background(), []string{
 		"app", "server",
-		"--http.auth.token.enabled=false",
-		"--http.auth.oidc.enabled=true",
+		"--http.auth.methods=oidc",
 		"--http.auth.oidc.issuer=https://2008.s.lwmacct.com:20088",
 		"--http.auth.oidc.client-id=dproxy",
 		"--http.auth.oidc.allowed-users=lwmacct",
@@ -45,7 +44,7 @@ func TestOIDCOnlyConfigurationFromCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded == nil || loaded.Server.HTTP.Auth.Token.Enabled || !loaded.Server.HTTP.Auth.OIDC.Enabled {
+	if loaded == nil || !slices.Equal(loaded.Server.HTTP.Auth.Methods, []config.AuthMethod{config.AuthMethodOIDC}) {
 		t.Fatalf("unexpected authentication config: %#v", loaded)
 	}
 	if loaded.Server.HTTP.Auth.OIDC.ClientID != "dproxy" ||

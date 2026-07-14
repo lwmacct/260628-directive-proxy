@@ -13,21 +13,20 @@ func validDefaultConfig() Config {
 	cfg := DefaultConfig()
 	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
-		"admin": {Name: "Administrator", SecretSHA256: strings.Repeat("a", 64)},
+		"admin": {Name: "Administrator", TokenSHA256: strings.Repeat("a", 64)},
 	}
 	return cfg
 }
 
 func oidcConfig() Config {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Auth.Token.Enabled = false
+	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC}
 	cfg.Server.HTTP.Auth.OIDC = testOIDCAuth()
 	return cfg
 }
 
 func testOIDCAuth() OIDCAuth {
 	return OIDCAuth{
-		Enabled:      true,
 		Issuer:       "https://2008.s.lwmacct.com:20088",
 		ClientID:     "dproxy",
 		AllowedUsers: []string{"lwmacct"},
@@ -107,7 +106,7 @@ func TestValidateTokenAuth(t *testing.T) {
 		t.Fatalf("validate config: %v", err)
 	}
 	cfg.Server.HTTP.Auth.Token.Credentials["admin"] = statictoken.Credential{
-		Name: "Administrator", SecretSHA256: strings.Repeat("A", 64),
+		Name: "Administrator", TokenSHA256: strings.Repeat("A", 64),
 	}
 	if _, err := Validate(cfg); err != ErrInvalidAuth {
 		t.Fatalf("uppercase token digest was accepted: %v", err)
@@ -116,6 +115,7 @@ func TestValidateTokenAuth(t *testing.T) {
 
 func TestValidateOIDCAndTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
+	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodToken, AuthMethodOIDC}
 	cfg.Server.HTTP.Auth.OIDC = testOIDCAuth()
 
 	if _, err := Validate(cfg); err != nil {
@@ -123,10 +123,13 @@ func TestValidateOIDCAndTokenAuth(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInvalidAuthProviders(t *testing.T) {
+func TestValidateRejectsInvalidAuthMethods(t *testing.T) {
 	for _, mutate := range []func(*Auth){
-		func(cfg *Auth) { cfg.Token.Enabled, cfg.OIDC.Enabled = false, false },
+		func(cfg *Auth) { cfg.Methods = nil },
+		func(cfg *Auth) { cfg.Methods = []AuthMethod{"unknown"} },
+		func(cfg *Auth) { cfg.Methods = []AuthMethod{AuthMethodToken, AuthMethodToken} },
 		func(cfg *Auth) {
+			cfg.Methods = []AuthMethod{AuthMethodToken}
 			cfg.Token.Credentials = nil
 		},
 	} {

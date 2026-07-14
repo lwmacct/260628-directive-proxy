@@ -523,7 +523,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	cfg.Server.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
 	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
-		"admin": {Name: "Administrator", SecretSHA256: digest},
+		"admin": {Name: "Administrator", TokenSHA256: digest},
 	}
 	auth, err := newControlAuth(t.Context(), cfg.Server.HTTP)
 	if err != nil {

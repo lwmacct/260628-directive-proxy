@@ -10,7 +10,7 @@ require (
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
 	github.com/lwmacct/260614-go-pkg-tlsreload v0.13.260630
 	github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626
-	github.com/lwmacct/260711-go-pkg-httpauth v0.5.260714
+	github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714
 	github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/urfave/cli/v3 v3.10.1

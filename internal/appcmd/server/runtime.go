@@ -73,26 +73,28 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 }
 
 func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
-	methods := make([]httpauth.Method, 0, 2)
+	methods := make([]httpauth.Method, 0, len(cfg.Auth.Methods))
 	var authorizers []httpauth.Authorizer
-	if cfg.Auth.Token.Enabled {
-		tokenMethod, err := statictoken.New(types.ControlTokenNamespace, cfg.Auth.Token.MethodConfig())
-		if err != nil {
-			return nil, err
+	for _, configured := range cfg.Auth.Methods {
+		switch configured {
+		case config.AuthMethodToken:
+			tokenMethod, err := statictoken.New(types.ControlTokenNamespace, cfg.Auth.Token)
+			if err != nil {
+				return nil, err
+			}
+			methods = append(methods, tokenMethod)
+		case config.AuthMethodOIDC:
+			oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig(), oidc.Options{})
+			if err != nil {
+				return nil, err
+			}
+			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.OIDC.AllowedUsers)
+			if err != nil {
+				return nil, err
+			}
+			authorizers = append(authorizers, authorizer)
+			methods = append(methods, oidcMethod)
 		}
-		methods = append(methods, tokenMethod)
-	}
-	if cfg.Auth.OIDC.Enabled {
-		oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig(), oidc.Options{})
-		if err != nil {
-			return nil, err
-		}
-		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.OIDC.AllowedUsers)
-		if err != nil {
-			return nil, err
-		}
-		authorizers = append(authorizers, authorizer)
-		methods = append(methods, oidcMethod)
 	}
 	return httpauth.New(httpauth.Config{ExternalURLs: cfg.Auth.ExternalURLs, Session: cfg.Auth.Session}, methods, httpauth.Options{Authorizer: httpauth.AuthorizeAll(authorizers...)})
 }

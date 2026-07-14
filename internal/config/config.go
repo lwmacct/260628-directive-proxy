@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
@@ -39,24 +40,22 @@ type ServerHTTP struct {
 	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
 }
 
+type AuthMethod string
+
+const (
+	AuthMethodOIDC  AuthMethod = "oidc"
+	AuthMethodToken AuthMethod = "token"
+)
+
 type Auth struct {
 	ExternalURLs []string               `json:"external-urls" desc:"允许浏览器访问应用的可信 origin"`
 	Session      httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
-	Token        TokenAuth              `json:"token"           desc:"Token 认证配置"`
-	OIDC         OIDCAuth               `json:"oidc"            desc:"OIDC 认证配置"`
-}
-
-type TokenAuth struct {
-	Enabled     bool                              `json:"enabled"     desc:"是否启用 Token 认证"`
-	Credentials map[string]statictoken.Credential `json:"credentials"`
-}
-
-func (c TokenAuth) MethodConfig() statictoken.Config {
-	return statictoken.Config{Credentials: c.Credentials}
+	Methods      []AuthMethod           `json:"methods"       desc:"启用的认证方式，可选 token、oidc"`
+	Token        statictoken.Config     `json:"token"         desc:"Token 认证配置"`
+	OIDC         OIDCAuth               `json:"oidc"          desc:"OIDC 认证配置"`
 }
 
 type OIDCAuth struct {
-	Enabled      bool          `json:"enabled"       desc:"是否启用 OIDC 认证"`
 	Issuer       string        `json:"issuer"        desc:"Dex issuer URL"`
 	ClientID     string        `json:"client-id"     desc:"Dex OIDC client ID"`
 	ClientSecret string        `json:"client-secret" desc:"Dex confidential client secret；public client 留空"`
@@ -120,19 +119,18 @@ func DefaultConfig() Config {
 			HTTP: ServerHTTP{
 				Listen: ":23198",
 				Auth: Auth{
+					Methods:      []AuthMethod{AuthMethodToken},
 					ExternalURLs: []string{"http://localhost:23199"},
 					Session: httpauth.SessionConfig{
 						Keys: []httpauth.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
 						TTL:  24 * time.Hour,
 					},
-					Token: TokenAuth{
-						Enabled: true,
+					Token: statictoken.Config{
 						Credentials: map[string]statictoken.Credential{
-							"admin": {Name: "Administrator", SecretSHA256: "${API_TOKEN_SHA256}"},
+							"admin": {Name: "Administrator", TokenSHA256: "${AUTH_TOKEN_SHA256}"},
 						},
 					},
 					OIDC: OIDCAuth{
-						Enabled:      false,
 						Issuer:       "https://2008.s.lwmacct.com:20088",
 						ClientID:     "dproxy",
 						AllowedUsers: []string{"lwmacct"},
@@ -182,4 +180,8 @@ func DefaultConfig() Config {
 			},
 		},
 	}
+}
+
+func (c Auth) HasMethod(method AuthMethod) bool {
+	return slices.Contains(c.Methods, method)
 }

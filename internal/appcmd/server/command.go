@@ -34,8 +34,7 @@ func commandFlags() []cli.Flag {
 		&cli.StringFlag{Name: "http.listen", Usage: flagHelp.MustUsage("http.listen"), Value: defaults.Server.HTTP.Listen},
 		&cli.StringSliceFlag{Name: "http.auth.external-urls", Usage: flagHelp.MustUsage("http.auth.external-urls"), Value: defaults.Server.HTTP.Auth.ExternalURLs},
 		&cli.DurationFlag{Name: "http.auth.session.ttl", Usage: flagHelp.MustUsage("http.auth.session.ttl"), Value: defaults.Server.HTTP.Auth.Session.TTL},
-		&cli.BoolFlag{Name: "http.auth.token.enabled", Usage: flagHelp.MustUsage("http.auth.token.enabled"), Value: defaults.Server.HTTP.Auth.Token.Enabled},
-		&cli.BoolFlag{Name: "http.auth.oidc.enabled", Usage: flagHelp.MustUsage("http.auth.oidc.enabled"), Value: defaults.Server.HTTP.Auth.OIDC.Enabled},
+		&cli.StringSliceFlag{Name: "http.auth.methods", Usage: flagHelp.MustUsage("http.auth.methods"), Value: authMethodFlagValues(defaults.Server.HTTP.Auth.Methods)},
 		&cli.StringFlag{Name: "http.auth.oidc.issuer", Usage: flagHelp.MustUsage("http.auth.oidc.issuer"), Value: defaults.Server.HTTP.Auth.OIDC.Issuer},
 		&cli.StringFlag{Name: "http.auth.oidc.client-id", Usage: flagHelp.MustUsage("http.auth.oidc.client-id"), Value: defaults.Server.HTTP.Auth.OIDC.ClientID},
 		&cli.StringFlag{Name: "http.auth.oidc.client-secret", Usage: flagHelp.MustUsage("http.auth.oidc.client-secret"), Value: defaults.Server.HTTP.Auth.OIDC.ClientSecret},
@@ -72,4 +71,12 @@ func commandFlags() []cli.Flag {
 		&cli.DurationFlag{Name: "proxy.directive.remote.redis.client-idle-timeout", Usage: flagHelp.MustUsage("proxy.directive.remote.redis.client-idle-timeout"), Value: defaults.Proxy.Directive.Remote.Redis.ClientIdleTimeout},
 		&cli.IntFlag{Name: "proxy.directive.remote.redis.pool-size", Usage: flagHelp.MustUsage("proxy.directive.remote.redis.pool-size"), Value: defaults.Proxy.Directive.Remote.Redis.PoolSize},
 	}
+}
+
+func authMethodFlagValues(methods []config.AuthMethod) []string {
+	values := make([]string, len(methods))
+	for index, method := range methods {
+		values[index] = string(method)
+	}
+	return values
 }

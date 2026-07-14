@@ -32,17 +32,21 @@ server:
         ttl: 24h0m0s # Maximum browser session lifetime
         cookie-name: "" # Optional browser session cookie name
 
+      # 启用的认证方式，可选 token、oidc
+      methods:
+        - token
+
       # Token 认证配置
       token:
-        enabled: true # 是否启用 Token 认证
+
+        # Static access tokens keyed by credential ID
         credentials:
           admin:
             name: "Administrator" # Display name
-            secret-sha256: "${API_TOKEN_SHA256}" # Lowercase hexadecimal SHA-256 digest of the decoded token secret
+            token-sha256: "${AUTH_TOKEN_SHA256}" # Lowercase hexadecimal SHA-256 digest of the complete access token
 
       # OIDC 认证配置
       oidc:
-        enabled: false # 是否启用 OIDC 认证
         issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
         client-id: "dproxy" # Dex OIDC client ID
         client-secret: "" # Dex confidential client secret；public client 留空
