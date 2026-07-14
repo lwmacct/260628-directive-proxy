@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"net/http"
 )
@@ -16,5 +17,14 @@ var (
 )
 
 type Resolver interface {
-	Resolve(*http.Request) (Resolution, error)
+	Prepare(*http.Request) (PreparedDirective, error)
+}
+
+// PreparedDirective is an immutable token envelope. Inline implementations
+// return the same compiled plan for every attempt; remote implementations must
+// fetch and compile a fresh payload for every ResolveAttempt call.
+type PreparedDirective interface {
+	Kind() string
+	Source() SourceMetadata
+	ResolveAttempt(context.Context, int) (Resolution, error)
 }

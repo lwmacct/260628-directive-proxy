@@ -3,6 +3,8 @@ package proxy
 import (
 	"net/url"
 	"time"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type Plan struct {
@@ -10,6 +12,7 @@ type Plan struct {
 	Proxy      *url.URL
 	HeaderMode HeaderMode
 	HeaderOps  []HeaderOp
+	Metadata   requestmeta.Metadata
 	JoinPath   bool
 }
 
@@ -19,11 +22,28 @@ type Resolution struct {
 }
 
 type SourceMetadata struct {
-	Mode     string
-	Backend  string
-	Endpoint string
-	Key      string
-	Duration time.Duration
+	Mode          string
+	Backend       string
+	Endpoint      string
+	Key           string
+	Duration      time.Duration
+	PayloadSHA256 string
+}
+
+func ClonePlan(in *Plan) *Plan {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Target = cloneURL(in.Target)
+	out.Proxy = cloneURL(in.Proxy)
+	out.HeaderOps = make([]HeaderOp, len(in.HeaderOps))
+	for i, op := range in.HeaderOps {
+		out.HeaderOps[i] = op
+		out.HeaderOps[i].Values = append([]string(nil), op.Values...)
+	}
+	out.Metadata = requestmeta.Clone(in.Metadata)
+	return &out
 }
 
 type HeaderMode string

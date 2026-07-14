@@ -18,6 +18,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/sse"
 )
 
@@ -40,9 +41,12 @@ type proxyRequestSession struct {
 	method        string
 	requestURL    string
 	targetURL     string
+	metadata      requestmeta.Metadata
+	metadataBound bool
 	state         proxyrequest.State
 	attempt       int
 	attemptAt     time.Time
+	upstreamAt    time.Time
 	cancelAttempt func()
 
 	emitMu   sync.Mutex
@@ -79,28 +83,6 @@ type proxyResponseWriter struct {
 }
 
 func (s *proxyRequestSession) TraceID() string { return s.traceID }
-
-func (s *proxyRequestSession) SetTargetURL(target *url.URL) {
-	if s == nil || target == nil {
-		return
-	}
-	s.service.mu.Lock()
-	s.targetURL = redactURL(target.String(), s.service.policy.redactQuery)
-	s.service.mu.Unlock()
-}
-
-func (s *proxyRequestSession) SetDirective(mode, backend, endpoint, key string, duration time.Duration) {
-	if s == nil {
-		return
-	}
-	s.emit("lifecycle", "directive.resolved", 0, map[string]any{
-		"mode":            mode,
-		"backend":         backend,
-		"endpoint":        redactURL(endpoint, s.service.policy.redactQuery),
-		"key":             key,
-		"duration_millis": duration.Milliseconds(),
-	})
-}
 
 func (s *proxyRequestSession) WrapResponseWriter(w http.ResponseWriter) http.ResponseWriter {
 	if s == nil || w == nil {
@@ -154,7 +136,7 @@ func (s *proxyRequestSession) RequestBodyEnd(total int64, digest string, complet
 	})
 }
 
-func (s *proxyRequestSession) BeginAttempt(req *http.Request, cancel func()) int {
+func (s *proxyRequestSession) BeginAttempt(cancel func(), mode, backend, endpoint, key string) int {
 	if s == nil {
 		return 0
 	}
@@ -167,19 +149,120 @@ func (s *proxyRequestSession) BeginAttempt(req *http.Request, cancel func()) int
 	}
 	s.attempt++
 	s.attemptAt = now
+	s.upstreamAt = time.Time{}
 	s.cancelAttempt = cancel
-	s.state = proxyrequest.StateAwaitingResponse
+	s.state = proxyrequest.StateResolvingDirective
 	s.service.active[s.traceID] = s
 	attempt := s.attempt
-	target := s.targetURL
 	s.service.mu.Unlock()
 
-	data := map[string]any{"attempt": attempt, "target_url": target}
+	s.emit("attempt", "attempt.started", attempt, map[string]any{"attempt": attempt})
+	s.emit("lifecycle", "directive.resolve.started", attempt, map[string]any{
+		"mode":     mode,
+		"backend":  backend,
+		"endpoint": redactURL(endpoint, s.service.policy.redactQuery),
+		"key":      key,
+	})
+	return attempt
+}
+
+func (s *proxyRequestSession) BeginBodyBuffering(attempt int) {
+	if s == nil {
+		return
+	}
+	s.service.mu.Lock()
+	if s.attempt == attempt && s.state == proxyrequest.StateResolvingDirective {
+		s.state = proxyrequest.StateBufferingBody
+	}
+	s.service.mu.Unlock()
+}
+
+func (s *proxyRequestSession) BindMetadata(attempt int, observed requestmeta.Metadata) bool {
+	if s == nil {
+		return false
+	}
+	normalized, err := requestmeta.Normalize(observed)
+	if err != nil {
+		return false
+	}
+	s.service.mu.Lock()
+	if s.attempt != attempt {
+		s.service.mu.Unlock()
+		return false
+	}
+	if !s.metadataBound {
+		s.metadata = requestmeta.Clone(normalized)
+		s.metadataBound = true
+		bound := requestmeta.Clone(s.metadata)
+		s.service.mu.Unlock()
+		if len(bound) > 0 {
+			s.emit("request.metadata", "request.metadata.bound", attempt, map[string]any{
+				"metadata": redactMetadata(bound, s.service.policy.redactHeaders),
+			})
+		}
+		return false
+	}
+	bound := requestmeta.Clone(s.metadata)
+	changed := !requestmeta.Equal(bound, normalized)
+	s.service.mu.Unlock()
+	if changed {
+		s.emit("request.metadata", "request.metadata.changed", attempt, map[string]any{
+			"bound_metadata":    redactMetadata(bound, s.service.policy.redactHeaders),
+			"observed_metadata": redactMetadata(normalized, s.service.policy.redactHeaders),
+		})
+	}
+	return changed
+}
+
+func (s *proxyRequestSession) DirectiveResolved(attempt int, target *url.URL, duration time.Duration, payloadSHA256 string, targetChanged, planChanged bool) {
+	if s == nil || target == nil {
+		return
+	}
+	targetURL := redactURL(target.String(), s.service.policy.redactQuery)
+	s.service.mu.Lock()
+	if s.attempt == attempt {
+		s.targetURL = targetURL
+	}
+	s.service.mu.Unlock()
+	s.emit("lifecycle", "directive.resolve.finished", attempt, map[string]any{
+		"duration_millis": duration.Milliseconds(),
+		"payload_sha256":  payloadSHA256,
+		"target_url":      targetURL,
+		"target_changed":  targetChanged,
+		"plan_changed":    planChanged,
+	})
+}
+
+func (s *proxyRequestSession) DirectiveFailed(attempt int, duration time.Duration, code string) {
+	if s == nil {
+		return
+	}
+	s.emit("lifecycle", "directive.resolve.failed", attempt, map[string]any{
+		"duration_millis": duration.Milliseconds(),
+		"error_code":      code,
+	})
+}
+
+func (s *proxyRequestSession) BeginUpstream(attempt int, req *http.Request) bool {
+	if s == nil {
+		return false
+	}
+	now := time.Now().UTC()
+	s.service.mu.Lock()
+	if s.attempt != attempt || s.ctx.Err() != nil {
+		s.service.mu.Unlock()
+		return false
+	}
+	s.upstreamAt = now
+	s.state = proxyrequest.StateAwaitingResponse
+	targetURL := s.targetURL
+	s.service.mu.Unlock()
+	data := map[string]any{"target_url": targetURL}
 	if req != nil {
 		data["headers"] = redactHTTPHeaders(req.Header, s.service.policy.redactHeaders)
 	}
-	s.emit("attempt", "attempt.started", attempt, data)
-	return attempt
+	s.emit("attempt", "attempt.upstream.started", attempt, data)
+	return true
 }
 
 func (s *proxyRequestSession) FinishAttempt(attempt int, responseStarted bool, attemptErr error) proxyrequest.AttemptAction {
@@ -457,6 +540,17 @@ func redactHTTPHeaders(headers http.Header, patterns []string) map[string][]stri
 		}
 	}
 	return result
+}
+
+func redactMetadata(metadata requestmeta.Metadata, patterns []string) map[string][]string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	headers := make(http.Header, len(metadata))
+	for name, values := range metadata {
+		headers[name] = append([]string(nil), values...)
+	}
+	return redactHTTPHeaders(headers, patterns)
 }
 
 func normalizePatterns(values []string) []string {

@@ -9,6 +9,19 @@ import (
 	"testing"
 )
 
+func applyRewrite(r *httputil.ProxyRequest, plan *Plan) {
+	template := NewRequestTemplate(r.In)
+	for _, name := range []string{"Connection", "Upgrade", "Te"} {
+		if values := r.Out.Header.Values(name); len(values) > 0 {
+			template.Header.Del(name)
+			for _, value := range values {
+				template.Header.Add(name, value)
+			}
+		}
+	}
+	r.Out = BuildAttemptRequest(template, plan, r.Out.Context(), r.Out.Body)
+}
+
 func TestApplyHeaderOps(t *testing.T) {
 	headers := http.Header{
 		"X-Test":  []string{"old", "keep"},

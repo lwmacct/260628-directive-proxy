@@ -96,3 +96,36 @@ func TestToPlanAllowsJoinPathFalse(t *testing.T) {
 		t.Fatal("expected join path to be disabled")
 	}
 }
+
+func TestToPlanExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
+	plan, err := ToPlan(Payload{
+		Target: TargetSection{URL: "https://api.example.com"},
+		Headers: &HeaderSection{Ops: []HeaderOp{
+			{Op: "=", Name: "x-dproxy-request-id", Values: []string{"request-1"}},
+			{Op: "+", Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
+			{Op: "=", Name: "X-Upstream", Values: []string{"forwarded"}},
+		}},
+	}, AssembleOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Metadata["X-Dproxy-Request-Id"]; len(got) != 2 || got[0] != "request-1" || got[1] != "request-2" {
+		t.Fatalf("unexpected metadata: %#v", plan.Metadata)
+	}
+	if len(plan.HeaderOps) != 1 || plan.HeaderOps[0].Selector.Pattern != "X-Upstream" {
+		t.Fatalf("metadata leaked into outbound ops: %#v", plan.HeaderOps)
+	}
+}
+
+func TestToPlanRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
+	for _, op := range []HeaderOp{
+		{Op: "=", Name: "X-Dproxy-Trace-ID", Values: []string{"forged"}},
+		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{""}},
+		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
+		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
+	} {
+		if _, err := ToPlan(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: &HeaderSection{Ops: []HeaderOp{op}}}, AssembleOptions{}); err == nil {
+			t.Fatalf("expected invalid metadata op: %#v", op)
+		}
+	}
+}

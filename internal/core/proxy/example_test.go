@@ -7,9 +7,9 @@ import (
 
 type staticResolver struct{}
 
-func (staticResolver) Resolve(*http.Request) (Resolution, error) {
+func (staticResolver) Prepare(*http.Request) (PreparedDirective, error) {
 	target, _ := url.Parse("https://api.example.com/v1")
-	return Resolution{Plan: &Plan{
+	return staticPrepared{resolution: Resolution{Plan: &Plan{
 		Target:   target,
 		JoinPath: true,
 		HeaderOps: []HeaderOp{{
@@ -20,7 +20,7 @@ func (staticResolver) Resolve(*http.Request) (Resolution, error) {
 			},
 			Values: []string{"Bearer upstream-token"},
 		}},
-	}}, nil
+	}}}, nil
 }
 
 func ExampleNewHandler() {

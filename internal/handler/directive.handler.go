@@ -14,19 +14,19 @@ func RegisterDirective(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "encode-directive",
 		Method:      http.MethodPost,
-		Path:        "/directives/encode",
+		Path:        "/api/control/directives/encode",
 		Summary:     "Validate and encode a directive token",
 	}, handler.encode)
 	huma.Register(api, huma.Operation{
 		OperationID: "decode-directive",
 		Method:      http.MethodPost,
-		Path:        "/directives/decode",
+		Path:        "/api/control/directives/decode",
 		Summary:     "Decode and validate a directive token",
 	}, handler.decode)
 	huma.Register(api, huma.Operation{
 		OperationID: "validate-directive",
 		Method:      http.MethodPost,
-		Path:        "/directives/validate",
+		Path:        "/api/control/directives/validate",
 		Summary:     "Validate and normalize a directive document",
 	}, handler.validate)
 }

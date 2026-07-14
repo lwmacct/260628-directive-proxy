@@ -2,6 +2,8 @@ package directive
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -37,6 +39,17 @@ type Resolver struct {
 	maxInlineBytes int64
 }
 
+type inlinePrepared struct {
+	plan *proxy.Plan
+}
+
+type remotePrepared struct {
+	reader        RemoteReader
+	lookupTimeout time.Duration
+	spec          RemoteSpec
+	request       *http.Request
+}
+
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 	var configured ResolverOptions
 	if len(opts) > 0 {
@@ -50,13 +63,16 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 	}
 }
 
-func (r *Resolver) Resolve(req *http.Request) (proxy.Resolution, error) {
+// Prepare validates the stable token envelope exactly once. A remote payload
+// is intentionally not read here: every attempt must observe the current
+// remote directive and must never fall back to an earlier plan.
+func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	raw, ok := directiveTokenFromAuthorization(req)
 	if !ok {
-		return proxy.Resolution{}, proxy.ErrNoMatch
+		return nil, proxy.ErrNoMatch
 	}
 	if r != nil && r.maxTokenBytes > 0 && int64(len(raw)) > r.maxTokenBytes {
-		return proxy.Resolution{}, proxy.ErrDirectiveTokenTooLarge
+		return nil, proxy.ErrDirectiveTokenTooLarge
 	}
 	var maxInlineBytes int64
 	if r != nil {
@@ -64,63 +80,130 @@ func (r *Resolver) Resolve(req *http.Request) (proxy.Resolution, error) {
 	}
 	document, err := DecodeWithOptions(raw, DecodeOptions{MaxInlineBytes: maxInlineBytes})
 	if errors.Is(err, ErrPayloadTooLarge) {
-		return proxy.Resolution{}, proxy.ErrDirectiveTokenTooLarge
+		return nil, proxy.ErrDirectiveTokenTooLarge
 	}
 	if err != nil {
-		return proxy.Resolution{}, proxy.ErrInvalidDirective
+		return nil, proxy.ErrInvalidDirective
 	}
 
-	startedAt := time.Now()
-	payload := document.Payload
 	if document.Kind == KindRemote {
 		if r == nil || r.remoteReader == nil {
-			return proxy.Resolution{}, proxy.ErrRemoteDirectiveUnavailable
+			return nil, proxy.ErrRemoteDirectiveUnavailable
 		}
-		ctx := req.Context()
-		if r.lookupTimeout > 0 {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, r.lookupTimeout)
-			defer cancel()
-		}
-		payloadRaw, err := r.remoteReader.Read(ctx, *document.Remote, req)
-		switch {
-		case errors.Is(err, ErrRemoteNotFound):
-			slog.Warn("remote directive not found", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key)
-			return proxy.Resolution{}, proxy.ErrDirectiveNotFound
-		case errors.Is(err, ErrRemoteMetadataTooBig):
-			return proxy.Resolution{}, proxy.ErrDirectiveMetadataTooLarge
-		case errors.Is(err, ErrRemoteInvalid):
-			return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
-		case err != nil:
-			slog.Warn("resolve remote directive", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key, "error", err)
-			return proxy.Resolution{}, proxy.ErrRemoteDirectiveUnavailable
-		}
-		decoded, decodeErr := DecodePayload(payloadRaw)
-		if decodeErr != nil {
-			slog.Error("decode remote directive", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key, "error", decodeErr)
-			return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
-		}
-		payload = &decoded
+		return &remotePrepared{
+			reader:        r.remoteReader,
+			lookupTimeout: r.lookupTimeout,
+			spec:          cloneRemoteSpec(*document.Remote),
+			request:       snapshotResolveRequest(req),
+		}, nil
 	}
-	plan, err := ToPlan(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}})
+
+	plan, err := ToPlan(*document.Payload, AssembleOptions{StripHeaders: []string{"Authorization"}})
 	if err != nil {
-		if document.Kind == KindRemote {
-			slog.Error("compile remote directive", "directive_backend", document.Remote.Type, "directive_key", document.Remote.Key, "error", err)
-			return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
-		}
+		return nil, proxy.ErrInvalidDirective
+	}
+	return &inlinePrepared{plan: proxy.ClonePlan(plan)}, nil
+}
+
+func (*inlinePrepared) Kind() string { return KindInline }
+
+func (*inlinePrepared) Source() proxy.SourceMetadata {
+	return proxy.SourceMetadata{Mode: KindInline}
+}
+
+func (p *inlinePrepared) ResolveAttempt(context.Context, int) (proxy.Resolution, error) {
+	if p == nil || p.plan == nil {
 		return proxy.Resolution{}, proxy.ErrInvalidDirective
 	}
-	resolution := proxy.Resolution{Plan: plan, Source: proxy.SourceMetadata{Mode: KindInline}}
-	if document.Kind == KindRemote {
-		resolution.Source = proxy.SourceMetadata{
-			Mode:     KindRemote,
-			Backend:  document.Remote.Type,
-			Endpoint: sanitizeRemoteEndpoint(document.Remote.URL),
-			Key:      document.Remote.Key,
-			Duration: time.Since(startedAt),
+	return proxy.Resolution{
+		Plan:   proxy.ClonePlan(p.plan),
+		Source: proxy.SourceMetadata{Mode: KindInline},
+	}, nil
+}
+
+func (*remotePrepared) Kind() string { return KindRemote }
+
+func (p *remotePrepared) Source() proxy.SourceMetadata {
+	if p == nil {
+		return proxy.SourceMetadata{Mode: KindRemote}
+	}
+	return proxy.SourceMetadata{
+		Mode:     KindRemote,
+		Backend:  p.spec.Type,
+		Endpoint: sanitizeRemoteEndpoint(p.spec.URL),
+		Key:      p.spec.Key,
+	}
+}
+
+func (p *remotePrepared) ResolveAttempt(ctx context.Context, _ int) (proxy.Resolution, error) {
+	if p == nil || p.reader == nil || p.request == nil {
+		return proxy.Resolution{}, proxy.ErrRemoteDirectiveUnavailable
+	}
+	startedAt := time.Now()
+	if p.lookupTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, p.lookupTimeout)
+		defer cancel()
+	}
+	resolveRequest := p.request.Clone(ctx)
+	payloadRaw, err := p.reader.Read(ctx, cloneRemoteSpec(p.spec), resolveRequest)
+	switch {
+	case errors.Is(err, ErrRemoteNotFound):
+		slog.Warn("remote directive not found", "directive_backend", p.spec.Type, "directive_key", p.spec.Key)
+		return proxy.Resolution{}, proxy.ErrDirectiveNotFound
+	case errors.Is(err, ErrRemoteMetadataTooBig):
+		return proxy.Resolution{}, proxy.ErrDirectiveMetadataTooLarge
+	case errors.Is(err, ErrRemoteInvalid):
+		return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
+	case err != nil:
+		slog.Warn("resolve remote directive", "directive_backend", p.spec.Type, "directive_key", p.spec.Key, "error", err)
+		return proxy.Resolution{}, proxy.ErrRemoteDirectiveUnavailable
+	}
+	decoded, decodeErr := DecodePayload(payloadRaw)
+	if decodeErr != nil {
+		slog.Error("decode remote directive", "directive_backend", p.spec.Type, "directive_key", p.spec.Key, "error", decodeErr)
+		return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
+	}
+	plan, err := ToPlan(decoded, AssembleOptions{StripHeaders: []string{"Authorization"}})
+	if err != nil {
+		slog.Error("compile remote directive", "directive_backend", p.spec.Type, "directive_key", p.spec.Key, "error", err)
+		return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
+	}
+	digest := sha256.Sum256(payloadRaw)
+	return proxy.Resolution{
+		Plan: plan,
+		Source: proxy.SourceMetadata{
+			Mode:          KindRemote,
+			Backend:       p.spec.Type,
+			Endpoint:      sanitizeRemoteEndpoint(p.spec.URL),
+			Key:           p.spec.Key,
+			Duration:      time.Since(startedAt),
+			PayloadSHA256: hex.EncodeToString(digest[:]),
+		},
+	}, nil
+}
+
+func snapshotResolveRequest(req *http.Request) *http.Request {
+	if req == nil {
+		return nil
+	}
+	snapshot := req.Clone(context.Background())
+	snapshot.Body = http.NoBody
+	snapshot.GetBody = nil
+	snapshot.ContentLength = 0
+	return snapshot
+}
+
+func cloneRemoteSpec(in RemoteSpec) RemoteSpec {
+	out := in
+	out.RequestHeaders = append([]string(nil), in.RequestHeaders...)
+	if in.Headers != nil {
+		out.Headers = make(map[string]string, len(in.Headers))
+		for name, value := range in.Headers {
+			out.Headers[name] = value
 		}
 	}
-	return resolution, nil
+	return out
 }
 
 func sanitizeRemoteEndpoint(raw string) string {

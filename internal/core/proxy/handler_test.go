@@ -21,8 +21,29 @@ type errorResponse struct {
 	} `json:"error"`
 }
 
-func (f resolverFunc) Resolve(req *http.Request) (Resolution, error) {
-	return f(req)
+func (f resolverFunc) Prepare(req *http.Request) (PreparedDirective, error) {
+	resolution, err := f(req)
+	if err != nil {
+		return nil, err
+	}
+	return staticPrepared{resolution: resolution}, nil
+}
+
+type staticPrepared struct {
+	resolution Resolution
+	err        error
+}
+
+type preparedResolver struct{ prepared PreparedDirective }
+
+func (r preparedResolver) Prepare(*http.Request) (PreparedDirective, error) { return r.prepared, nil }
+
+func (p staticPrepared) Kind() string { return p.resolution.Source.Mode }
+
+func (p staticPrepared) Source() SourceMetadata { return p.resolution.Source }
+
+func (p staticPrepared) ResolveAttempt(context.Context, int) (Resolution, error) {
+	return Resolution{Plan: ClonePlan(p.resolution.Plan), Source: p.resolution.Source}, p.err
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -108,6 +129,22 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 		if recorder.Code != tt.status || body.Error.Code != tt.code || body.Error.Message != tt.body {
 			t.Fatalf("unexpected response for %v: status=%d body=%q", tt.err, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+func TestHandlerMapsPerAttemptDirectiveResolutionError(t *testing.T) {
+	handler := NewHandler(preparedResolver{prepared: staticPrepared{err: ErrDirectiveNotFound, resolution: Resolution{Source: SourceMetadata{Mode: "remote"}}}}, http.DefaultTransport, HandlerOptions{})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != "directive_not_found" {
+		t.Fatalf("unexpected error response: %#v", body)
 	}
 }
 

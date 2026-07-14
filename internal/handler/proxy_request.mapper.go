@@ -7,22 +7,36 @@ import (
 )
 
 func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) ActiveProxyRequestDTO {
-	waiting := now.Sub(item.AttemptStartedAt).Milliseconds()
+	waitStartedAt := item.AttemptStartedAt
+	var upstreamStartedAt *time.Time
+	var retryableAt *time.Time
+	if !item.UpstreamStartedAt.IsZero() {
+		value := item.UpstreamStartedAt
+		upstreamStartedAt = &value
+		waitStartedAt = value
+	}
+	if !item.RetryableAt.IsZero() {
+		value := item.RetryableAt
+		retryableAt = &value
+	}
+	waiting := now.Sub(waitStartedAt).Milliseconds()
 	if waiting < 0 {
 		waiting = 0
 	}
 	return ActiveProxyRequestDTO{
-		TraceID:          item.TraceID,
-		State:            string(item.State),
-		Method:           item.Method,
-		URL:              item.URL,
-		TargetURL:        item.TargetURL,
-		StartedAt:        item.StartedAt,
-		Attempt:          item.Attempt,
-		AttemptStartedAt: item.AttemptStartedAt,
-		WaitingMillis:    waiting,
-		RetryableAt:      item.RetryableAt,
-		Retryable:        !now.Before(item.RetryableAt) && item.State == proxyrequest.StateAwaitingResponse && item.Attempt < item.MaxAttempts,
-		MaxAttempts:      item.MaxAttempts,
+		TraceID:           item.TraceID,
+		Metadata:          map[string][]string(item.Metadata),
+		State:             string(item.State),
+		Method:            item.Method,
+		URL:               item.URL,
+		TargetURL:         item.TargetURL,
+		StartedAt:         item.StartedAt,
+		Attempt:           item.Attempt,
+		AttemptStartedAt:  item.AttemptStartedAt,
+		UpstreamStartedAt: upstreamStartedAt,
+		WaitingMillis:     waiting,
+		RetryableAt:       retryableAt,
+		Retryable:         retryableAt != nil && !now.Before(*retryableAt) && item.State == proxyrequest.StateAwaitingResponse && item.Attempt < item.MaxAttempts,
+		MaxAttempts:       item.MaxAttempts,
 	}
 }

@@ -27,16 +27,18 @@ type HandlerOptions struct {
 }
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
+	if _, ok := transport.(interface{ orchestratesPreparedRequests() }); !ok {
+		wrapped, err := NewRetryTransport(transport, RetryTransportOptions{})
+		if err == nil {
+			transport = wrapped
+		}
+	}
 	proxy := &httputil.ReverseProxy{
 		// Flush every write so SSE/NDJSON style responses are forwarded promptly.
 		FlushInterval: -1,
-		Rewrite: func(r *httputil.ProxyRequest) {
-			d, _ := PlanFromContext(r.In.Context())
-			applyRewrite(r, d)
-			if d != nil && d.Proxy != nil {
-				r.Out = withRequestProxy(r.Out, d.Proxy)
-			}
-		},
+		// RetryTransport rebuilds every outbound attempt from the immutable
+		// inbound template after resolving that attempt's directive.
+		Rewrite:      func(*httputil.ProxyRequest) {},
 		ErrorHandler: handleProxyError,
 		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
 		Transport:    transport,
@@ -65,6 +67,13 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	if errors.Is(err, ErrActiveCapacity) {
 		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "active_request_capacity_unavailable", "proxy: active request capacity is unavailable")
+		return
+	}
+	if errors.Is(err, ErrResolverFailed) {
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
+		return
+	}
+	if writeDirectiveError(w, err) {
 		return
 	}
 	slog.Error("proxy error", "error", err, "path", requestPath(r))
@@ -96,7 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			defer session.Complete()
 		}
 	}
-	resolution, err := h.resolver.Resolve(r)
+	prepared, err := h.resolver.Prepare(r)
 	if errors.Is(err, ErrNoMatch) {
 		if h.next != nil {
 			h.next.ServeHTTP(w, r)
@@ -118,41 +127,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if isRequestCanceled(r) {
 			return
 		}
-		switch {
-		case errors.Is(err, ErrInvalidDirective):
-			WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_directive", "directive: invalid proxy directive payload")
-			return
-		case errors.Is(err, ErrDirectiveTokenTooLarge):
-			WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large")
-			return
-		case errors.Is(err, ErrDirectiveNotFound):
-			WriteProxyErrorJSON(w, http.StatusNotFound, "directive_not_found", "directive: reference not found")
-			return
-		case errors.Is(err, ErrRemoteDirectiveUnavailable):
-			WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable")
-			return
-		case errors.Is(err, ErrDirectiveMetadataTooLarge):
-			WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "request_metadata_too_large", "directive: request metadata is too large")
-			return
-		case errors.Is(err, ErrRemoteDirectiveInvalid):
-			WriteProxyErrorJSON(w, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid")
+		if writeDirectiveError(w, err) {
 			return
 		}
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
-	d := resolution.Plan
-	if d == nil || d.Target == nil {
-		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
-		return
-	}
-	if session != nil {
-		session.SetTargetURL(BuildOutboundURL(d.Target, r.URL, d.JoinPath))
-		session.SetDirective(resolution.Source.Mode, resolution.Source.Backend, resolution.Source.Endpoint, resolution.Source.Key, resolution.Source.Duration)
-	}
-	ctx := ContextWithPlan(r.Context(), d)
+	template := NewRequestTemplate(r)
+	ctx := contextWithPreparedRequest(r.Context(), prepared, template)
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
+}
+
+func writeDirectiveError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, ErrInvalidDirective):
+		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_directive", "directive: invalid proxy directive payload")
+	case errors.Is(err, ErrDirectiveTokenTooLarge):
+		WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large")
+	case errors.Is(err, ErrDirectiveNotFound):
+		WriteProxyErrorJSON(w, http.StatusNotFound, "directive_not_found", "directive: reference not found")
+	case errors.Is(err, ErrRemoteDirectiveUnavailable):
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable")
+	case errors.Is(err, ErrDirectiveMetadataTooLarge):
+		WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "request_metadata_too_large", "directive: request metadata is too large")
+	case errors.Is(err, ErrRemoteDirectiveInvalid):
+		WriteProxyErrorJSON(w, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid")
+	default:
+		return false
+	}
+	return true
 }
 func WriteProxyErrorJSON(w http.ResponseWriter, status int, code, message string) {
 	writeProxyErrorJSONBody(w, status, proxyErrorJSONBody(code, message))

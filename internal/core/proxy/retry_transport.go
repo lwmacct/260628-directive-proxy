@@ -4,20 +4,25 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 var (
 	ErrReplayBodyTooLarge = errors.New("proxy request replay body is too large")
 	ErrReplayBudgetFull   = errors.New("proxy request replay budget is full")
 	ErrActiveCapacity     = errors.New("proxy active request capacity is full")
+	ErrResolverFailed     = errors.New("proxy directive resolver failed")
 )
 
 type RetryTransportOptions struct {
@@ -32,6 +37,8 @@ type RetryTransport struct {
 	options   RetryTransportOptions
 	usedBytes atomic.Int64
 }
+
+func (*RetryTransport) orchestratesPreparedRequests() {}
 
 func NewRetryTransport(base http.RoundTripper, options RetryTransportOptions) (*RetryTransport, error) {
 	if base == nil {
@@ -58,35 +65,101 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t == nil || t.base == nil || req == nil {
 		return nil, errors.New("proxy retry transport is unavailable")
 	}
-	session, tracked := proxyrequest.SessionFromContext(req.Context())
-	if !tracked || session == nil {
+	prepared, ok := preparedRequestFromContext(req.Context())
+	if !ok {
 		return t.base.RoundTrip(req)
 	}
-	replay, err := t.prepareReplay(req, session)
-	if err != nil {
-		return nil, err
+	session, tracked := proxyrequest.SessionFromContext(req.Context())
+	if !tracked || session == nil {
+		return t.roundTripOnce(req, prepared)
 	}
-	defer replay.Close()
 
+	var replay *replayBody
+	var previousFingerprint string
+	var previousTarget string
+	defer func() {
+		if replay != nil {
+			_ = replay.Close()
+		}
+	}()
 	for {
 		if err := req.Context().Err(); err != nil {
 			return nil, err
 		}
 		attemptCtx, cancel := context.WithCancel(req.Context())
-		attemptRequest := req.Clone(attemptCtx)
+		source := prepared.directive.Source()
+		attempt := session.BeginAttempt(cancel, source.Mode, source.Backend, source.Endpoint, source.Key)
+		if attempt == 0 {
+			cancel()
+			return nil, ErrActiveCapacity
+		}
+		resolveStartedAt := time.Now()
+		resolution, resolveErr := prepared.directive.ResolveAttempt(attemptCtx, attempt)
+		resolveDuration := time.Since(resolveStartedAt)
+		if resolveErr != nil {
+			session.DirectiveFailed(attempt, resolveDuration, directiveErrorCode(resolveErr))
+			session.FinishAttempt(attempt, false, resolveErr)
+			cancel()
+			return nil, resolveErr
+		}
+		if resolution.Plan == nil || resolution.Plan.Target == nil {
+			session.DirectiveFailed(attempt, resolveDuration, "resolver_failed")
+			session.FinishAttempt(attempt, false, ErrResolverFailed)
+			cancel()
+			return nil, ErrResolverFailed
+		}
+		normalizedMetadata, metadataErr := requestmeta.Normalize(resolution.Plan.Metadata)
+		if metadataErr != nil {
+			session.DirectiveFailed(attempt, resolveDuration, "resolver_failed")
+			session.FinishAttempt(attempt, false, ErrResolverFailed)
+			cancel()
+			return nil, ErrResolverFailed
+		}
+		resolution.Plan.Metadata = normalizedMetadata
+		fingerprint := planFingerprint(resolution.Plan)
+		planChanged := previousFingerprint != "" && previousFingerprint != fingerprint
+		previousFingerprint = fingerprint
+		target := BuildOutboundURL(resolution.Plan.Target, prepared.template.URL, resolution.Plan.JoinPath)
+		targetValue := urlString(target)
+		targetChanged := previousTarget != "" && previousTarget != targetValue
+		previousTarget = targetValue
+		session.BindMetadata(attempt, resolution.Plan.Metadata)
+		session.DirectiveResolved(attempt, target, resolveDuration, resolution.Source.PayloadSHA256, targetChanged, planChanged)
+
+		if replay == nil {
+			session.BeginBodyBuffering(attempt)
+			var replayErr error
+			replay, replayErr = t.prepareReplay(req, session)
+			if replayErr != nil {
+				session.FinishAttempt(attempt, false, replayErr)
+				cancel()
+				return nil, replayErr
+			}
+		}
 		body, bodyErr := replay.Open()
 		if bodyErr != nil {
+			session.FinishAttempt(attempt, false, bodyErr)
 			cancel()
 			return nil, bodyErr
+		}
+		attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, attemptCtx, body)
+		if attemptRequest == nil {
+			_ = body.Close()
+			session.FinishAttempt(attempt, false, ErrResolverFailed)
+			cancel()
+			return nil, ErrResolverFailed
 		}
 		attemptRequest.Body = body
 		attemptRequest.GetBody = func() (io.ReadCloser, error) { return replay.Open() }
 		attemptRequest.ContentLength = replay.Size()
 		attemptRequest.TransferEncoding = nil
-		attempt := session.BeginAttempt(attemptRequest, cancel)
-		if attempt == 0 {
+		if !session.BeginUpstream(attempt, attemptRequest) {
+			_ = body.Close()
 			cancel()
-			return nil, ErrActiveCapacity
+			if err := req.Context().Err(); err != nil {
+				return nil, err
+			}
+			return nil, context.Canceled
 		}
 		response, roundTripErr := t.base.RoundTrip(attemptRequest)
 		action := session.FinishAttempt(attempt, response != nil && roundTripErr == nil, roundTripErr)
@@ -104,6 +177,79 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancel}
 		return response, roundTripErr
 	}
+}
+
+func (t *RetryTransport) roundTripOnce(req *http.Request, prepared preparedRequest) (*http.Response, error) {
+	resolution, err := prepared.directive.ResolveAttempt(req.Context(), 1)
+	if err != nil {
+		return nil, err
+	}
+	if resolution.Plan == nil || resolution.Plan.Target == nil {
+		return nil, ErrResolverFailed
+	}
+	normalizedMetadata, metadataErr := requestmeta.Normalize(resolution.Plan.Metadata)
+	if metadataErr != nil {
+		return nil, ErrResolverFailed
+	}
+	resolution.Plan.Metadata = normalizedMetadata
+	attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, req.Context(), req.Body)
+	if attemptRequest == nil {
+		return nil, ErrResolverFailed
+	}
+	attemptRequest.GetBody = req.GetBody
+	return t.base.RoundTrip(attemptRequest)
+}
+
+func directiveErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrInvalidDirective):
+		return "invalid_directive"
+	case errors.Is(err, ErrDirectiveTokenTooLarge):
+		return "directive_token_too_large"
+	case errors.Is(err, ErrDirectiveNotFound):
+		return "directive_not_found"
+	case errors.Is(err, ErrRemoteDirectiveUnavailable):
+		return "remote_unavailable"
+	case errors.Is(err, ErrDirectiveMetadataTooLarge):
+		return "request_metadata_too_large"
+	case errors.Is(err, ErrRemoteDirectiveInvalid):
+		return "remote_response_invalid"
+	default:
+		return "resolver_failed"
+	}
+}
+
+func planFingerprint(plan *Plan) string {
+	if plan == nil {
+		return ""
+	}
+	data, err := json.Marshal(struct {
+		Target     string
+		Proxy      string
+		HeaderMode HeaderMode
+		HeaderOps  []HeaderOp
+		Metadata   map[string][]string
+		JoinPath   bool
+	}{
+		Target:     urlString(plan.Target),
+		Proxy:      urlString(plan.Proxy),
+		HeaderMode: plan.HeaderMode,
+		HeaderOps:  plan.HeaderOps,
+		Metadata:   plan.Metadata,
+		JoinPath:   plan.JoinPath,
+	})
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func urlString(value *url.URL) string {
+	if value == nil {
+		return ""
+	}
+	return value.String()
 }
 
 type cancelOnCloseBody struct {

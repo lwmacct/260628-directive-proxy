@@ -903,7 +903,7 @@ async function directiveCodecRequest(
   body: DirectiveDocument | { token: string },
   signal?: AbortSignal,
 ): Promise<DirectiveCodecResponse> {
-  const response = await apiFetch(`/api/directives/${action}`, {
+  const response = await apiFetch(`/api/control/directives/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

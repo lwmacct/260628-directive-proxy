@@ -8,15 +8,16 @@
 
 ## APIs
 
-| Method | Path                                | Operation                               | Tags | Handler    | Register               | File                                        |
-| ------ | ----------------------------------- | --------------------------------------- | ---- | ---------- | ---------------------- | ------------------------------------------- |
-| `POST` | `/directives/decode`                | `decode-directive`                      |      | `decode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
-| `POST` | `/directives/encode`                | `encode-directive`                      |      | `encode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
-| `POST` | `/directives/validate`              | `validate-directive`                    |      | `validate` | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
-| `GET`  | `/health`                           | `get-health`                            |      | `get`      | `RegisterHealth`       | `internal/handler/health.handler.go`        |
-| `GET`  | `/proxy-requests/awaiting-response` | `list-proxy-requests-awaiting-response` |      | `list`     | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
-| `GET`  | `/proxy-requests/{trace_id}`        | `get-active-proxy-request`              |      | `get`      | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
-| `POST` | `/proxy-requests/{trace_id}/retry`  | `retry-active-proxy-request`            |      | `retry`    | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| Method | Path                                             | Operation                    | Tags | Handler    | Register               | File                                        |
+| ------ | ------------------------------------------------ | ---------------------------- | ---- | ---------- | ---------------------- | ------------------------------------------- |
+| `POST` | `/api/control/directives/decode`                 | `decode-directive`           |      | `decode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `POST` | `/api/control/directives/encode`                 | `encode-directive`           |      | `encode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `POST` | `/api/control/directives/validate`               | `validate-directive`         |      | `validate` | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `GET`  | `/api/control/proxy-requests`                    | `list-active-proxy-requests` |      | `list`     | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `GET`  | `/api/control/proxy-requests/{trace_id}`         | `get-active-proxy-request`   |      | `get`      | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `POST` | `/api/control/proxy-requests/{trace_id}/retries` | `retry-active-proxy-request` |      | `retry`    | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `POST` | `/api/public/request-retries`                    | `request-proxy-retry`        |      | `retry`    | `RegisterRequestRetry` | `internal/handler/request_retry.handler.go` |
+| `GET`  | `/health`                                        | `get-health`                 |      | `get`      | `RegisterHealth`       | `internal/handler/health.handler.go`        |
 
 ## Handlers
 
@@ -25,6 +26,7 @@
 | `directive`     | `directiveHandler`    | `RegisterDirective`    | `internal/handler/directive.handler.go`     | decode, encode, validate |
 | `health`        | `healthHandler`       | `RegisterHealth`       | `internal/handler/health.handler.go`        | get                      |
 | `proxy_request` | `proxyRequestHandler` | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` | get, list, retry         |
+| `request_retry` | `requestRetryHandler` | `RegisterRequestRetry` | `internal/handler/request_retry.handler.go` | retry                    |
 
 ## Services
 

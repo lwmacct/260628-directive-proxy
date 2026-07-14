@@ -13,7 +13,10 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/handler"
 )
 
-const httpAPIPrefix = "/api"
+const (
+	publicAPIPrefix  = "/api/public"
+	controlAPIPrefix = "/api/control"
+)
 
 func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 	httpCfg := cfg.Server.HTTP
@@ -35,10 +38,16 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
-	control := newControlHTTPHandler(cfg, rt)
+	services := handler.Services{Requests: rt.requests, Capture: rt.captureSink}
+	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
+	controlAPI := limitRequestBody(handler.NewControlEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
+	if rt.controlAuth != nil {
+		controlAPI = rt.controlAuth.RequireAccess(controlAPI)
+	}
+	fallback := newFallbackHTTPHandler(rt, handler.NewSystemEndpoint(services).Handler())
 	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.requests, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
-		return routeDirectiveRequests(directiveProxy, control)
+		return routeHTTPRequests(publicAPI, controlAPI, directiveProxy, fallback)
 	}
 	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
@@ -46,29 +55,34 @@ func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	if rt.sourceAccess != nil {
 		protectedDirective = rt.sourceAccess.RequireAccess(directiveProxy)
 	}
-	return routeDirectiveRequests(protectedDirective, control)
+	return routeHTTPRequests(publicAPI, controlAPI, protectedDirective, fallback)
 }
 
-func routeDirectiveRequests(directiveHandler, controlHandler http.Handler) http.Handler {
+func routeHTTPRequests(publicAPI, controlAPI, directiveHandler, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if directive.MatchesRequest(r) {
+		switch {
+		case pathWithin(r.URL.Path, publicAPIPrefix):
+			publicAPI.ServeHTTP(w, r)
+		case pathWithin(r.URL.Path, controlAPIPrefix):
+			controlAPI.ServeHTTP(w, r)
+		case directive.MatchesRequest(r):
 			directiveHandler.ServeHTTP(w, r)
-			return
+		default:
+			fallback.ServeHTTP(w, r)
 		}
-		controlHandler.ServeHTTP(w, r)
 	})
 }
 
-func newControlHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
+func pathWithin(requestPath, prefix string) bool {
+	return requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/")
+}
+
+func newFallbackHTTPHandler(rt *runtime, systemAPI http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	api := handler.NewEndpoint(handler.Services{Requests: rt.requests, Capture: rt.captureSink}).Handler()
-	protectedAPI := http.StripPrefix(httpAPIPrefix, limitRequestBody(api, cfg.Server.HTTP.MaxAPIBodyBytes))
 	if rt.controlAuth != nil {
-		protectedAPI = rt.controlAuth.RequireAccess(protectedAPI)
 		mux.Handle("/auth/", rt.controlAuth.Handler())
 	}
-	mux.Handle(httpAPIPrefix+"/", protectedAPI)
-	mux.Handle("/health", api)
+	mux.Handle("/health", systemAPI)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
 		mux.Handle("/", spaFileServer(webRoot))
 	}

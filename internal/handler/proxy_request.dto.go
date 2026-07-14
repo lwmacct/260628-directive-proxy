@@ -12,18 +12,20 @@ type ActiveProxyRequestSnapshotDTO struct {
 }
 
 type ActiveProxyRequestDTO struct {
-	TraceID          string    `json:"trace_id"`
-	State            string    `json:"state"`
-	Method           string    `json:"method"`
-	URL              string    `json:"url"`
-	TargetURL        string    `json:"target_url"`
-	StartedAt        time.Time `json:"started_at"`
-	Attempt          int       `json:"attempt"`
-	AttemptStartedAt time.Time `json:"attempt_started_at"`
-	WaitingMillis    int64     `json:"waiting_millis"`
-	RetryableAt      time.Time `json:"retryable_at"`
-	Retryable        bool      `json:"retryable"`
-	MaxAttempts      int       `json:"max_attempts"`
+	TraceID           string              `json:"trace_id"`
+	Metadata          map[string][]string `json:"metadata,omitempty"`
+	State             string              `json:"state"`
+	Method            string              `json:"method"`
+	URL               string              `json:"url"`
+	TargetURL         string              `json:"target_url"`
+	StartedAt         time.Time           `json:"started_at"`
+	Attempt           int                 `json:"attempt"`
+	AttemptStartedAt  time.Time           `json:"attempt_started_at"`
+	UpstreamStartedAt *time.Time          `json:"upstream_started_at,omitempty"`
+	WaitingMillis     int64               `json:"waiting_millis"`
+	RetryableAt       *time.Time          `json:"retryable_at,omitempty"`
+	Retryable         bool                `json:"retryable"`
+	MaxAttempts       int                 `json:"max_attempts"`
 }
 
 type GetActiveProxyRequestInputDTO struct {

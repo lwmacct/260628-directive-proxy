@@ -65,12 +65,6 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 		t.Fatalf("unexpected http listen: %q", srv.Addr)
 	}
 
-	healthReq := httptest.NewRequest(http.MethodGet, "http://control.local/api/health", nil)
-	healthRecorder := httptest.NewRecorder()
-	srv.Handler.ServeHTTP(healthRecorder, healthReq)
-	if healthRecorder.Code != http.StatusOK {
-		t.Fatalf("unexpected health status: %d", healthRecorder.Code)
-	}
 	rootHealthReq := httptest.NewRequest(http.MethodGet, "http://control.local/health", nil)
 	rootHealthRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(rootHealthRecorder, rootHealthReq)
@@ -89,8 +83,15 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	if proxyPath != "/api/resources" {
 		t.Fatalf("proxy path was modified: %q", proxyPath)
 	}
+	reservedReq := httptest.NewRequest(http.MethodPost, "http://service.local/api/public/unknown", nil)
+	reservedReq.Header.Set("Authorization", "Bearer "+token)
+	reservedRecorder := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(reservedRecorder, reservedReq)
+	if reservedRecorder.Code != http.StatusNotFound || proxyPath != "/api/resources" {
+		t.Fatalf("reserved public API path reached data plane: status=%d proxy_path=%q", reservedRecorder.Code, proxyPath)
+	}
 
-	ordinaryBearerReq := httptest.NewRequest(http.MethodGet, "http://service.local/api/health", nil)
+	ordinaryBearerReq := httptest.NewRequest(http.MethodGet, "http://service.local/health", nil)
 	ordinaryBearerReq.Header.Set("Authorization", "Bearer upstream-token")
 	ordinaryBearerRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(ordinaryBearerRecorder, ordinaryBearerReq)
@@ -99,8 +100,22 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	}
 }
 
-func TestHTTPServerListsAndRetriesRequestAwaitingUpstreamResponse(t *testing.T) {
+func TestHTTPServerAllowsRequesterRetryByMetadataWithoutControlAuthentication(t *testing.T) {
 	cfg := config.DefaultConfig()
+	controlToken := "dpctl.10.admin." + strings.Repeat("Z", 32)
+	digest, err := statictoken.Digest(types.ControlTokenNamespace, controlToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Server.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
+	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
+	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
+		"admin": {Name: "Administrator", TokenSHA256: digest},
+	}
+	controlAuth, err := newControlAuth(t.Context(), cfg.Server.HTTP)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		RetryAfter:  0,
 		MaxAttempts: 3,
@@ -121,6 +136,9 @@ func TestHTTPServerListsAndRetriesRequestAwaitingUpstreamResponse(t *testing.T) 
 		if readErr != nil || string(body) != "payload" {
 			t.Errorf("unexpected upstream body: body=%q err=%v", body, readErr)
 		}
+		if value := r.Header.Get("X-Dproxy-Request-ID"); value != "" {
+			t.Errorf("request metadata leaked upstream: %q", value)
+		}
 		if calls.Add(1) == 1 {
 			close(firstStarted)
 			<-r.Context().Done()
@@ -130,11 +148,16 @@ func TestHTTPServerListsAndRetriesRequestAwaitingUpstreamResponse(t *testing.T) 
 		_, _ = io.WriteString(w, "retried")
 	}))
 	defer upstream.Close()
-	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
+	token, err := directive.Encode(directive.Payload{
+		Target: directive.TargetSection{URL: upstream.URL},
+		Headers: &directive.HeaderSection{Ops: []directive.HeaderOp{{
+			Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"client-request-1"},
+		}}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &runtime{requests: tracker, proxyTransport: retryTransport, captureSink: corecapture.DiscardSink{}}
+	rt := &runtime{requests: tracker, proxyTransport: retryTransport, captureSink: corecapture.DiscardSink{}, controlAuth: controlAuth}
 	handler := newHTTPServer(&cfg, rt).Handler
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
@@ -150,23 +173,19 @@ func TestHTTPServerListsAndRetriesRequestAwaitingUpstreamResponse(t *testing.T) 
 	case <-time.After(time.Second):
 		t.Fatal("first upstream attempt did not start")
 	}
-	listRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "http://control.local/api/proxy-requests/awaiting-response", nil))
-	var listBody struct {
-		Items []struct {
-			TraceID string `json:"trace_id"`
-			Attempt int    `json:"attempt"`
-		} `json:"items"`
-	}
-	if listRecorder.Code != http.StatusOK || json.Unmarshal(listRecorder.Body.Bytes(), &listBody) != nil || len(listBody.Items) != 1 {
-		t.Fatalf("unexpected active request list: status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
-	}
-	retryReq := httptest.NewRequest(http.MethodPost, "http://control.local/api/proxy-requests/"+listBody.Items[0].TraceID+"/retry", strings.NewReader(`{"expected_attempt":1}`))
+	retryReq := httptest.NewRequest(http.MethodPost, "http://control.local/api/public/request-retries", strings.NewReader(`{"metadata":{"X-Dproxy-Request-ID":"client-request-1"},"expected_attempt":1}`))
 	retryReq.Header.Set("Content-Type", "application/json")
+	retryReq.Header.Set("Authorization", "Bearer "+token)
 	retryRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(retryRecorder, retryReq)
 	if retryRecorder.Code != http.StatusAccepted {
 		t.Fatalf("unexpected retry response: status=%d body=%s", retryRecorder.Code, retryRecorder.Body.String())
+	}
+	var retryBody struct {
+		TraceID string `json:"trace_id"`
+	}
+	if err := json.Unmarshal(retryRecorder.Body.Bytes(), &retryBody); err != nil || retryBody.TraceID == "" {
+		t.Fatalf("unexpected retry response body: body=%s err=%v", retryRecorder.Body.String(), err)
 	}
 	select {
 	case <-proxyDone:
@@ -176,7 +195,7 @@ func TestHTTPServerListsAndRetriesRequestAwaitingUpstreamResponse(t *testing.T) 
 	if proxyRecorder.Code != http.StatusCreated || proxyRecorder.Body.String() != "retried" || calls.Load() != 2 {
 		t.Fatalf("unexpected retried response: status=%d body=%q calls=%d", proxyRecorder.Code, proxyRecorder.Body.String(), calls.Load())
 	}
-	if proxyRecorder.Header().Get("X-Dproxy-Trace-ID") != listBody.Items[0].TraceID {
+	if proxyRecorder.Header().Get("X-Dproxy-Trace-ID") != retryBody.TraceID {
 		t.Fatalf("trace ID response header mismatch: %#v", proxyRecorder.Header())
 	}
 }
@@ -499,7 +518,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	}
 
 	unauthenticated := httptest.NewRecorder()
-	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-requests/awaiting-response", nil))
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/control/proxy-requests", nil))
 	if unauthenticated.Code != http.StatusUnauthorized {
 		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
 	}
@@ -512,7 +531,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
 	}
 
-	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-requests/awaiting-response", nil)
+	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/control/proxy-requests", nil)
 	protectedRequest.AddCookie(login.Result().Cookies()[0])
 	protected := httptest.NewRecorder()
 	handler.ServeHTTP(protected, protectedRequest)
@@ -520,7 +539,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
 	}
 
-	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/proxy-requests/awaiting-response", nil)
+	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/control/proxy-requests", nil)
 	bearerRequest.Header.Set("Authorization", "Bearer "+token)
 	bearer := httptest.NewRecorder()
 	handler.ServeHTTP(bearer, bearerRequest)

@@ -3,7 +3,7 @@
 ## Identity
 
 - `trace_id`：32 字符小写十六进制字符串，标识一个逻辑代理请求，所有 retry attempt 共用。
-- `attempt_id`：`<trace_id>:a<N>`，标识一次上游 `RoundTrip`。
+- `attempt_id`：`<trace_id>:a<N>`，标识一次完整尝试（指令解析，以及解析成功后的可选上游 `RoundTrip`）。
 - `record_id`：`<trace_id>:<sequence>`，ACK 丢失导致重发时保持不变，外部存储必须据此幂等。
 - `sequence`：单个 trace 内从 1 开始严格递增。不同 trace 不保证全局顺序。
 
@@ -15,15 +15,22 @@
 
 | Tag suffix | Kinds |
 | --- | --- |
-| `lifecycle` | `request.started`, `directive.resolved`, `retry.requested`, `request.completed` |
+| `lifecycle` | `request.started`, `directive.resolve.started`, `directive.resolve.finished`, `directive.resolve.failed`, `retry.requested`, `request.completed` |
 | `request.headers` | `request.headers` |
+| `request.metadata` | `request.metadata.bound`, `request.metadata.changed` |
 | `request.body` | `request.body.chunk`, `request.body.end` |
-| `attempt` | `attempt.started`, `attempt.finished` |
+| `attempt` | `attempt.started`, `attempt.upstream.started`, `attempt.finished` |
 | `response.headers` | `response.headers` |
 | `response.body` | `response.body.chunk`, `response.body.end` |
 | `response.sse` | `response.sse.event`, `response.sse.comment` |
 
 每条记录包含 `schema_version=dproxy.capture.v1`、`record_id`、`trace_id`、可选 `attempt_id`、`instance_id`、`sequence`、`kind`、RFC3339Nano `occurred_at` 和 `data`。
+
+Remote token 的 envelope 与 `RemoteSpec` 只在请求进入时校验一次；每个 attempt 都重新读取、解码、校验并编译远端 payload。每次解析记录 sanitized endpoint、backend/key、耗时、payload SHA-256、最终 target，以及 target/plan 是否相对上一次发生变化；不输出原始远端 payload。Inline token 只编译一次并在 attempt 间深拷贝 plan。
+
+精确名称的 `X-Dproxy-*` directive header op 会被解析为请求 Metadata，并在第一次成功解析时输出 `request.metadata.bound`。后续 Remote directive 返回不同 Metadata 时输出 `request.metadata.changed`，逻辑请求继续使用首次绑定值。Metadata 和匿名 retry selector 都按照 header 脱敏规则输出到 Capture，且不会发送给上游。
+
+活动状态依次为 `resolving_directive`、首次请求特有的 `buffering_body`、`awaiting_response`，外部介入后短暂进入 `retry_requested`。只有 `awaiting_response` 可重试，阈值从实际发起上游 `RoundTrip` 时开始计算。匿名请求方使用 `POST /api/public/request-retries`；认证后的管理端使用 `GET /api/control/proxy-requests`、`GET /api/control/proxy-requests/{trace_id}` 和 `POST /api/control/proxy-requests/{trace_id}/retries`。
 
 ## Body records
 

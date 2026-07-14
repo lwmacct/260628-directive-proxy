@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,53 @@ type remoteReaderFunc func(context.Context, RemoteSpec, *http.Request) ([]byte, 
 
 func (f remoteReaderFunc) Read(ctx context.Context, spec RemoteSpec, req *http.Request) ([]byte, error) {
 	return f(ctx, spec, req)
+}
+
+func TestRemotePreparedRefreshesEveryAttemptFromOriginalRequestMetadata(t *testing.T) {
+	var calls int
+	resolver := NewResolver(ResolverOptions{RemoteReader: remoteReaderFunc(func(_ context.Context, _ RemoteSpec, req *http.Request) ([]byte, error) {
+		calls++
+		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL.Path != "/v1/chat" || req.Header.Get("X-Tenant") != "original" {
+			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Header)
+		}
+		if calls == 1 {
+			return []byte(`{"target":{"url":"https://one.example"},"headers":{"ops":[{"op":"=","name":"X-Route","values":["one"]}]}}`), nil
+		}
+		return []byte(`{"target":{"url":"https://two.example"},"proxy":"socks5://127.0.0.1:1080","headers":{"mode":"replace","ops":[{"op":"=","name":"X-Route","values":["two"]}]}}`), nil
+	})})
+	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeHTTP, URL: "https://resolver.example/resolve", Key: "routing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat", strings.NewReader("body"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Tenant", "original")
+	prepared, err := resolver.Prepare(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Method = http.MethodDelete
+	req.Host = "mutated.local"
+	req.URL.Path = "/mutated"
+	req.Header.Set("X-Tenant", "mutated")
+
+	first, err := prepared.ResolveAttempt(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := prepared.ResolveAttempt(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "two.example" {
+		t.Fatalf("remote directive was not refreshed: calls=%d first=%#v second=%#v", calls, first.Plan, second.Plan)
+	}
+	if second.Plan.Proxy == nil || second.Plan.Proxy.Scheme != "socks5" || second.Plan.HeaderMode != proxy.HeaderModeReplace {
+		t.Fatalf("second remote plan was not independently compiled: %#v", second.Plan)
+	}
+	if first.Source.PayloadSHA256 == "" || second.Source.PayloadSHA256 == "" || first.Source.PayloadSHA256 == second.Source.PayloadSHA256 {
+		t.Fatalf("unexpected remote payload digests: first=%q second=%q", first.Source.PayloadSHA256, second.Source.PayloadSHA256)
+	}
 }
 
 func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
@@ -34,7 +82,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resolution, err := resolver.Resolve(req)
+	resolution, err := resolveRequest(resolver, req)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -83,7 +131,7 @@ func TestResolverRemoteFailures(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewResolver(tt.opts).Resolve(newRequest())
+			_, err := resolveRequest(NewResolver(tt.opts), newRequest())
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("unexpected error: got %v want %v", err, tt.wantErr)
 			}
@@ -105,7 +153,7 @@ func TestResolverRejectsOversizedTokenAndInlinePayload(t *testing.T) {
 		{MaxTokenBytes: int64(len(token) - 1)},
 		{MaxInlineBytes: 1},
 	} {
-		if _, err := NewResolver(opts).Resolve(request()); !errors.Is(err, proxy.ErrDirectiveTokenTooLarge) {
+		if _, err := resolveRequest(NewResolver(opts), request()); !errors.Is(err, proxy.ErrDirectiveTokenTooLarge) {
 			t.Fatalf("unexpected size error: %v", err)
 		}
 	}

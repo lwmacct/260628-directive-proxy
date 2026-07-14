@@ -3,7 +3,7 @@ import { useWorkbenchLocale } from "@lwmacct/260627-antd-workbench";
 const zh = {
   app: {
     console: "控制台", settings: "设置", debugTools: "调试工具", preferences: "偏好设置",
-    exchanges: "等待响应", authConsole: "Authorization 工作台", appearance: "外观设置",
+    exchanges: "活动请求", authConsole: "Authorization 工作台", appearance: "外观设置",
   },
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
@@ -12,10 +12,10 @@ const zh = {
   },
   appearance: { panel: "主题与界面" },
   exchanges: {
-    description: "查看当前已发起但尚未收到上游最终响应头的请求，并人工触发安全状态检查后的重试。",
-    auto: "自动刷新", refresh: "刷新", active: "等待响应", retryable: "可重试", oldestWait: "最长等待",
-    time: "尝试时间", method: "方法", status: "状态", search: "搜索 URL、目标地址或 Trace ID",
-    target: "目标地址", attempt: "尝试", waiting: "等待时长", awaiting: "等待上游响应", retrying: "正在切换尝试",
+    description: "查看处于远端指令解析、请求体缓存或等待上游最终响应头阶段的请求，并人工触发安全状态检查后的重试。",
+    auto: "自动刷新", refresh: "刷新", active: "活动请求", retryable: "可重试", oldestWait: "最长阶段时长",
+    time: "尝试时间", method: "方法", status: "状态", metadata: "请求元数据", search: "搜索 URL、目标地址、Metadata 或 Trace ID",
+    target: "目标地址", attempt: "尝试", waiting: "阶段时长", resolving: "解析远程指令", buffering: "缓存请求体", awaiting: "等待上游响应", retrying: "正在切换尝试",
     retry: "重试", retryConfirm: "取消当前上游尝试并启动下一次尝试？", retryNotReady: "尚未达到重试阈值或已达到次数上限",
     requestFailed: "请求失败", retryFailed: "重试失败",
   },
@@ -47,7 +47,7 @@ const zh = {
 const en: Text = {
   app: {
     console: "Console", settings: "Settings", debugTools: "Debug tools", preferences: "Preferences",
-    exchanges: "Awaiting response", authConsole: "Authorization Workbench", appearance: "Appearance",
+    exchanges: "Active requests", authConsole: "Authorization Workbench", appearance: "Appearance",
   },
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
@@ -56,10 +56,10 @@ const en: Text = {
   },
   appearance: { panel: "Theme and interface" },
   exchanges: {
-    description: "View requests that have started an upstream attempt but have not received final response headers, and manually trigger a guarded retry.",
-    auto: "Auto refresh", refresh: "Refresh", active: "Awaiting response", retryable: "Retryable", oldestWait: "Oldest wait",
-    time: "Attempt time", method: "Method", status: "Status", search: "Search URL, target, or Trace ID",
-    target: "Target", attempt: "Attempt", waiting: "Waiting", awaiting: "Awaiting upstream", retrying: "Switching attempt",
+    description: "View requests resolving remote directives, buffering request bodies, or awaiting final upstream response headers, and trigger a guarded retry through the control API.",
+    auto: "Auto refresh", refresh: "Refresh", active: "Active requests", retryable: "Retryable", oldestWait: "Oldest state",
+    time: "Attempt time", method: "Method", status: "Status", metadata: "Request metadata", search: "Search URL, target, metadata, or Trace ID",
+    target: "Target", attempt: "Attempt", waiting: "State time", resolving: "Resolving directive", buffering: "Buffering body", awaiting: "Awaiting upstream", retrying: "Switching attempt",
     retry: "Retry", retryConfirm: "Cancel the current upstream attempt and start the next attempt?", retryNotReady: "Retry threshold not reached or attempt limit reached",
     requestFailed: "Request failed", retryFailed: "Retry failed",
   },

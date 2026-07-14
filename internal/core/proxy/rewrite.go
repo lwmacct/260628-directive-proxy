@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"path"
 	"sort"
@@ -45,30 +44,29 @@ var hopByHopHeaders = []string{
 	"Upgrade",
 }
 
-func applyRewrite(r *httputil.ProxyRequest, d *Plan) {
-	if r == nil || d == nil || d.Target == nil {
+func applyPlan(out *http.Request, originalHeaders http.Header, d *Plan) {
+	if out == nil || d == nil || d.Target == nil {
 		return
 	}
 
-	transportHeaders := trustedTransportHeaders(r.Out.Header)
-	r.Out.URL = BuildOutboundURL(d.Target, r.In.URL, d.JoinPath)
-	r.Out.Host = ""
+	transportHeaders := trustedTransportHeaders(originalHeaders)
+	out.Host = ""
 	replaceHeaders := d.HeaderMode == HeaderModeReplace
 	if replaceHeaders {
-		r.Out.Header = make(http.Header)
-		r.Out.Host = ""
+		out.Header = make(http.Header)
+		out.Host = ""
 	} else {
-		r.Out.Header = cloneEndToEndHeaders(r.In.Header)
+		out.Header = cloneEndToEndHeaders(originalHeaders)
 	}
-	applyRequestHeaderOps(r.Out, d.HeaderOps)
-	stripDproxyHeaders(r.Out.Header)
-	stripHopByHopHeaders(r.Out.Header)
-	copyHeaders(r.Out.Header, transportHeaders)
+	applyRequestHeaderOps(out, d.HeaderOps)
+	stripDproxyHeaders(out.Header)
+	stripHopByHopHeaders(out.Header)
+	copyHeaders(out.Header, transportHeaders)
 	// Capture parses SSE at the downstream byte boundary. Force identity encoding so
 	// event framing is observable without changing the response representation.
-	r.Out.Header.Set("Accept-Encoding", "identity")
+	out.Header.Set("Accept-Encoding", "identity")
 	if replaceHeaders {
-		suppressDefaultUserAgent(r.Out.Header)
+		suppressDefaultUserAgent(out.Header)
 	}
 }
 
@@ -215,12 +213,27 @@ func stripHopByHopHeaders(headers http.Header) {
 
 func trustedTransportHeaders(headers http.Header) http.Header {
 	trusted := make(http.Header)
-	for _, name := range []string{"Connection", "Upgrade", "Te"} {
-		for _, value := range headers.Values(name) {
-			trusted.Add(name, value)
+	if headerTokenContains(headers.Values("Connection"), "upgrade") && strings.TrimSpace(headers.Get("Upgrade")) != "" {
+		trusted.Set("Connection", "Upgrade")
+		for _, value := range headers.Values("Upgrade") {
+			trusted.Add("Upgrade", value)
 		}
 	}
+	if headerTokenContains(headers.Values("Te"), "trailers") {
+		trusted.Set("Te", "trailers")
+	}
 	return trusted
+}
+
+func headerTokenContains(values []string, token string) bool {
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func copyHeaders(dst, src http.Header) {

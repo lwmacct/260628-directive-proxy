@@ -24,7 +24,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
-	resolution, err := NewResolver().Resolve(req)
+	resolution, err := resolveRequest(NewResolver(), req)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -43,11 +43,37 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	}
 }
 
+func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
+	raw, err := Encode(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: &HeaderSection{Ops: []HeaderOp{{Op: "=", Name: "X-Test", Values: []string{"original"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "http://proxy.local/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	prepared, err := NewResolver().Prepare(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := prepared.ResolveAttempt(req.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Plan.Target.Host = "mutated.example"
+	first.Plan.HeaderOps[len(first.Plan.HeaderOps)-1].Values[0] = "mutated"
+	second, err := prepared.ResolveAttempt(req.Context(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Plan.Target.Host != "api.example.com" || second.Plan.HeaderOps[len(second.Plan.HeaderOps)-1].Values[0] != "original" {
+		t.Fatalf("inline plan mutation leaked across attempts: %#v", second.Plan)
+	}
+}
+
 func TestResolverReturnsNoMatchForNonDirectiveBearerToken(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer opaque-upstream-token")
 
-	_, err := NewResolver().Resolve(req)
+	_, err := resolveRequest(NewResolver(), req)
 	if !errors.Is(err, proxy.ErrNoMatch) {
 		t.Fatalf("expected no match for non-directive bearer token, got %v", err)
 	}
@@ -96,7 +122,7 @@ func TestResolverReturnsInvalidDirectiveForUnsupportedDirectiveVersion(t *testin
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+".10.payload")
 
-	_, err := NewResolver().Resolve(req)
+	_, err := resolveRequest(NewResolver(), req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}
@@ -106,7 +132,7 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+"."+TokenVersion+".not-valid-base64url")
 
-	_, err := NewResolver().Resolve(req)
+	_, err := resolveRequest(NewResolver(), req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}
@@ -119,7 +145,7 @@ func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
-	_, err := NewResolver().Resolve(req)
+	_, err := resolveRequest(NewResolver(), req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}

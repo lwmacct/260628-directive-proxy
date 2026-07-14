@@ -9,19 +9,21 @@
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
 - 携带 `Authorization: Bearer dproxy.*` 且通过来源白名单的请求进入基于原生 `net/http` 的反向代理。
-- 其他请求进入 control handler，包括 Huma `/api/*`、`/health` 和可选的 Web UI。
+- `/api/public/*` 进入匿名请求协作 API，`/api/control/*` 进入受认证保护的管理 API。
+- 其他请求进入 `/health`、认证端点或可选 Web UI。
 
-Authorization 分流优先于路径，因此携带 dproxy token 的 `/api/*` 请求仍会进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
+`/api/public/*` 和 `/api/control/*` 是系统保留前缀，优先于 dproxy token 分流；其他路径（包括普通 `/api/...`）携带 dproxy token 时仍可进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
-## 等待响应请求与人工重试
+## 等待响应请求与外部介入重试
 
-代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；人工重试会取消当前尚未收到最终响应头的 attempt，并使用磁盘临时文件中的相同请求正文启动下一次 attempt。directive 只解析一次，重试不会重新选择目标。
+代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并使用磁盘临时文件中的相同请求正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
 
-Control API：
+请求发起方可以在 directive 中通过精确 `X-Dproxy-*` header op 声明请求 Metadata。Metadata 在第一次成功解析后绑定到逻辑请求、不会发送给上游，并可用于匿名重试：
 
-- `GET /api/proxy-requests/awaiting-response`：列出已经发起上游请求但尚未收到最终响应头的请求。
-- `GET /api/proxy-requests/{trace_id}`：读取一个仍然活动的请求。
-- `POST /api/proxy-requests/{trace_id}/retry`：请求体为 `{"expected_attempt": 1}`，以 compare-and-swap 方式触发重试。
+- `POST /api/public/request-retries`：无需认证，提交 Metadata 和 `expected_attempt`。
+- `GET /api/control/proxy-requests`：认证后列出活动请求。
+- `GET /api/control/proxy-requests/{trace_id}`：认证后读取一个活动请求。
+- `POST /api/control/proxy-requests/{trace_id}/retries`：认证后按 trace ID 介入。
 
 收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST 等非幂等请求的重试是 at-least-once，上游可能已经执行了第一次请求但响应尚未返回。
 
@@ -43,13 +45,13 @@ proxy:
 
 Capture 不在进程内保留历史记录，也不提供历史查询 API。请求头、请求正文 chunk、attempt、响应头、响应正文 chunk、SSE 语义事件和完成状态都作为独立 Forward 记录同步发送到 Fluentd，并通过 `trace_id`、`attempt_id`、`record_id` 和请求内递增 `sequence` 关联。
 
-默认 tag 为 `dproxy.capture.lifecycle`、`request.headers`、`request.body`、`attempt`、`response.headers`、`response.body` 和 `response.sse`。正文使用 Base64 chunk、绝对 offset 和 SHA-256 end 记录，SSE 同时保存原始响应字节和解析后的每条 event/comment。
+默认 tag 为 `dproxy.capture.lifecycle`、`request.headers`、`request.metadata`、`request.body`、`attempt`、`response.headers`、`response.body` 和 `response.sse`。正文使用 Base64 chunk、绝对 offset 和 SHA-256 end 记录，SSE 同时保存原始响应字节和解析后的每条 event/comment。
 
 Exporter 固定使用同步模式，避免 Fluent Logger 的进程内异步队列；建议连接本机 Unix socket，并由 Fluentd 使用文件 buffer。启用 capture 时启动阶段无法连接 Fluentd 会导致服务启动失败；运行阶段发送失败采用 fail-open，代理继续处理请求，并在 `/health` 的 `capture` 字段报告 degraded 状态。
 
 完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
 
-Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*` 必须通过当前模式认证；`/health` 和 Web UI 不受 Directive 来源白名单影响。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
+Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/control/*` 必须通过当前模式认证；`/api/public/request-retries`、`/health` 和 Web UI 不要求 Control Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
 ## Control API 登录
 
@@ -261,7 +263,7 @@ payload schema：
 - Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
 - ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
 
-HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。所有 `X-Dproxy-*` header 也会在出站前无条件移除，即使 header op 尝试写入也不会发送给上游。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
+HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并作为独立 Capture 记录输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 被接受后，携带 dproxy token 的入站 `Authorization` 也会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
 HTTP RemoteSpec：
 
@@ -332,9 +334,9 @@ proxy:
 已认证的 Control API 提供唯一的协议编解码与校验实现，Web 工作台也使用这些端点：
 
 ```text
-POST /api/directives/encode
-POST /api/directives/decode
-POST /api/directives/validate
+POST /api/control/directives/encode
+POST /api/control/directives/decode
+POST /api/control/directives/validate
 ```
 
 data-plane 错误使用 `{ "error": { "code": "...", "message": "..." } }`，客户端应依赖稳定 `code`，不要匹配文案。
@@ -351,14 +353,15 @@ go run . server
 
 ```text
 HTTP (:23198)
-	GET /auth/session
-	DELETE /auth/session
-	POST /auth/login/token
-	GET /auth/login/github
-	GET /auth/callback/github
-  GET /api/health
-  GET /api/openapi.json
-  GET /api/docs
+  GET /auth/session
+  DELETE /auth/session
+  POST /auth/login/token
+  GET /auth/login/github
+  GET /auth/callback/github
+  GET /health
+  POST /api/public/request-retries
+  GET /api/control/openapi.json
+  GET /api/control/docs
   ANY /*  (需要 Authorization: Bearer dproxy.*)
 ```
 

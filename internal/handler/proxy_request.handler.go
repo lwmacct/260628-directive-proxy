@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -17,22 +16,22 @@ type proxyRequestHandler struct {
 func RegisterProxyRequest(api huma.API, tracker proxyrequest.Tracker) {
 	handler := &proxyRequestHandler{tracker: tracker}
 	huma.Register(api, huma.Operation{
-		OperationID: "list-proxy-requests-awaiting-response",
+		OperationID: "list-active-proxy-requests",
 		Method:      http.MethodGet,
-		Path:        "/proxy-requests/awaiting-response",
-		Summary:     "List proxy requests awaiting final upstream response headers",
+		Path:        "/api/control/proxy-requests",
+		Summary:     "List active proxy requests across directive resolution and upstream wait states",
 	}, handler.list)
 	huma.Register(api, huma.Operation{
 		OperationID: "get-active-proxy-request",
 		Method:      http.MethodGet,
-		Path:        "/proxy-requests/{trace_id}",
+		Path:        "/api/control/proxy-requests/{trace_id}",
 		Summary:     "Get one active proxy request",
 	}, handler.get)
 	huma.Register(api, huma.Operation{
 		OperationID: "retry-active-proxy-request",
 		Method:      http.MethodPost,
-		Path:        "/proxy-requests/{trace_id}/retry",
-		Summary:     "Cancel and retry an active upstream request attempt",
+		Path:        "/api/control/proxy-requests/{trace_id}/retries",
+		Summary:     "Retry an active upstream request attempt by trace ID",
 	}, handler.retry)
 }
 
@@ -64,18 +63,9 @@ func (h *proxyRequestHandler) retry(_ context.Context, input *RetryActiveProxyRe
 	if h == nil || h.tracker == nil || input == nil {
 		return nil, huma.Error404NotFound("proxy request not found")
 	}
-	result, err := h.tracker.Retry(input.TraceID, input.Body.ExpectedAttempt)
+	result, err := h.tracker.RetryByTraceID(input.TraceID, input.Body.ExpectedAttempt, proxyrequest.RetryTriggerControlAPI)
 	if err != nil {
-		switch {
-		case errors.Is(err, proxyrequest.ErrNotFound):
-			return nil, huma.Error404NotFound("proxy request not found")
-		case errors.Is(err, proxyrequest.ErrMaxAttempts):
-			return nil, huma.Error429TooManyRequests("proxy request maximum attempts reached")
-		case errors.Is(err, proxyrequest.ErrRetryNotReady):
-			return nil, huma.Error409Conflict("proxy request has not reached its retry threshold")
-		default:
-			return nil, huma.Error409Conflict("proxy request state changed")
-		}
+		return nil, utilRetryAPIError(err)
 	}
 	return &RetryActiveProxyRequestOutputDTO{
 		Status: http.StatusAccepted,

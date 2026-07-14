@@ -3,7 +3,6 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/http/httputil"
 	"net/url"
 	"testing"
 	"time"
@@ -11,8 +10,8 @@ import (
 
 type noopResolver struct{}
 
-func (noopResolver) Resolve(*http.Request) (Resolution, error) {
-	return Resolution{}, nil
+func (noopResolver) Prepare(*http.Request) (PreparedDirective, error) {
+	return staticPrepared{}, nil
 }
 
 func TestNewProxyAwareTransportUsesRequestProxy(t *testing.T) {
@@ -63,22 +62,17 @@ func TestNewProxyAwareTransportWithOptionsOverridesIdlePolicy(t *testing.T) {
 	}
 }
 
-func TestHandlerRewriteCarriesProxyToOutboundRequest(t *testing.T) {
+func TestBuildAttemptRequestCarriesProxyToOutboundRequest(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	proxyURL, _ := url.Parse("socks5://user:pass@127.0.0.1:1080")
-	handler := NewHandler(noopResolver{}, http.DefaultTransport, HandlerOptions{})
 
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
-	in = in.WithContext(ContextWithPlan(in.Context(), &Plan{
+	out := BuildAttemptRequest(NewRequestTemplate(in), &Plan{
 		Target: target,
 		Proxy:  proxyURL,
-	}))
-	out := in.Clone(in.Context())
-	req := &httputil.ProxyRequest{In: in, Out: out}
+	}, in.Context(), http.NoBody)
 
-	handler.proxy.Rewrite(req)
-
-	got, ok := requestProxyFromContext(req.Out.Context())
+	got, ok := requestProxyFromContext(out.Context())
 	if !ok || got == nil || got.String() != proxyURL.String() {
 		t.Fatalf("unexpected proxy in request context: %#v", got)
 	}

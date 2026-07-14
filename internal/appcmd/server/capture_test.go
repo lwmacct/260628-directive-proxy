@@ -37,7 +37,10 @@ func (s *serverCaptureSink) CaptureHealth() corecapture.HealthStatus {
 func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.T) {
 	firstSent := make(chan struct{})
 	release := make(chan struct{})
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if value := r.Header.Get("X-Dproxy-Request-ID"); value != "" {
+			t.Errorf("request metadata leaked upstream: %q", value)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "id: 1\nevent: token\ndata: hello\n\n")
@@ -67,7 +70,12 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	rt := &runtime{requests: tracker, proxyTransport: transport, captureSink: sink}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
-	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
+	token, err := directive.Encode(directive.Payload{
+		Target: directive.TargetSection{URL: upstream.URL},
+		Headers: &directive.HeaderSection{Ops: []directive.HeaderOp{{
+			Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"},
+		}}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +113,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	_, _ = io.ReadAll(reader)
 	deadline := time.Now().Add(time.Second)
 	var values []string
+	var metadataCaptured bool
 	for time.Now().Before(deadline) {
 		sink.mu.Lock()
 		values = values[:0]
@@ -112,17 +121,21 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 			if event.Kind == "response.sse.event" {
 				values = append(values, event.Data["data"].(string))
 			}
+			if event.Kind == "request.metadata.bound" {
+				metadata := event.Data["metadata"].(map[string][]string)
+				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
+			}
 		}
 		sink.mu.Unlock()
-		if len(values) == 2 {
+		if len(values) == 2 && metadataCaptured {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if len(values) != 2 || values[0] != "hello" || values[1] != "done" {
+	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured {
 		sink.mu.Lock()
 		allEvents := append([]corecapture.Event(nil), sink.events...)
 		sink.mu.Unlock()
-		t.Fatalf("unexpected captured SSE events: values=%#v events=%#v", values, allEvents)
+		t.Fatalf("unexpected captured events: values=%#v metadata=%t events=%#v", values, metadataCaptured, allEvents)
 	}
 }

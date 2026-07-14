@@ -1,17 +1,53 @@
 package handler
 
 import (
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/apierror"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 )
 
 func utilNowUTC() time.Time { return time.Now().UTC() }
 
-func utilHTTPConfig() huma.Config {
-	config := huma.DefaultConfig("Directive Proxy", "1.0.0")
-	config.OpenAPIPath = "/openapi.json"
-	config.DocsPath = "/docs"
-	config.SchemasPath = "/schemas"
+func utilHTTPConfig(title, prefix string) huma.Config {
+	config := huma.DefaultConfig(title, "1.0.0")
+	if prefix == "" {
+		config.OpenAPIPath = ""
+		config.DocsPath = ""
+		config.SchemasPath = ""
+		return config
+	}
+	config.OpenAPIPath = prefix + "/openapi.json"
+	config.DocsPath = prefix + "/docs"
+	config.SchemasPath = prefix + "/schemas"
 	return config
+}
+
+func utilNewAPIError(status int, code, message string) *apierror.Error {
+	return apierror.New(status, code, message)
+}
+
+func utilRetryAPIError(err error) error {
+	switch {
+	case errors.Is(err, proxyrequest.ErrInvalidMetadata):
+		return utilNewAPIError(http.StatusBadRequest, "invalid_metadata", "proxy request metadata is invalid")
+	case errors.Is(err, proxyrequest.ErrNotFound):
+		return utilNewAPIError(http.StatusNotFound, "proxy_request_not_found", "proxy request was not found")
+	case errors.Is(err, proxyrequest.ErrAmbiguous):
+		return utilNewAPIError(http.StatusConflict, "ambiguous_request", "metadata matches multiple active proxy requests")
+	case errors.Is(err, proxyrequest.ErrAttemptChanged):
+		return utilNewAPIError(http.StatusConflict, "attempt_changed", "proxy request attempt changed")
+	case errors.Is(err, proxyrequest.ErrRetryNotReady):
+		return utilNewAPIError(http.StatusConflict, "retry_not_ready", "proxy request is not ready for retry")
+	case errors.Is(err, proxyrequest.ErrRetryInProgress):
+		return utilNewAPIError(http.StatusConflict, "retry_in_progress", "proxy request retry is already in progress")
+	case errors.Is(err, proxyrequest.ErrMaxAttempts):
+		return utilNewAPIError(http.StatusTooManyRequests, "max_attempts_reached", "proxy request maximum attempts reached")
+	default:
+		return utilNewAPIError(http.StatusConflict, "request_state_changed", "proxy request state changed")
+	}
 }

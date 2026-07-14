@@ -61,7 +61,7 @@ export function ExchangesPage() {
     setError(null);
     try {
       const response = await apiFetch(
-        "/api/proxy-requests/awaiting-response",
+        "/api/control/proxy-requests",
         { signal },
       );
       if (!response.ok) {
@@ -86,7 +86,7 @@ export function ExchangesPage() {
     setError(null);
     try {
       const response = await apiFetch(
-        `/api/proxy-requests/${request.trace_id}/retry`,
+        `/api/control/proxy-requests/${request.trace_id}/retries`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -124,7 +124,12 @@ export function ExchangesPage() {
       return snapshot.items;
     }
     return snapshot.items.filter((item) =>
-      [item.trace_id, item.url, item.target_url]
+      [
+        item.trace_id,
+        item.url,
+        item.target_url,
+        ...Object.entries(item.metadata ?? {}).flatMap(([name, values]) => [name, ...values]),
+      ]
         .some((value) => value.toLowerCase().includes(normalized)),
     );
   }, [query, snapshot.items]);
@@ -148,6 +153,15 @@ export function ExchangesPage() {
       dataIndex: "attempt_started_at",
       width: 180,
       render: (value: string) => formatDate(value),
+    },
+    {
+      title: t.exchanges.metadata,
+      dataIndex: "metadata",
+      width: 320,
+      ellipsis: true,
+      render: (value: ActiveProxyRequest["metadata"]) => (
+        <Text code>{JSON.stringify(value ?? {})}</Text>
+      ),
     },
     {
       title: t.exchanges.method,
@@ -180,11 +194,21 @@ export function ExchangesPage() {
       title: t.exchanges.status,
       dataIndex: "state",
       width: 170,
-      render: (value: ActiveProxyRequest["state"]) => (
-        <Tag color={value === "retry_requested" ? "processing" : "warning"}>
-          {value === "retry_requested" ? t.exchanges.retrying : t.exchanges.awaiting}
-        </Tag>
-      ),
+      render: (value: ActiveProxyRequest["state"]) => {
+        const labels = {
+          resolving_directive: t.exchanges.resolving,
+          buffering_body: t.exchanges.buffering,
+          awaiting_response: t.exchanges.awaiting,
+          retry_requested: t.exchanges.retrying,
+        };
+        const colors = {
+          resolving_directive: "blue",
+          buffering_body: "cyan",
+          awaiting_response: "warning",
+          retry_requested: "processing",
+        };
+        return <Tag color={colors[value]}>{labels[value]}</Tag>;
+      },
     },
     {
       title: "",
@@ -256,7 +280,7 @@ export function ExchangesPage() {
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
           pagination={{ pageSize: 20, showSizeChanger: true }}
           rowKey="trace_id"
-          scroll={{ x: 1560 }}
+          scroll={{ x: 1880 }}
           size="middle"
         />
       </WorkbenchPanel>

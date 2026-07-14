@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type AssembleOptions struct {
@@ -34,7 +35,7 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	headerOps, err := parseHeaderOps(rawHeaderOps)
+	headerOps, metadata, err := parseHeaderOps(rawHeaderOps)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +66,7 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 		Proxy:      proxyURL,
 		HeaderMode: toHeaderMode(headerMode),
 		HeaderOps:  ops,
+		Metadata:   metadata,
 		JoinPath:   joinPath,
 	}, nil
 }
@@ -76,11 +78,12 @@ func isHTTPURL(u *url.URL) bool {
 	return strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
 }
 
-func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
+func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, map[string][]string, error) {
 	if len(raw) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	ops := make([]proxy.HeaderOp, 0, len(raw))
+	metadata := make(requestmeta.Metadata)
 	for _, rawOp := range raw {
 		actionRaw := strings.TrimSpace(rawOp.Op)
 		action := proxy.HeaderAction(actionRaw)
@@ -94,39 +97,45 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 			}
 		}
 		if selectorCount != 1 {
-			return nil, ErrInvalidPayload
+			return nil, nil, ErrInvalidPayload
 		}
 		selector := proxy.HeaderSelector{Kind: proxy.HeaderSelectorExact, Pattern: name}
 		switch {
 		case glob != "":
 			if _, err := path.Match(strings.ToLower(glob), ""); err != nil {
-				return nil, ErrInvalidPayload
+				return nil, nil, ErrInvalidPayload
 			}
 			selector = proxy.HeaderSelector{Kind: proxy.HeaderSelectorGlob, Pattern: glob}
 		case preset != "":
 			if preset != proxy.HeaderPresetProxyDisclosure || action != proxy.HeaderRemove {
-				return nil, ErrInvalidPayload
+				return nil, nil, ErrInvalidPayload
 			}
 			selector = proxy.HeaderSelector{Kind: proxy.HeaderSelectorPreset, Pattern: preset}
 		case !isValidHeaderName(name):
-			return nil, ErrInvalidPayload
+			return nil, nil, ErrInvalidPayload
 		}
 		switch action {
 		case proxy.HeaderAdd, proxy.HeaderSet:
 			if len(rawOp.Values) == 0 {
-				return nil, ErrInvalidPayload
+				return nil, nil, ErrInvalidPayload
 			}
 		case proxy.HeaderRemove:
 			if len(rawOp.Values) != 0 {
-				return nil, ErrInvalidPayload
+				return nil, nil, ErrInvalidPayload
 			}
 		default:
-			return nil, ErrInvalidPayload
+			return nil, nil, ErrInvalidPayload
 		}
 		if selector.Kind == proxy.HeaderSelectorExact && strings.EqualFold(selector.Pattern, "Host") {
 			if action == proxy.HeaderAdd || len(rawOp.Values) > 1 {
-				return nil, ErrInvalidPayload
+				return nil, nil, ErrInvalidPayload
 			}
+		}
+		if selector.Kind == proxy.HeaderSelectorExact && requestmeta.IsName(selector.Pattern) {
+			if err := requestmeta.Apply(metadata, string(action), selector.Pattern, rawOp.Values); err != nil {
+				return nil, nil, ErrInvalidPayload
+			}
+			continue
 		}
 		ops = append(ops, proxy.HeaderOp{
 			Action:   action,
@@ -134,7 +143,10 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 			Values:   append([]string(nil), rawOp.Values...),
 		})
 	}
-	return ops, nil
+	if len(metadata) == 0 {
+		metadata = nil
+	}
+	return ops, metadata, nil
 }
 
 func isValidHeaderName(name string) bool {

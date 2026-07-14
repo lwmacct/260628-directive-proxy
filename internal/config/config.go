@@ -71,14 +71,14 @@ func (c OIDCAuth) MethodConfig() oidc.Config {
 
 type Proxy struct {
 	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
-	Retry     ProxyRetry     `json:"retry"     desc:"等待上游响应时的人工重试配置"`
+	Retry     ProxyRetry     `json:"retry"     desc:"等待上游响应时的外部介入重试配置"`
 	Capture   ProxyCapture   `json:"capture"   desc:"请求生命周期 Fluentd 捕获配置"`
 	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
 }
 
 type ProxyRetry struct {
-	Enabled           bool          `json:"enabled"            desc:"是否启用等待响应请求的人工重试"`
-	RetryableAfter    time.Duration `json:"retryable-after"    desc:"单次上游请求等待多久后允许人工重试"`
+	Enabled           bool          `json:"enabled"            desc:"是否启用等待响应请求的外部介入重试"`
+	RetryableAfter    time.Duration `json:"retryable-after"    desc:"单次上游请求等待多久后允许外部介入重试"`
 	MaxAttempts       int           `json:"max-attempts"       desc:"单个逻辑请求允许的最大上游尝试次数，包含首次请求"`
 	MaxActiveRequests int           `json:"max-active-requests" desc:"同时等待上游最终响应的最大请求数"`
 	TempDir           string        `json:"temp-dir"           desc:"可重放请求正文临时文件目录，留空使用系统临时目录"`
