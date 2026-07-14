@@ -17,7 +17,7 @@ Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/*`
 
 ## Control API 登录
 
-`server.http.auth.methods` 可包含 `oidc`、`token` 或同时包含两者，默认只启用 `token`。只有启用的认证配置会在启动时校验和初始化。
+Token 和 OIDC 分别由 `server.http.auth.token.enabled`、`server.http.auth.oidc.enabled` 显式控制，默认只启用 Token。OIDC-only 模式必须配置 `token.enabled: false` 和 `oidc.enabled: true`。只有启用的配置会在启动时校验和初始化。
 
 同时启用时，浏览器登录页以 Access token 表单为主体，并提供可选的 GitHub 登录按钮。两种方式签发同一个加密浏览器 Session；显式 Bearer 无效时不会降级使用 Session Cookie。
 
@@ -38,6 +38,58 @@ server:
 
 `AUTH_SESSION_KEY` 必须是 base64url 编码的 32 字节随机值，可用 `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` 生成。第一把 key 用于写入，所有 key 均可解密，便于轮换。
 
+### Access token 模式
+
+使用 OpenSSL 生成 24 个随机字节的无填充 Base64URL secret，并组装 token：
+
+```shell
+_id=admin
+_secret="$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=')"
+API_TOKEN="dpctl.10.${_id}.${_secret}"
+```
+
+将解码后的 secret 计算为服务端配置需要的 SHA-256 摘要：
+
+```shell
+API_TOKEN_SHA256="$(printf '%s' "${_secret}" | tr '_-' '/+' | openssl base64 -d -A | openssl sha256 -r | awk '{print $1}')"
+printf 'API_TOKEN=%s\nAPI_TOKEN_SHA256=%s\n' "${API_TOKEN}" "${API_TOKEN_SHA256}"
+```
+
+token 固定使用 `dpctl.10.<credential-id>.<secret>` 格式，其中 secret 是 24 个随机字节的无填充 Base64URL 编码。旧式任意字符串、UUID、其他版本、非规范 Base64URL 和带前后空白的 token 均不接受。
+
+通过环境变量注入摘要，避免把原始 token 或摘要提交到仓库：
+
+```shell
+export API_TOKEN_SHA256="<secret-sha256>"
+export AUTH_SESSION_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
+```
+
+默认配置会读取该摘要环境变量；未设置、为空或不是 64 字符小写十六进制时，服务会拒绝启动。显式配置方式如下：
+
+```yaml
+server:
+  http:
+    auth:
+      token:
+        enabled: true
+        credentials:
+          admin:
+            name: Administrator
+            secret-sha256: "${API_TOKEN_SHA256}"
+      oidc:
+        enabled: false
+```
+
+浏览器输入 token 后，服务只把 credential ID 和完整 secret revision 写入统一加密 Session，不保存原始 token。删除 credential 或轮换摘要会立即撤销对应登录，不需要 Session 数据库。
+
+自动化客户端无需调用登录端点，可直接访问 Control API：
+
+```http
+Authorization: Bearer <access-token>
+```
+
+配置使用 credential ID 到摘要的映射，支持多个凭据以便审计和轮换。ID 最长 56 字节，只接受小写字母、数字、`-` 和 `_`，并且必须以字母或数字开头、结尾。
+
 ### OIDC 模式
 
 启用 OIDC 时连接 Dex，使用 public client、Authorization Code Flow 和 S256 PKCE：
@@ -46,11 +98,12 @@ server:
 server:
   http:
     auth:
-	  methods:
-		- oidc
-	  external-urls:
-		- http://localhost:23199
+      token:
+        enabled: false
+      external-urls:
+        - http://localhost:23199
       oidc:
+        enabled: true
         issuer: https://2008.s.lwmacct.com:20088
         client-id: dproxy
         allowed-users:
@@ -64,45 +117,7 @@ server:
 
 生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定为 `<external-url>/auth/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
 
-### Access token 模式
-
-不部署 Dex 时，只需生成一个至少 32 字节的随机 token：
-
-```shell
-openssl rand -base64 32
-```
-
-通过环境变量注入 token，避免把凭据提交到仓库：
-
-```shell
-export API_ACCESS_TOKEN="$(openssl rand -base64 32)"
-export AUTH_SESSION_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
-```
-
-默认配置会读取该环境变量；未设置或值为空时，服务会拒绝启动。显式配置方式如下：
-
-```yaml
-server:
-  http:
-    auth:
-      methods:
-        - token
-	  token:
-		credentials:
-		  - id: admin
-			name: Administrator
-			secret: "${API_ACCESS_TOKEN}"
-```
-
-浏览器输入 token 后，服务只把 credential ID 和 secret revision 写入统一加密 Session，不保存原始 token。删除 credential 或轮换 secret 会立即撤销对应登录，不需要 Session 数据库。
-
-自动化客户端无需调用登录端点，可直接访问 Control API：
-
-```http
-Authorization: Bearer <access-token>
-```
-
-配置支持多个具名 credential，便于审计和轮换。ID 必须唯一，secret 至少 16 字节。
+当前不支持且暂不计划直接连接 GitHub 原生 OAuth App。现有认证边界保持为标准 OIDC：provider 必须提供 OIDC discovery 和可验证的 ID Token，GitHub 身份由 Dex GitHub connector 转换为 OIDC claims。这样无需在服务内持有临时 GitHub access token，也避免引入 GitHub API、限流和单 callback URL 等额外语义。
 
 同时提供两种登录方式时配置：
 
@@ -110,22 +125,21 @@ Authorization: Bearer <access-token>
 server:
   http:
     auth:
-	  methods:
-		- oidc
-		- token
-	  external-urls:
-		- https://proxy.example.com
+      external-urls:
+        - https://proxy.example.com
+      token:
+        enabled: true
+        credentials:
+          admin:
+            name: Administrator
+            secret-sha256: "${API_TOKEN_SHA256}"
       oidc:
+        enabled: true
         issuer: https://auth.example.com
         client-id: dproxy
         allowed-users:
           - octocat
         session-ttl: 24h
-	  token:
-		credentials:
-		  - id: admin
-			name: Administrator
-			secret: "${API_ACCESS_TOKEN}"
 ```
 
 ## Directive 来源白名单

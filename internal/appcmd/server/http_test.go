@@ -20,6 +20,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/service"
+	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
@@ -513,12 +514,17 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 }
 
 func TestTokenAuthProtectsControlAPI(t *testing.T) {
-	const token = "0123456789abcdef0123456789abcdef"
+	token := "dpctl.10.admin." + strings.Repeat("Y", 32)
+	digest, err := statictoken.Digest(types.ControlTokenNamespace, token)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.DefaultConfig()
-	cfg.Server.HTTP.Auth.Methods = []config.AuthMethod{config.AuthMethodToken}
 	cfg.Server.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
 	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.Server.HTTP.Auth.Token.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Secret: token}}
+	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
+		"admin": {Name: "Administrator", SecretSHA256: digest},
+	}
 	auth, err := newControlAuth(t.Context(), cfg.Server.HTTP)
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)

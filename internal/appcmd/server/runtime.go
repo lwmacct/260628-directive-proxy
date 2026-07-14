@@ -21,6 +21,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/service"
+	"github.com/lwmacct/260628-directive-proxy/internal/types"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12
@@ -72,26 +73,26 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 }
 
 func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
-	methods := make([]httpauth.Method, 0, len(cfg.Auth.Methods))
+	methods := make([]httpauth.Method, 0, 2)
 	var authorizers []httpauth.Authorizer
-	if cfg.Auth.HasMethod(config.AuthMethodOIDC) {
+	if cfg.Auth.Token.Enabled {
+		tokenMethod, err := statictoken.New(types.ControlTokenNamespace, cfg.Auth.Token.MethodConfig())
+		if err != nil {
+			return nil, err
+		}
+		methods = append(methods, tokenMethod)
+	}
+	if cfg.Auth.OIDC.Enabled {
 		oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig(), oidc.Options{})
 		if err != nil {
 			return nil, err
 		}
-		methods = append(methods, oidcMethod)
 		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.OIDC.AllowedUsers)
 		if err != nil {
 			return nil, err
 		}
 		authorizers = append(authorizers, authorizer)
-	}
-	if cfg.Auth.HasMethod(config.AuthMethodToken) {
-		tokenMethod, err := statictoken.New(cfg.Auth.Token)
-		if err != nil {
-			return nil, err
-		}
-		methods = append(methods, tokenMethod)
+		methods = append(methods, oidcMethod)
 	}
 	return httpauth.New(httpauth.Config{ExternalURLs: cfg.Auth.ExternalURLs, Session: cfg.Auth.Session}, methods, httpauth.Options{Authorizer: httpauth.AuthorizeAll(authorizers...)})
 }

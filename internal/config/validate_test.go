@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 )
@@ -11,14 +12,27 @@ import (
 func validDefaultConfig() Config {
 	cfg := DefaultConfig()
 	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.Server.HTTP.Auth.Token.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Secret: strings.Repeat("a", 32)}}
+	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
+		"admin": {Name: "Administrator", SecretSHA256: strings.Repeat("a", 64)},
+	}
 	return cfg
 }
 
 func oidcConfig() Config {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC}
+	cfg.Server.HTTP.Auth.Token.Enabled = false
+	cfg.Server.HTTP.Auth.OIDC = testOIDCAuth()
 	return cfg
+}
+
+func testOIDCAuth() OIDCAuth {
+	return OIDCAuth{
+		Enabled:      true,
+		Issuer:       "https://2008.s.lwmacct.com:20088",
+		ClientID:     "dproxy",
+		AllowedUsers: []string{"lwmacct"},
+		SessionTTL:   24 * time.Hour,
+	}
 }
 
 func TestDefaultConfigUsesSingleHTTPListen(t *testing.T) {
@@ -88,36 +102,31 @@ func TestValidateNormalizesAuth(t *testing.T) {
 
 func TestValidateTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodToken}
-	cfg.Server.HTTP.Auth.Token.Credentials[0].Secret = "  " + strings.Repeat("a", 32) + "  "
-	cfg.Server.HTTP.Auth.OIDC = OIDCAuth{}
 
-	validated, err := Validate(cfg)
-	if err != nil {
+	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	if validated.Server.HTTP.Auth.Token.Credentials[0].Secret != strings.Repeat("a", 32) {
-		t.Fatalf("unexpected normalized token")
+	cfg.Server.HTTP.Auth.Token.Credentials["admin"] = statictoken.Credential{
+		Name: "Administrator", SecretSHA256: strings.Repeat("A", 64),
+	}
+	if _, err := Validate(cfg); err != ErrInvalidAuth {
+		t.Fatalf("uppercase token digest was accepted: %v", err)
 	}
 }
 
 func TestValidateOIDCAndTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC, AuthMethodToken}
-	cfg.Server.HTTP.Auth.Token.Credentials[0].Secret = strings.Repeat("a", 32)
+	cfg.Server.HTTP.Auth.OIDC = testOIDCAuth()
 
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate combined auth config: %v", err)
 	}
 }
 
-func TestValidateRejectsInvalidAuthMethodsAndActiveTokenConfig(t *testing.T) {
+func TestValidateRejectsInvalidAuthProviders(t *testing.T) {
 	for _, mutate := range []func(*Auth){
-		func(cfg *Auth) { cfg.Methods = nil },
-		func(cfg *Auth) { cfg.Methods = []AuthMethod{"unknown"} },
-		func(cfg *Auth) { cfg.Methods = []AuthMethod{AuthMethodOIDC, AuthMethodOIDC} },
+		func(cfg *Auth) { cfg.Token.Enabled, cfg.OIDC.Enabled = false, false },
 		func(cfg *Auth) {
-			cfg.Methods = []AuthMethod{AuthMethodToken}
 			cfg.Token.Credentials = nil
 		},
 	} {
