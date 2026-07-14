@@ -46,6 +46,6 @@ Header 名称和 URL query 参数按照 `proxy.capture.redact-headers` 与 `reda
 
 ## Delivery
 
-`fluent-logger-golang` 使用 `Async=false`、MessagePack、亚秒时间戳和可选 Forward ACK。多个同步连接按 `trace_id` 分片，以保持单请求顺序并允许请求间并发。
+`260714-go-pkg-fluent` 使用 MessagePack、亚秒时间戳和可配置的 `unconfirmed`/`at-least-once` 投递。多个客户端按 `trace_id` 分片，以保持单请求顺序并允许请求间并发。
 
 Capture 不提供事务性持久化。推荐本地 Fluentd Unix socket 配合文件 buffer。运行期输出失败不会中断代理流量；Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。

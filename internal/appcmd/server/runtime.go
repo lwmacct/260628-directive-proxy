@@ -123,19 +123,18 @@ func newCaptureSink(cfg config.ProxyCapture) (corecapture.Sink, error) {
 		return corecapture.DiscardSink{}, nil
 	}
 	return fluentcapture.New(fluentcapture.Config{
-		Network:               cfg.Fluent.Network,
-		Host:                  cfg.Fluent.Host,
-		Port:                  cfg.Fluent.Port,
-		SocketPath:            cfg.Fluent.SocketPath,
+		Endpoint:              cfg.Fluent.Endpoint,
 		Connections:           cfg.Fluent.Connections,
-		Timeout:               cfg.Fluent.Timeout,
+		QueueCapacity:         cfg.Fluent.QueueCapacity,
+		ConnectTimeout:        cfg.Fluent.ConnectTimeout,
+		HandshakeTimeout:      cfg.Fluent.HandshakeTimeout,
 		WriteTimeout:          cfg.Fluent.WriteTimeout,
-		ReadTimeout:           cfg.Fluent.ReadTimeout,
-		RetryWaitMillis:       cfg.Fluent.RetryWaitMillis,
-		MaxRetry:              cfg.Fluent.MaxRetry,
-		MaxRetryWaitMillis:    cfg.Fluent.MaxRetryWaitMillis,
+		ACKTimeout:            cfg.Fluent.ACKTimeout,
+		RetryMaxAttempts:      cfg.Fluent.RetryMaxAttempts,
+		RetryMinBackoff:       cfg.Fluent.RetryMinBackoff,
+		RetryMaxBackoff:       cfg.Fluent.RetryMaxBackoff,
 		TagPrefix:             cfg.Fluent.TagPrefix,
-		RequestAck:            cfg.Fluent.RequestAck,
+		DeliveryAtLeastOnce:   cfg.Fluent.Delivery == config.FluentDeliveryAtLeastOnce,
 		TLSInsecureSkipVerify: cfg.Fluent.TLSInsecureSkipVerify,
 	})
 }

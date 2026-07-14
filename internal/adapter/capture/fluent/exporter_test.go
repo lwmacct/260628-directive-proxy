@@ -55,18 +55,18 @@ func TestExporterSendsAcknowledgedForwardRecord(t *testing.T) {
 	host, portValue, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portValue)
 	exporter, err := New(Config{
-		Network:            "tcp",
-		Host:               host,
-		Port:               port,
-		Connections:        1,
-		Timeout:            time.Second,
-		WriteTimeout:       time.Second,
-		ReadTimeout:        time.Second,
-		RetryWaitMillis:    1,
-		MaxRetry:           1,
-		MaxRetryWaitMillis: 1,
-		TagPrefix:          "dproxy.capture",
-		RequestAck:         true,
+		Endpoint:            "tcp://" + net.JoinHostPort(host, strconv.Itoa(port)),
+		Connections:         1,
+		QueueCapacity:       16,
+		ConnectTimeout:      time.Second,
+		HandshakeTimeout:    time.Second,
+		WriteTimeout:        time.Second,
+		ACKTimeout:          time.Second,
+		RetryMaxAttempts:    1,
+		RetryMinBackoff:     time.Millisecond,
+		RetryMaxBackoff:     time.Millisecond,
+		TagPrefix:           "dproxy.capture",
+		DeliveryAtLeastOnce: true,
 	})
 	if err != nil {
 		t.Fatal(err)

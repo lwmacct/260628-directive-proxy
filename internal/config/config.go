@@ -97,21 +97,25 @@ type ProxyCapture struct {
 }
 
 type CaptureFluent struct {
-	Network               string        `json:"network"                  desc:"Fluent 网络类型：tcp、tls 或 unix"`
-	Host                  string        `json:"host"                     desc:"Fluent TCP/TLS 主机"`
-	Port                  int           `json:"port"                     desc:"Fluent TCP/TLS 端口"`
-	SocketPath            string        `json:"socket-path"              desc:"Fluent Unix socket 路径"`
-	Connections           int           `json:"connections"              desc:"按 trace ID 分片的同步 Fluent 连接数"`
-	Timeout               time.Duration `json:"timeout"                  desc:"Fluent 建连超时"`
+	Endpoint              string        `json:"endpoint"                 desc:"Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss"`
+	Connections           int           `json:"connections"              desc:"按 trace ID 分片的 Fluent 客户端数"`
+	QueueCapacity         int           `json:"queue-capacity"           desc:"每个 Fluent 客户端的待发送队列容量"`
+	ConnectTimeout        time.Duration `json:"connect-timeout"          desc:"Fluent 建连超时"`
+	HandshakeTimeout      time.Duration `json:"handshake-timeout"        desc:"Fluent Forward 握手超时"`
 	WriteTimeout          time.Duration `json:"write-timeout"            desc:"Fluent 单条记录写入超时"`
-	ReadTimeout           time.Duration `json:"read-timeout"             desc:"Fluent ACK 读取超时"`
-	RetryWaitMillis       int           `json:"retry-wait-millis"        desc:"Fluent 首次重试等待毫秒数"`
-	MaxRetry              int           `json:"max-retry"                desc:"Fluent 单条记录最大写入尝试次数"`
-	MaxRetryWaitMillis    int           `json:"max-retry-wait-millis"    desc:"Fluent 重试等待上限毫秒数"`
+	ACKTimeout            time.Duration `json:"ack-timeout"              desc:"Fluent ACK 读取超时"`
+	RetryMaxAttempts      int           `json:"retry-max-attempts"       desc:"Fluent 单条记录最大投递尝试次数"`
+	RetryMinBackoff       time.Duration `json:"retry-min-backoff"        desc:"Fluent 重试最短退避时间"`
+	RetryMaxBackoff       time.Duration `json:"retry-max-backoff"        desc:"Fluent 重试最长退避时间"`
 	TagPrefix             string        `json:"tag-prefix"               desc:"Fluent tag 前缀"`
-	RequestAck            bool          `json:"request-ack"              desc:"是否要求 Fluentd 对每条记录确认"`
+	Delivery              string        `json:"delivery"                 desc:"Fluent 投递模式：unconfirmed 或 at-least-once"`
 	TLSInsecureSkipVerify bool          `json:"tls-insecure-skip-verify" desc:"是否跳过 Fluent TLS 证书验证，仅用于开发"`
 }
+
+const (
+	FluentDeliveryUnconfirmed = "unconfirmed"
+	FluentDeliveryAtLeastOnce = "at-least-once"
+)
 
 type ProxyDirective struct {
 	MaxTokenBytes  int64                 `json:"max-token-bytes"  desc:"directive token 最大字节数"`
@@ -208,19 +212,18 @@ func DefaultConfig() Config {
 				},
 				RedactQuery: []string{"access_token", "api_key", "apikey", "key", "token"},
 				Fluent: CaptureFluent{
-					Network:            "unix",
-					SocketPath:         "/run/fluent/fluent.sock",
-					Host:               "127.0.0.1",
-					Port:               24224,
-					Connections:        4,
-					Timeout:            500 * time.Millisecond,
-					WriteTimeout:       500 * time.Millisecond,
-					ReadTimeout:        500 * time.Millisecond,
-					RetryWaitMillis:    100,
-					MaxRetry:           1,
-					MaxRetryWaitMillis: 500,
-					TagPrefix:          "dproxy.capture",
-					RequestAck:         true,
+					Endpoint:         "unix:///run/fluent/fluent.sock",
+					Connections:      4,
+					QueueCapacity:    8192,
+					ConnectTimeout:   500 * time.Millisecond,
+					HandshakeTimeout: 500 * time.Millisecond,
+					WriteTimeout:     500 * time.Millisecond,
+					ACKTimeout:       500 * time.Millisecond,
+					RetryMaxAttempts: 1,
+					RetryMinBackoff:  100 * time.Millisecond,
+					RetryMaxBackoff:  500 * time.Millisecond,
+					TagPrefix:        "dproxy.capture",
+					Delivery:         FluentDeliveryAtLeastOnce,
 				},
 			},
 			Directive: ProxyDirective{

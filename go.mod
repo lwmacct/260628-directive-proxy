@@ -5,7 +5,6 @@ go 1.26.4
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
-	github.com/fluent/fluent-logger-golang v1.10.1
 	github.com/lwmacct/251207-go-pkg-cfgm v0.27.260714
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
@@ -13,10 +12,13 @@ require (
 	github.com/lwmacct/260622-go-pkg-tddcheck v0.19.260626
 	github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714
 	github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713
+	github.com/lwmacct/260714-go-pkg-fluent v0.2.260714
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/tinylib/msgp v1.6.4
 	github.com/urfave/cli/v3 v3.10.1
 )
+
+require github.com/coder/websocket v1.8.15 // indirect
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

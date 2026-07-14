@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/url"
 	"path"
 	"strings"
 
@@ -132,24 +133,32 @@ func validateCapture(cfg ProxyCapture) (ProxyCapture, error) {
 		}
 	}
 	fluent := &cfg.Fluent
-	fluent.Network = strings.ToLower(strings.TrimSpace(fluent.Network))
-	fluent.Host = strings.TrimSpace(fluent.Host)
-	fluent.SocketPath = strings.TrimSpace(fluent.SocketPath)
+	fluent.Endpoint = strings.TrimSpace(fluent.Endpoint)
+	fluent.Delivery = strings.ToLower(strings.TrimSpace(fluent.Delivery))
 	fluent.TagPrefix = strings.Trim(strings.TrimSpace(fluent.TagPrefix), ".")
-	if fluent.Connections <= 0 || fluent.Timeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ReadTimeout <= 0 ||
-		fluent.RetryWaitMillis <= 0 || fluent.MaxRetry <= 0 || fluent.MaxRetryWaitMillis <= 0 || fluent.TagPrefix == "" {
+	if fluent.Connections <= 0 || fluent.QueueCapacity <= 0 || fluent.ConnectTimeout <= 0 ||
+		fluent.HandshakeTimeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ACKTimeout <= 0 ||
+		fluent.RetryMaxAttempts <= 0 || fluent.RetryMinBackoff <= 0 ||
+		fluent.RetryMaxBackoff < fluent.RetryMinBackoff || fluent.TagPrefix == "" {
 		return cfg, ErrInvalidCapture
 	}
-	switch fluent.Network {
-	case "unix":
-		if fluent.SocketPath == "" {
+	endpoint, err := url.Parse(fluent.Endpoint)
+	if err != nil || endpoint.Scheme == "" {
+		return cfg, ErrInvalidCapture
+	}
+	switch strings.ToLower(endpoint.Scheme) {
+	case "tcp", "tls", "ws", "wss":
+		if endpoint.Host == "" {
 			return cfg, ErrInvalidCapture
 		}
-	case "tcp", "tls":
-		if fluent.Host == "" || fluent.Port <= 0 || fluent.Port > 65535 {
+	case "unix":
+		if endpoint.Path == "" {
 			return cfg, ErrInvalidCapture
 		}
 	default:
+		return cfg, ErrInvalidCapture
+	}
+	if fluent.Delivery != FluentDeliveryUnconfirmed && fluent.Delivery != FluentDeliveryAtLeastOnce {
 		return cfg, ErrInvalidCapture
 	}
 	return cfg, nil

@@ -1,38 +1,38 @@
 package fluentcapture
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"hash/fnv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/fluent/fluent-logger-golang/fluent"
+	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/capture"
 )
 
 type Config struct {
-	Network               string
-	Host                  string
-	Port                  int
-	SocketPath            string
+	Endpoint              string
 	Connections           int
-	Timeout               time.Duration
+	QueueCapacity         int
+	ConnectTimeout        time.Duration
+	HandshakeTimeout      time.Duration
 	WriteTimeout          time.Duration
-	ReadTimeout           time.Duration
-	RetryWaitMillis       int
-	MaxRetry              int
-	MaxRetryWaitMillis    int
+	ACKTimeout            time.Duration
+	RetryMaxAttempts      int
+	RetryMinBackoff       time.Duration
+	RetryMaxBackoff       time.Duration
 	TagPrefix             string
-	RequestAck            bool
+	DeliveryAtLeastOnce   bool
 	TLSInsecureSkipVerify bool
 }
 
 type Exporter struct {
 	mu              sync.RWMutex
-	clients         []*fluent.Fluent
+	clients         []*fluent.Client
 	closed          bool
 	healthy         atomic.Bool
 	lastFailureNano atomic.Int64
@@ -42,26 +42,33 @@ func New(config Config) (*Exporter, error) {
 	if config.Connections <= 0 {
 		config.Connections = 1
 	}
-	clients := make([]*fluent.Fluent, 0, config.Connections)
+	clients := make([]*fluent.Client, 0, config.Connections)
 	for range config.Connections {
-		client, err := fluent.New(fluent.Config{
-			FluentNetwork:         config.Network,
-			FluentHost:            config.Host,
-			FluentPort:            config.Port,
-			FluentSocketPath:      config.SocketPath,
-			Timeout:               config.Timeout,
-			WriteTimeout:          config.WriteTimeout,
-			ReadTimeout:           config.ReadTimeout,
-			RetryWait:             config.RetryWaitMillis,
-			MaxRetry:              config.MaxRetry,
-			MaxRetryWait:          config.MaxRetryWaitMillis,
-			TagPrefix:             strings.TrimSpace(config.TagPrefix),
-			Async:                 false,
-			SubSecondPrecision:    true,
-			RequestAck:            config.RequestAck,
-			TlsInsecureSkipVerify: config.TLSInsecureSkipVerify,
-		})
+		clientConfig := fluent.DefaultConfig(config.Endpoint)
+		clientConfig.TagPrefix = config.TagPrefix
+		clientConfig.Queue.Capacity = config.QueueCapacity
+		clientConfig.Retry.MaxAttempts = config.RetryMaxAttempts
+		clientConfig.Retry.MinBackoff = config.RetryMinBackoff
+		clientConfig.Retry.MaxBackoff = config.RetryMaxBackoff
+		clientConfig.Timeout.Connect = config.ConnectTimeout
+		clientConfig.Timeout.Handshake = config.HandshakeTimeout
+		clientConfig.Timeout.Write = config.WriteTimeout
+		clientConfig.Timeout.ACK = config.ACKTimeout
+		if config.DeliveryAtLeastOnce {
+			clientConfig.Delivery = fluent.DeliveryAtLeastOnce
+		}
+		if config.TLSInsecureSkipVerify {
+			clientConfig.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // Explicit development-only option.
+		}
+		client, err := fluent.New(clientConfig)
 		if err != nil {
+			for _, opened := range clients {
+				_ = opened.Close()
+			}
+			return nil, fmt.Errorf("create fluent capture exporter: %w", err)
+		}
+		if err := client.Connect(context.Background()); err != nil {
+			_ = client.Close()
 			for _, opened := range clients {
 				_ = opened.Close()
 			}
@@ -84,7 +91,7 @@ func (e *Exporter) Emit(tag string, event capture.Event) error {
 		return fmt.Errorf("fluent capture exporter is closed")
 	}
 	client := e.clients[clientIndex(event.TraceID, len(e.clients))]
-	err := client.PostWithTime(tag, event.Time, event.Record())
+	err := client.Send(context.Background(), fluent.Event{Tag: tag, Time: event.Time, Record: event.Record()})
 	if err != nil {
 		e.healthy.Store(false)
 		e.lastFailureNano.Store(time.Now().UTC().UnixNano())

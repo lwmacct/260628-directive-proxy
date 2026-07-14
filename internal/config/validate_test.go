@@ -240,16 +240,17 @@ func TestValidateCaptureConfiguration(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.Proxy.Capture.Enabled = true
 	validated, err := Validate(cfg)
-	if err != nil || validated.Proxy.Capture.Fluent.Network != "unix" {
+	if err != nil || validated.Proxy.Capture.Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
 		t.Fatalf("valid capture config was rejected: cfg=%#v err=%v", validated.Proxy.Capture, err)
 	}
 	for _, mutate := range []func(*ProxyCapture){
 		func(cfg *ProxyCapture) { cfg.BodyChunkBytes = 0 },
 		func(cfg *ProxyCapture) { cfg.MaxSSEEventBytes = 0 },
 		func(cfg *ProxyCapture) { cfg.RedactHeaders = []string{"[invalid"} },
-		func(cfg *ProxyCapture) { cfg.Fluent.Network = "udp" },
+		func(cfg *ProxyCapture) { cfg.Fluent.Endpoint = "udp://127.0.0.1:24224" },
 		func(cfg *ProxyCapture) { cfg.Fluent.Connections = 0 },
-		func(cfg *ProxyCapture) { cfg.Fluent.ReadTimeout = 0 },
+		func(cfg *ProxyCapture) { cfg.Fluent.ACKTimeout = 0 },
+		func(cfg *ProxyCapture) { cfg.Fluent.Delivery = "exactly-once" },
 	} {
 		cfg := validDefaultConfig()
 		cfg.Proxy.Capture.Enabled = true
