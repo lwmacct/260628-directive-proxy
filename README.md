@@ -32,24 +32,24 @@ Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retr
 活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Admin API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
 
 ```yaml
-proxy:
-  retry:
-    enabled: true
-    max-attempts: 3
-    command-retention: 1m
-  body-memory:
-    max-active-bytes: 2147483648
-    max-body-bytes: 33554432
-    queue-max-requests: 512
-    queue-max-wait: 15s
-    body-read-timeout: 30s
-observability:
-  fluent:
-    enabled: false
-    connections: 4
-    queue:
-      max-records: 8192
-      max-bytes: 268435456
+server:
+  proxy:
+    retry:
+      max-attempts: 3
+      command-retention: 1m
+    body-memory:
+      max-active-bytes: 2147483648
+      max-body-bytes: 33554432
+      queue-max-requests: 512
+      queue-max-wait: 15s
+      body-read-timeout: 30s
+  observability:
+    fluent:
+      enabled: false
+      connections: 4
+      queue:
+        max-records: 8192
+        max-bytes: 268435456
 ```
 
 ## 可观测插件与输出
@@ -196,26 +196,27 @@ server:
 
 ## Directive 来源白名单
 
-`proxy.directive.source-access` 只保护携带 `Authorization: Bearer dproxy.*` 的 Directive 流量。Admin API、OIDC、`/health` 和 Web UI 继续使用各自的访问策略。来源白名单默认禁用；启用后仅允许 `allowed-sources` 中配置的来源。
+`server.proxy.directive.source-access` 只保护携带 `Authorization: Bearer dproxy.*` 的 Directive 流量。Admin API、OIDC、`/health` 和 Web UI 继续使用各自的访问策略。来源白名单默认禁用；启用后仅允许 `allowed-sources` 中配置的来源。
 
 ```yaml
-proxy:
-  directive:
-    source-access:
-      enabled: true
-      allowed-sources:
-        - 127.0.0.1
-        - ::1
-        - 172.22.0.0/16
-        - client.example.net
-      trusted-proxies:
-        - 172.18.0.0/16
-      dns:
-        lookup-timeout: 2s
-        success-ttl: 1m
-        failure-ttl: 10s
-        stale-ttl: 10m
-        max-hosts: 1024
+server:
+  proxy:
+    directive:
+      source-access:
+        enabled: true
+        allowed-sources:
+          - 127.0.0.1
+          - ::1
+          - 172.22.0.0/16
+          - client.example.net
+        trusted-proxies:
+          - 172.18.0.0/16
+        dns:
+          lookup-timeout: 2s
+          success-ttl: 1m
+          failure-ttl: 10s
+          stale-ttl: 10m
+          max-hosts: 1024
 ```
 
 `allowed-sources` 接受精确 IP、CIDR 或域名，并按 OR 关系匹配。域名通过正向 A/AAAA 解析后与客户端 IP 比较，不检查请求 Host，也不执行 PTR 反查。解析结果按请求惰性缓存；刷新失败时只在 `stale-ttl` 窗口内继续使用旧的成功结果。
@@ -339,19 +340,20 @@ redis-cli JSON.SET 'dproxy:directive:team-a/service-a' '$' \
 全局配置只限制远端解析使用的资源：
 
 ```yaml
-proxy:
-  directive:
-    max-token-bytes: 65536
-    max-inline-bytes: 49152
-    remote:
-      timeout: 1s
-      max-response-bytes: 262144
-      http:
-        max-request-bytes: 131072
-      redis:
-        client-cache-capacity: 64
-        client-idle-timeout: 10m
-        pool-size: 4
+server:
+  proxy:
+    directive:
+      max-token-bytes: 65536
+      max-inline-bytes: 49152
+      remote:
+        timeout: 1s
+        max-response-bytes: 262144
+        http:
+          max-request-bytes: 131072
+        redis:
+          client-cache-capacity: 64
+          client-idle-timeout: 10m
+          pool-size: 4
 ```
 
 已认证的 Admin API 提供唯一的协议编解码与校验实现，Web 工作台也使用这些端点：
@@ -370,7 +372,9 @@ data-plane 错误使用 `{ "error": { "code": "...", "message": "..." } }`，客
 go run . server
 ```
 
-默认 HTTP 监听地址是 `:23198`，可通过 `--server.http.listen` 修改。
+配置树与 CLI 命令树一致：`app server` 对应配置根的 `server` 节点。配置文件使用完整路径（例如 `server.proxy.retry.max-attempts`），环境变量使用 `APP_SERVER_PROXY_RETRY_MAX_ATTEMPTS`，CLI 已由命令提供 `server` 上下文，因此使用 `--proxy.retry.max-attempts`。
+
+默认 HTTP 监听地址是 `:23198`，可通过 `app server --http.listen=:23198` 修改。
 
 常用端点：
 

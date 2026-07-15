@@ -44,8 +44,8 @@ type runtime struct {
 	directiveReader *directiveRemoteReader
 }
 
-func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
-	tlsRuntime, err := newTLSRuntime(ctx, cfg.Server.HTTP.TLS)
+func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
+	tlsRuntime, err := newTLSRuntime(ctx, cfg.HTTP.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
@@ -58,7 +58,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 			return nil, fmt.Errorf("configure source access: %w", err)
 		}
 	}
-	adminAuth, err := newAdminAuth(ctx, cfg.Server.HTTP)
+	adminAuth, err := newAdminAuth(ctx, cfg.HTTP)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
@@ -201,7 +201,7 @@ func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Gua
 	return guard, engine, nil
 }
 
-func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, tracker *proxyrequestadapter.ProxyRequestService, bodyMemory *bodymemory.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, tracker *proxyrequestadapter.ProxyRequestService, bodyMemory *bodymemory.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
 		BodyMemory:      bodyMemory,

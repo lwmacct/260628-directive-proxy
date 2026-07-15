@@ -18,8 +18,8 @@ const (
 	adminAPIPrefix  = "/api/admin"
 )
 
-func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
-	httpCfg := cfg.Server.HTTP
+func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
+	httpCfg := cfg.HTTP
 	srv := &http.Server{
 		Addr:              httpCfg.Listen,
 		Handler:           newHTTPHandler(cfg, rt),
@@ -37,10 +37,10 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 	return srv
 }
 
-func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
+func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	services := handler.Services{Requests: rt.requests, Observability: rt.observability}
-	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
-	adminAPI := limitRequestBody(handler.NewAdminEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
+	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
+	adminAPI := limitRequestBody(handler.NewAdminEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
 	if rt.adminAuth != nil {
 		adminAPI = rt.adminAuth.RequireAccess(adminAPI)
 	}

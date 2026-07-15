@@ -44,7 +44,7 @@ func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
 }
 
 func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	var proxyPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxyPath = r.URL.Path
@@ -101,18 +101,18 @@ func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
 }
 
 func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	adminToken := "dpctl.10.admin." + strings.Repeat("Z", 32)
 	digest, err := statictoken.Digest(types.AdminTokenNamespace, adminToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Server.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
-	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
-	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
+	cfg.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
+	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
+	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: digest},
 	}
-	adminAuth, err := newAdminAuth(t.Context(), cfg.Server.HTTP)
+	adminAuth, err := newAdminAuth(t.Context(), cfg.HTTP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 }
 
 func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	redisServer := miniredis.RunT(t)
 	enableRedisJSON(t, redisServer)
 	reader := newTestDirectiveReader(t, cfg)
@@ -235,7 +235,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 }
 
 func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	reader := newTestDirectiveReader(t, cfg)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Directive-Source") != "http" {
@@ -278,7 +278,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	}
 }
 
-func newTestDirectiveReader(t *testing.T, cfg config.Config) *directiveRemoteReader {
+func newTestDirectiveReader(t *testing.T, cfg config.Server) *directiveRemoteReader {
 	t.Helper()
 	reader := newDirectiveRemoteReader(cfg.Proxy.Directive.Remote)
 	t.Cleanup(func() { _ = reader.Close() })
@@ -286,7 +286,7 @@ func newTestDirectiveReader(t *testing.T, cfg config.Config) *directiveRemoteRea
 }
 
 func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	srv := newHTTPServer(&cfg, rt)
 
@@ -305,8 +305,8 @@ func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
 }
 
 func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Server.HTTP.MaxAPIBodyBytes = 1
+	cfg := config.DefaultConfig().Server
+	cfg.HTTP.MaxAPIBodyBytes = 1
 	var proxyBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -343,7 +343,7 @@ func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
 }
 
 func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	rt := &runtime{}
 	srv := newHTTPServer(&cfg, rt)
 
@@ -356,7 +356,7 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 }
 
 func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -379,7 +379,7 @@ func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
 }
 
 func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
@@ -395,7 +395,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 }
 
 func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
@@ -422,7 +422,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 }
 
 func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
@@ -441,7 +441,7 @@ func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 }
 
 func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
@@ -455,7 +455,7 @@ func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) 
 	}
 }
 
-func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Config, value runtime) *runtime {
+func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Server, value runtime) *runtime {
 	t.Helper()
 	access, engine, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
 	if err != nil {
@@ -471,7 +471,7 @@ func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Config, value runti
 }
 
 func TestRuntimeCloseClosesSourceEngine(t *testing.T) {
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	engine := rt.sourceEngine
 	policy, err := sourceaccess.CompileSources([]string{"127.0.0.1"})
@@ -505,13 +505,13 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig()
-	cfg.Server.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
-	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
+	cfg := config.DefaultConfig().Server
+	cfg.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
+	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
+	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: digest},
 	}
-	auth, err := newAdminAuth(t.Context(), cfg.Server.HTTP)
+	auth, err := newAdminAuth(t.Context(), cfg.HTTP)
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)
 	}

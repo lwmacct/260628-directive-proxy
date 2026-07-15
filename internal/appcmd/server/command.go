@@ -12,11 +12,10 @@ import (
 
 var (
 	binding = config.Definition.Bind(
-		cfgm.Scope("server"),
-		cfgm.Include("proxy", "observability"),
+		cfgm.Command("server"),
 		cfgm.NoCLI(
-			"server.http.auth.session.keys",
-			"server.http.auth.token",
+			"http.auth.session.keys",
+			"http.auth.token",
 		),
 	)
 )
@@ -32,5 +31,5 @@ var Command = &cli.Command{
 
 func action(ctx context.Context, cmd *cli.Command) error {
 	cfg := binding.MustLoad(ctx, cmd)
-	return NewApp(cfg).Run(ctx)
+	return NewApp(&cfg.Server).Run(ctx)
 }

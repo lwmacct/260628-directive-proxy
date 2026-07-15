@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/google/uuid v1.6.0
-	github.com/lwmacct/251207-go-pkg-cfgm v0.30.260715
+	github.com/lwmacct/251207-go-pkg-cfgm v0.31.260715
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
 	github.com/lwmacct/260614-go-pkg-tlsreload v0.14.260715

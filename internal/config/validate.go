@@ -10,61 +10,61 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 )
 
-func Validate(cfg Config) (Config, error) {
-	if strings.TrimSpace(cfg.Server.HTTP.Listen) == "" {
+func Validate(cfg Server) (Server, error) {
+	if strings.TrimSpace(cfg.HTTP.Listen) == "" {
 		return cfg, ErrInvalidHTTP
 	}
-	if cfg.Server.HTTP.MaxHeaderBytes <= 0 {
+	if cfg.HTTP.MaxHeaderBytes <= 0 {
 		return cfg, ErrInvalidHTTP
 	}
-	if cfg.Server.HTTP.TLS.Enabled {
-		cfg.Server.HTTP.TLS.DefaultCertificate = strings.TrimSpace(cfg.Server.HTTP.TLS.DefaultCertificate)
-		for index := range cfg.Server.HTTP.TLS.Certificates {
-			source := &cfg.Server.HTTP.TLS.Certificates[index]
+	if cfg.HTTP.TLS.Enabled {
+		cfg.HTTP.TLS.DefaultCertificate = strings.TrimSpace(cfg.HTTP.TLS.DefaultCertificate)
+		for index := range cfg.HTTP.TLS.Certificates {
+			source := &cfg.HTTP.TLS.Certificates[index]
 			source.ID = strings.TrimSpace(source.ID)
 			source.Certificate = strings.TrimSpace(source.Certificate)
 			source.PrivateKey = strings.TrimSpace(source.PrivateKey)
 		}
-		if err := cfg.Server.HTTP.TLS.ReloadConfig().Validate(); err != nil {
+		if err := cfg.HTTP.TLS.ReloadConfig().Validate(); err != nil {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	if len(cfg.Server.HTTP.Auth.Methods) == 0 {
+	if len(cfg.HTTP.Auth.Methods) == 0 {
 		return cfg, ErrInvalidAuth
 	}
-	validatedCore, err := (httpauth.Config{ExternalURLs: cfg.Server.HTTP.Auth.ExternalURLs, Session: cfg.Server.HTTP.Auth.Session}).Validate()
+	validatedCore, err := (httpauth.Config{ExternalURLs: cfg.HTTP.Auth.ExternalURLs, Session: cfg.HTTP.Auth.Session}).Validate()
 	if err != nil {
 		return cfg, ErrInvalidAuth
 	}
-	cfg.Server.HTTP.Auth.ExternalURLs = validatedCore.ExternalURLs
-	cfg.Server.HTTP.Auth.Session = validatedCore.Session
-	seen := make(map[AuthMethod]struct{}, len(cfg.Server.HTTP.Auth.Methods))
-	for _, method := range cfg.Server.HTTP.Auth.Methods {
+	cfg.HTTP.Auth.ExternalURLs = validatedCore.ExternalURLs
+	cfg.HTTP.Auth.Session = validatedCore.Session
+	seen := make(map[AuthMethod]struct{}, len(cfg.HTTP.Auth.Methods))
+	for _, method := range cfg.HTTP.Auth.Methods {
 		if _, exists := seen[method]; exists {
 			return cfg, ErrInvalidAuth
 		}
 		seen[method] = struct{}{}
 		switch method {
 		case AuthMethodToken:
-			if _, err := cfg.Server.HTTP.Auth.Token.Validate(); err != nil {
+			if _, err := cfg.HTTP.Auth.Token.Validate(); err != nil {
 				return cfg, ErrInvalidAuth
 			}
 		case AuthMethodOIDC:
-			validatedAuth, err := cfg.Server.HTTP.Auth.OIDC.MethodConfig().Validate()
+			validatedAuth, err := cfg.HTTP.Auth.OIDC.MethodConfig().Validate()
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
-			cfg.Server.HTTP.Auth.OIDC.Issuer = validatedAuth.Issuer
-			cfg.Server.HTTP.Auth.OIDC.ClientID = validatedAuth.ClientID
-			cfg.Server.HTTP.Auth.OIDC.ClientSecret = validatedAuth.ClientSecret
-			cfg.Server.HTTP.Auth.OIDC.SessionTTL = validatedAuth.SessionTTL
-			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Server.HTTP.Auth.OIDC.AllowedUsers)
+			cfg.HTTP.Auth.OIDC.Issuer = validatedAuth.Issuer
+			cfg.HTTP.Auth.OIDC.ClientID = validatedAuth.ClientID
+			cfg.HTTP.Auth.OIDC.ClientSecret = validatedAuth.ClientSecret
+			cfg.HTTP.Auth.OIDC.SessionTTL = validatedAuth.SessionTTL
+			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.HTTP.Auth.OIDC.AllowedUsers)
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
 			_ = authorizer
-			for index, username := range cfg.Server.HTTP.Auth.OIDC.AllowedUsers {
-				cfg.Server.HTTP.Auth.OIDC.AllowedUsers[index] = strings.ToLower(strings.TrimSpace(username))
+			for index, username := range cfg.HTTP.Auth.OIDC.AllowedUsers {
+				cfg.HTTP.Auth.OIDC.AllowedUsers[index] = strings.ToLower(strings.TrimSpace(username))
 			}
 		default:
 			return cfg, ErrInvalidAuth

@@ -55,7 +55,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: pipeline}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
@@ -157,7 +157,7 @@ func TestDisabledFluentIgnoresDirectivePluginsAndProxiesNormally(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: pipeline}
 	token, err := directive.Encode(directive.Payload{
 		Target: directive.TargetSection{URL: upstream.URL},
@@ -184,7 +184,7 @@ func TestDisabledFluentIgnoresDirectivePluginsAndProxiesNormally(t *testing.T) {
 }
 
 func TestDisabledFluentPipelineDoesNotConnect(t *testing.T) {
-	cfg := config.DefaultConfig().Observability
+	cfg := config.DefaultConfig().Server.Observability
 	cfg.Fluent.Endpoint = "tcp://127.0.0.1:1"
 	pipeline, err := newObservabilityPipeline(t.Context(), cfg)
 	if err != nil {
@@ -213,7 +213,7 @@ func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig()
+	cfg := config.DefaultConfig().Server
 	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: pipeline}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()

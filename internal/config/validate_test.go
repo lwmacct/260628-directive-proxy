@@ -10,19 +10,19 @@ import (
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 )
 
-func validDefaultConfig() Config {
-	cfg := DefaultConfig()
-	cfg.Server.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
+func validDefaultConfig() Server {
+	cfg := DefaultConfig().Server
+	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
+	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: strings.Repeat("a", 64)},
 	}
 	return cfg
 }
 
-func oidcConfig() Config {
+func oidcConfig() Server {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC}
-	cfg.Server.HTTP.Auth.OIDC = testOIDCAuth()
+	cfg.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC}
+	cfg.HTTP.Auth.OIDC = testOIDCAuth()
 	return cfg
 }
 
@@ -36,16 +36,16 @@ func testOIDCAuth() OIDCAuth {
 }
 
 func TestDefaultConfigUsesSingleHTTPListen(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := DefaultConfig().Server
 
-	if cfg.Server.HTTP.Listen != ":23198" {
-		t.Fatalf("unexpected http listen: %q", cfg.Server.HTTP.Listen)
+	if cfg.HTTP.Listen != ":23198" {
+		t.Fatalf("unexpected http listen: %q", cfg.HTTP.Listen)
 	}
 }
 
 func TestValidateRejectsMissingHTTPListen(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Listen = " "
+	cfg.HTTP.Listen = " "
 
 	if _, err := Validate(cfg); err != ErrInvalidHTTP {
 		t.Fatalf("expected invalid http config, got %v", err)
@@ -54,7 +54,7 @@ func TestValidateRejectsMissingHTTPListen(t *testing.T) {
 
 func TestValidateRejectsInvalidHTTPHeaderLimit(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.MaxHeaderBytes = 0
+	cfg.HTTP.MaxHeaderBytes = 0
 	if _, err := Validate(cfg); err != ErrInvalidHTTP {
 		t.Fatalf("expected invalid HTTP config, got %v", err)
 	}
@@ -77,8 +77,8 @@ func TestValidateTLSConfiguration(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := validDefaultConfig()
-			cfg.Server.HTTP.TLS.Enabled = true
-			test.mutate(&cfg.Server.HTTP.TLS)
+			cfg.HTTP.TLS.Enabled = true
+			test.mutate(&cfg.HTTP.TLS)
 			if _, err := Validate(cfg); err != ErrInvalidHTTP {
 				t.Fatalf("expected invalid HTTP config, got %v", err)
 			}
@@ -88,9 +88,9 @@ func TestValidateTLSConfiguration(t *testing.T) {
 
 func TestValidateNormalizesTLSConfiguration(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.TLS.Enabled = true
-	cfg.Server.HTTP.TLS.DefaultCertificate = " default "
-	cfg.Server.HTTP.TLS.Certificates = []tlsreload.CertificateSource{
+	cfg.HTTP.TLS.Enabled = true
+	cfg.HTTP.TLS.DefaultCertificate = " default "
+	cfg.HTTP.TLS.Certificates = []tlsreload.CertificateSource{
 		{ID: " default ", Certificate: " cert.pem ", PrivateKey: " key.pem "},
 	}
 
@@ -98,7 +98,7 @@ func TestValidateNormalizesTLSConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	tlsConfig := validated.Server.HTTP.TLS
+	tlsConfig := validated.HTTP.TLS
 	if tlsConfig.DefaultCertificate != "default" || tlsConfig.Certificates[0].ID != "default" ||
 		tlsConfig.Certificates[0].Certificate != "cert.pem" || tlsConfig.Certificates[0].PrivateKey != "key.pem" {
 		t.Fatalf("unexpected normalized TLS config: %#v", tlsConfig)
@@ -107,8 +107,8 @@ func TestValidateNormalizesTLSConfiguration(t *testing.T) {
 
 func TestValidateSkipsTLSConfigurationWhenDisabled(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.TLS.Certificates = nil
-	cfg.Server.HTTP.TLS.DefaultCertificate = ""
+	cfg.HTTP.TLS.Certificates = nil
+	cfg.HTTP.TLS.DefaultCertificate = ""
 
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("disabled TLS must not be validated: %v", err)
@@ -130,7 +130,7 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := oidcConfig()
-			test.mutate(&cfg.Server.HTTP.Auth.OIDC)
+			test.mutate(&cfg.HTTP.Auth.OIDC)
 			if _, err := Validate(cfg); err != ErrInvalidAuth {
 				t.Fatalf("expected invalid auth config, got %v", err)
 			}
@@ -140,18 +140,18 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 
 func TestValidateNormalizesAuth(t *testing.T) {
 	cfg := oidcConfig()
-	cfg.Server.HTTP.Auth.OIDC.Issuer += "/"
-	cfg.Server.HTTP.Auth.OIDC.AllowedUsers = []string{" LwMacct "}
+	cfg.HTTP.Auth.OIDC.Issuer += "/"
+	cfg.HTTP.Auth.OIDC.AllowedUsers = []string{" LwMacct "}
 
 	validated, err := Validate(cfg)
 	if err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	if validated.Server.HTTP.Auth.OIDC.Issuer != "https://2008.s.lwmacct.com:20088" {
-		t.Fatalf("unexpected issuer: %q", validated.Server.HTTP.Auth.OIDC.Issuer)
+	if validated.HTTP.Auth.OIDC.Issuer != "https://2008.s.lwmacct.com:20088" {
+		t.Fatalf("unexpected issuer: %q", validated.HTTP.Auth.OIDC.Issuer)
 	}
-	if validated.Server.HTTP.Auth.OIDC.AllowedUsers[0] != "lwmacct" {
-		t.Fatalf("unexpected username: %q", validated.Server.HTTP.Auth.OIDC.AllowedUsers[0])
+	if validated.HTTP.Auth.OIDC.AllowedUsers[0] != "lwmacct" {
+		t.Fatalf("unexpected username: %q", validated.HTTP.Auth.OIDC.AllowedUsers[0])
 	}
 }
 
@@ -161,7 +161,7 @@ func TestValidateTokenAuth(t *testing.T) {
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	cfg.Server.HTTP.Auth.Token.Credentials["admin"] = statictoken.Credential{
+	cfg.HTTP.Auth.Token.Credentials["admin"] = statictoken.Credential{
 		Name: "Administrator", TokenSHA256: strings.Repeat("A", 64),
 	}
 	if _, err := Validate(cfg); err != ErrInvalidAuth {
@@ -171,8 +171,8 @@ func TestValidateTokenAuth(t *testing.T) {
 
 func TestValidateOIDCAndTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Server.HTTP.Auth.Methods = []AuthMethod{AuthMethodToken, AuthMethodOIDC}
-	cfg.Server.HTTP.Auth.OIDC = testOIDCAuth()
+	cfg.HTTP.Auth.Methods = []AuthMethod{AuthMethodToken, AuthMethodOIDC}
+	cfg.HTTP.Auth.OIDC = testOIDCAuth()
 
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate combined auth config: %v", err)
@@ -190,7 +190,7 @@ func TestValidateRejectsInvalidAuthMethods(t *testing.T) {
 		},
 	} {
 		cfg := validDefaultConfig()
-		mutate(&cfg.Server.HTTP.Auth)
+		mutate(&cfg.HTTP.Auth)
 		if _, err := Validate(cfg); err != ErrInvalidAuth {
 			t.Fatalf("expected invalid auth config, got %v", err)
 		}

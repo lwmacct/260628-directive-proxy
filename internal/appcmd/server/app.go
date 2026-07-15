@@ -15,10 +15,10 @@ import (
 )
 
 type App struct {
-	cfg *config.Config
+	cfg *config.Server
 }
 
-func NewApp(cfg *config.Config) *App {
+func NewApp(cfg *config.Server) *App {
 	return &App{cfg: cfg}
 }
 
@@ -42,7 +42,7 @@ func (app *App) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		cfg := app.cfg.Server.HTTP
+		cfg := app.cfg.HTTP
 		slog.Info("directive proxy service starting", "listen", srv.Addr, "https", cfg.TLS.Enabled)
 		var serveErr error
 		if cfg.TLS.Enabled {
@@ -71,7 +71,7 @@ func (app *App) Run(ctx context.Context) error {
 	}
 }
 
-func validateConfig(cfg *config.Config) error {
+func validateConfig(cfg *config.Server) error {
 	if cfg == nil {
 		return config.ErrInvalidHTTP
 	}

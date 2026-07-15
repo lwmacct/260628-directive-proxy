@@ -24,13 +24,13 @@ var (
 )
 
 type Config struct {
-	Server        Server        `json:"server"        desc:"服务运行配置"`
-	Proxy         Proxy         `json:"proxy"         desc:"代理配置"`
-	Observability Observability `json:"observability" desc:"可观测输出配置"`
+	Server Server `json:"server" desc:"服务运行配置"`
 }
 
 type Server struct {
-	HTTP ServerHTTP `json:"http" desc:"HTTP 服务配置"`
+	HTTP          ServerHTTP    `json:"http"          desc:"HTTP 服务配置"`
+	Proxy         Proxy         `json:"proxy"         desc:"代理配置"`
+	Observability Observability `json:"observability" desc:"可观测输出配置"`
 }
 
 type ServerHTTP struct {
@@ -222,56 +222,56 @@ func DefaultConfig() Config {
 					},
 				},
 			},
-		},
-		Proxy: Proxy{
-			Retry: ProxyRetry{
-				MaxAttempts:      3,
-				CommandRetention: time.Minute,
-			},
-			BodyMemory: ProxyBodyMemory{
-				MaxActiveBytes: 2 << 30,
-				MaxBodyBytes:   32 << 20,
-				QueueMax:       512,
-				QueueWait:      15 * time.Second,
-				ReadTimeout:    30 * time.Second,
-			},
-			Directive: ProxyDirective{
-				MaxTokenBytes:  64 << 10,
-				MaxInlineBytes: 48 << 10,
-				SourceAccess: DirectiveSourceAccess{
-					Enabled:        false,
-					AllowedSources: []string{"127.0.0.1", "::1", "172.22.0.0/16"},
-					DNS:            sourceDNS,
+			Proxy: Proxy{
+				Retry: ProxyRetry{
+					MaxAttempts:      3,
+					CommandRetention: time.Minute,
 				},
-				Remote: RemoteDirective{
-					Timeout:          time.Second,
-					MaxResponseBytes: 256 << 10,
-					HTTP: HTTPRemoteDirective{
-						MaxRequestBytes: 128 << 10,
+				BodyMemory: ProxyBodyMemory{
+					MaxActiveBytes: 2 << 30,
+					MaxBodyBytes:   32 << 20,
+					QueueMax:       512,
+					QueueWait:      15 * time.Second,
+					ReadTimeout:    30 * time.Second,
+				},
+				Directive: ProxyDirective{
+					MaxTokenBytes:  64 << 10,
+					MaxInlineBytes: 48 << 10,
+					SourceAccess: DirectiveSourceAccess{
+						Enabled:        false,
+						AllowedSources: []string{"127.0.0.1", "::1", "172.22.0.0/16"},
+						DNS:            sourceDNS,
 					},
-					Redis: RedisRemoteDirective{
-						ClientCacheCapacity: 64,
-						ClientIdleTimeout:   10 * time.Minute,
-						PoolSize:            4,
+					Remote: RemoteDirective{
+						Timeout:          time.Second,
+						MaxResponseBytes: 256 << 10,
+						HTTP: HTTPRemoteDirective{
+							MaxRequestBytes: 128 << 10,
+						},
+						Redis: RedisRemoteDirective{
+							ClientCacheCapacity: 64,
+							ClientIdleTimeout:   10 * time.Minute,
+							PoolSize:            4,
+						},
 					},
 				},
+				Transport: ProxyTransport{
+					MaxIdleConns:        4096,
+					MaxIdleConnsPerHost: 2048,
+					MaxConnsPerHost:     0,
+					IdleConnTimeout:     60 * time.Second,
+					DisableKeepAlives:   false,
+				},
 			},
-			Transport: ProxyTransport{
-				MaxIdleConns:        4096,
-				MaxIdleConnsPerHost: 2048,
-				MaxConnsPerHost:     0,
-				IdleConnTimeout:     60 * time.Second,
-				DisableKeepAlives:   false,
-			},
-		},
-		Observability: Observability{
-			Fluent: FluentOutput{
-				Enabled: false, Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4,
-				Queue:          SinkQueue{MaxRecords: 8192, MaxBytes: 256 << 20},
-				ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
-				WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
-				RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
-				TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
+			Observability: Observability{
+				Fluent: FluentOutput{
+					Enabled: false, Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4,
+					Queue:          SinkQueue{MaxRecords: 8192, MaxBytes: 256 << 20},
+					ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
+					WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
+					RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
+					TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
+				},
 			},
 		},
 	}

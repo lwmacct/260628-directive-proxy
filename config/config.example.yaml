@@ -67,92 +67,92 @@ server:
     max-api-body-bytes: 1048576 # Admin API 最大请求体字节数，0 表示不限制
     max-header-bytes: 131072 # HTTP 请求头最大字节数
 
-# 代理配置
-proxy:
+  # 代理配置
+  proxy:
 
-  # 上游连接池与连接复用配置
-  transport:
-    max-idle-conns: 4096 # 全局空闲连接池容量；只影响连接复用，不限制活跃并发
-    max-idle-conns-per-host: 2048 # 单 upstream 空闲连接池容量；只影响连接复用，不限制活跃并发
-    max-conns-per-host: 0 # 单 upstream 活跃连接上限；0 表示不限制
-    idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
-    disable-keep-alives: false # 是否禁用上游 keep-alive
+    # 上游连接池与连接复用配置
+    transport:
+      max-idle-conns: 4096 # 全局空闲连接池容量；只影响连接复用，不限制活跃并发
+      max-idle-conns-per-host: 2048 # 单 upstream 空闲连接池容量；只影响连接复用，不限制活跃并发
+      max-conns-per-host: 0 # 单 upstream 活跃连接上限；0 表示不限制
+      idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
+      disable-keep-alives: false # 是否禁用上游 keep-alive
 
-  # 等待上游响应时的外部介入重试配置
-  retry:
-    max-attempts: 3 # 单个逻辑请求允许的最大上游尝试次数，包含首次请求
-    command-retention: 1m0s # 已接受重试命令终态的保留时间
+    # 等待上游响应时的外部介入重试配置
+    retry:
+      max-attempts: 3 # 单个逻辑请求允许的最大上游尝试次数，包含首次请求
+      command-retention: 1m0s # 已接受重试命令终态的保留时间
 
-  # 可重放请求正文的内存与等待队列配置
-  body-memory:
-    max-active-bytes: 2147483648 # 所有活动可重放请求正文占用的最大逻辑字节数
-    max-body-bytes: 33554432 # 单个可重放请求正文最大字节数
-    queue-max-requests: 512 # 等待正文内存的最大请求数
-    queue-max-wait: 15s # 请求等待正文内存的最长时间
-    body-read-timeout: 30s # 获得内存后读取完整请求正文的最长时间
+    # 可重放请求正文的内存与等待队列配置
+    body-memory:
+      max-active-bytes: 2147483648 # 所有活动可重放请求正文占用的最大逻辑字节数
+      max-body-bytes: 33554432 # 单个可重放请求正文最大字节数
+      queue-max-requests: 512 # 等待正文内存的最大请求数
+      queue-max-wait: 15s # 请求等待正文内存的最长时间
+      body-read-timeout: 30s # 获得内存后读取完整请求正文的最长时间
 
-  # 指令来源配置
-  directive:
-    max-token-bytes: 65536 # directive token 最大字节数
-    max-inline-bytes: 49152 # inline directive JSON 最大字节数
+    # 指令来源配置
+    directive:
+      max-token-bytes: 65536 # directive token 最大字节数
+      max-inline-bytes: 49152 # inline directive JSON 最大字节数
 
-    # Directive 入口来源白名单
-    source-access:
-      enabled: false # 是否启用 Directive 入口来源白名单
+      # Directive 入口来源白名单
+      source-access:
+        enabled: false # 是否启用 Directive 入口来源白名单
 
-      # 允许访问的来源 IP、CIDR 或域名列表
-      allowed-sources:
-        - 127.0.0.1
-        - ::1
-        - 172.22.0.0/16
+        # 允许访问的来源 IP、CIDR 或域名列表
+        allowed-sources:
+          - 127.0.0.1
+          - ::1
+          - 172.22.0.0/16
 
-      # 可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头
-      trusted-proxies: []
+        # 可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头
+        trusted-proxies: []
 
-      # 域名来源规则的 DNS 缓存配置
-      dns:
-        lookup-timeout: 2s # 单次域名解析超时
-        success-ttl: 1m0s # 域名成功解析结果缓存时间
-        failure-ttl: 10s # 域名解析失败结果缓存时间
-        stale-ttl: 10m0s # 解析失败后允许继续使用旧成功结果的最长时间
-        max-hosts: 1024 # DNS 缓存的最大域名数量
+        # 域名来源规则的 DNS 缓存配置
+        dns:
+          lookup-timeout: 2s # 单次域名解析超时
+          success-ttl: 1m0s # 域名成功解析结果缓存时间
+          failure-ttl: 10s # 域名解析失败结果缓存时间
+          stale-ttl: 10m0s # 解析失败后允许继续使用旧成功结果的最长时间
+          max-hosts: 1024 # DNS 缓存的最大域名数量
 
-    # 远程指令解析资源限制
-    remote:
-      timeout: 1s # 单次远程指令解析总超时
-      max-response-bytes: 262144 # 远程 directive JSON 最大字节数
+      # 远程指令解析资源限制
+      remote:
+        timeout: 1s # 单次远程指令解析总超时
+        max-response-bytes: 262144 # 远程 directive JSON 最大字节数
 
-      # HTTP resolver 资源限制
-      http:
-        max-request-bytes: 131072 # HTTP resolver 请求元数据最大字节数
+        # HTTP resolver 资源限制
+        http:
+          max-request-bytes: 131072 # HTTP resolver 请求元数据最大字节数
 
-      # Redis adapter 资源限制
-      redis:
-        client-cache-capacity: 64 # 动态 Redis client 缓存容量
-        client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
-        pool-size: 4 # 每个动态 Redis client 的连接池容量
+        # Redis adapter 资源限制
+        redis:
+          client-cache-capacity: 64 # 动态 Redis client 缓存容量
+          client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
+          pool-size: 4 # 每个动态 Redis client 的连接池容量
 
-# 可观测输出配置
-observability:
-  instance-id: "" # 写入观测记录的代理实例标识，留空使用主机名
+  # 可观测输出配置
+  observability:
+    instance-id: "" # 写入观测记录的代理实例标识，留空使用主机名
 
-  # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
-  fluent:
-    enabled: false # 是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求
-    endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
-    connections: 4 # 按 trace ID 分片的 Fluent 连接与发送并行度
+    # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
+    fluent:
+      enabled: false # 是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求
+      endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
+      connections: 4 # 按 trace ID 分片的 Fluent 连接与发送并行度
 
-    # Fluent 异步输出队列配置
-    queue:
-      max-records: 8192 # 所有 Fluent 连接合计的排队记录上限
-      max-bytes: 268435456 # 所有 Fluent 连接合计的排队字节上限
-    connect-timeout: 500ms # Fluent 建连超时
-    handshake-timeout: 500ms # Fluent Forward 握手超时
-    write-timeout: 500ms # Fluent 单条记录写入超时
-    ack-timeout: 500ms # Fluent ACK 读取超时
-    retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
-    retry-min-backoff: 100ms # Fluent 重试最短退避时间
-    retry-max-backoff: 500ms # Fluent 重试最长退避时间
-    tag-prefix: "dproxy" # Fluent tag 前缀
-    delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
-    tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发
+      # Fluent 异步输出队列配置
+      queue:
+        max-records: 8192 # 所有 Fluent 连接合计的排队记录上限
+        max-bytes: 268435456 # 所有 Fluent 连接合计的排队字节上限
+      connect-timeout: 500ms # Fluent 建连超时
+      handshake-timeout: 500ms # Fluent Forward 握手超时
+      write-timeout: 500ms # Fluent 单条记录写入超时
+      ack-timeout: 500ms # Fluent ACK 读取超时
+      retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
+      retry-min-backoff: 100ms # Fluent 重试最短退避时间
+      retry-max-backoff: 500ms # Fluent 重试最长退避时间
+      tag-prefix: "dproxy" # Fluent tag 前缀
+      delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
+      tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发
