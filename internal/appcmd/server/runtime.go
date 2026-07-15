@@ -15,6 +15,7 @@ import (
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
+	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -114,23 +115,16 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}, nil
 }
 
-func newObservabilityPipeline(ctx context.Context, fluentConfig config.FluentOutput) (*observability.Pipeline, error) {
+func newObservabilityPipeline(ctx context.Context, fluentConfig fluent.Config) (*observability.Pipeline, error) {
 	if !fluentConfig.Enabled {
 		return observability.NewDisabledPipeline(), nil
 	}
 	plugins := []observability.Plugin{captureplugin.New(), llmusageplugin.New(), llmperfplugin.New()}
-	output := fluentoutput.New(fluentoutput.Config{
-		Endpoint: fluentConfig.Endpoint, Connections: fluentConfig.Connections,
-		ConnectTimeout:   fluentConfig.ConnectTimeout,
-		HandshakeTimeout: fluentConfig.HandshakeTimeout, WriteTimeout: fluentConfig.WriteTimeout,
-		ACKTimeout: fluentConfig.ACKTimeout, RetryMaxAttempts: fluentConfig.RetryMaxAttempts,
-		RetryMinBackoff: fluentConfig.RetryMinBackoff, RetryMaxBackoff: fluentConfig.RetryMaxBackoff,
-		TagPrefix: fluentConfig.TagPrefix, DeliveryAtLeastOnce: fluentConfig.Delivery == config.FluentDeliveryAtLeastOnce,
-		TLSInsecureSkipVerify: fluentConfig.TLSInsecureSkipVerify,
-	})
+	output := fluentoutput.New(fluentConfig)
 	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{
-		Sink: output, Workers: fluentConfig.Connections,
-		QueueMaxRecords: fluentConfig.Queue.MaxRecords, QueueMaxBytes: fluentConfig.Queue.MaxBytes,
+		Sink:            output,
+		QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
+		QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
 	})
 }
 

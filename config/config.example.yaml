@@ -134,21 +134,47 @@ server:
 
   # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
   fluent:
-    enabled: false # 是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求
-    endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
-    connections: 4 # 按 trace ID 分片的 Fluent 连接与发送并行度
+    enabled: false # Enable Fluent client in the calling application
+    endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent endpoint using tcp, tls, unix, ws, or wss
 
-    # Fluent 异步输出队列配置
-    queue:
-      max-records: 8192 # 所有 Fluent 连接合计的排队记录上限
-      max-bytes: 268435456 # 所有 Fluent 连接合计的排队字节上限
-    connect-timeout: 500ms # Fluent 建连超时
-    handshake-timeout: 500ms # Fluent Forward 握手超时
-    write-timeout: 500ms # Fluent 单条记录写入超时
-    ack-timeout: 500ms # Fluent ACK 读取超时
-    retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
-    retry-min-backoff: 100ms # Fluent 重试最短退避时间
-    retry-max-backoff: 500ms # Fluent 重试最长退避时间
-    tag-prefix: "dproxy" # Fluent tag 前缀
-    delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
-    tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发
+    # Forward authentication settings
+    auth: null
+    tag-prefix: "dproxy" # Prefix added to every event tag
+    ack: false # Require Forward acknowledgements
+
+    # Buffer and automatic batching settings
+    buffer:
+      max-events: 8192 # Maximum number of unfinished events
+      max-bytes: 67108864 # Maximum encoded bytes held by unfinished events
+      batch-max-events: 256 # Maximum number of events in one wire batch
+      batch-max-bytes: 1048576 # Maximum encoded bytes in one wire batch
+      batch-wait: 5ms # Maximum wait for collecting an automatic batch
+
+    # Delivery retry settings
+    retry:
+      max-attempts: 5 # Maximum number of delivery attempts
+      min-backoff: 100ms # Minimum delay between delivery attempts
+      max-backoff: 5s # Maximum delay between delivery attempts
+
+    # Connection and I/O timeout settings
+    timeout:
+      connect: 3s # Timeout for complete transport connection setup
+      handshake: 3s # Timeout for the Forward authentication handshake
+      write: 3s # Timeout for writing one wire batch
+      ack: 3s # Timeout for receiving one Forward acknowledgement
+    compression-threshold: 0 # Minimum packed bytes required for gzip compression
+
+    # TLS and mutual TLS settings
+    tls:
+      ca-file: "" # PEM file containing trusted server certificate authorities
+      certificate-file: "" # PEM client certificate file for mutual TLS
+      key-file: "" # PEM client private key file for mutual TLS
+      server-name: "" # TLS server name used for certificate verification
+      min-version: "" # Minimum TLS version: 1.2 or 1.3
+      insecure-skip-verify: false # Skip TLS server certificate verification
+
+    # WebSocket upgrade settings
+    websocket:
+
+      # Static HTTP headers sent during the WebSocket upgrade
+      header: {}

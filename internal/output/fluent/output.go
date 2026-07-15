@@ -2,7 +2,6 @@ package fluentoutput
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -13,35 +12,17 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 )
 
-type Config struct {
-	Endpoint              string
-	Connections           int
-	ConnectTimeout        time.Duration
-	HandshakeTimeout      time.Duration
-	WriteTimeout          time.Duration
-	ACKTimeout            time.Duration
-	RetryMaxAttempts      int
-	RetryMinBackoff       time.Duration
-	RetryMaxBackoff       time.Duration
-	TagPrefix             string
-	DeliveryAtLeastOnce   bool
-	TLSInsecureSkipVerify bool
-}
-
 type Output struct {
-	config          Config
+	config          fluent.Config
 	mu              sync.RWMutex
-	clients         []*fluent.Client
+	client          *fluent.Client
 	started         bool
 	closed          bool
 	healthy         atomic.Bool
 	lastFailureNano atomic.Int64
 }
 
-func New(config Config) *Output {
-	if config.Connections <= 0 {
-		config.Connections = 1
-	}
+func New(config fluent.Config) *Output {
 	return &Output{config: config}
 }
 
@@ -57,56 +38,31 @@ func (o *Output) Start(ctx context.Context) error {
 	if o.closed {
 		return fmt.Errorf("fluent output is closed")
 	}
-	clients := make([]*fluent.Client, 0, o.config.Connections)
-	for range o.config.Connections {
-		clientConfig := fluent.DefaultConfig(o.config.Endpoint)
-		clientConfig.TagPrefix = o.config.TagPrefix
-		clientConfig.Queue.Capacity = 1
-		clientConfig.Retry.MaxAttempts = o.config.RetryMaxAttempts
-		clientConfig.Retry.MinBackoff = o.config.RetryMinBackoff
-		clientConfig.Retry.MaxBackoff = o.config.RetryMaxBackoff
-		clientConfig.Timeout.Connect = o.config.ConnectTimeout
-		clientConfig.Timeout.Handshake = o.config.HandshakeTimeout
-		clientConfig.Timeout.Write = o.config.WriteTimeout
-		clientConfig.Timeout.ACK = o.config.ACKTimeout
-		if o.config.DeliveryAtLeastOnce {
-			clientConfig.Delivery = fluent.DeliveryAtLeastOnce
-		}
-		if o.config.TLSInsecureSkipVerify {
-			clientConfig.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // Explicit development-only option.
-		}
-		client, err := fluent.New(clientConfig)
-		if err != nil {
-			closeClients(clients)
-			return fmt.Errorf("create fluent client: %w", err)
-		}
-		if err := client.Connect(ctx); err != nil {
-			_ = client.Close()
-			closeClients(clients)
-			return fmt.Errorf("connect fluent output: %w", err)
-		}
-		clients = append(clients, client)
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	o.clients = clients
+	client, err := fluent.New(o.config)
+	if err != nil {
+		return fmt.Errorf("create fluent client: %w", err)
+	}
+	o.client = client
 	o.started = true
 	o.healthy.Store(true)
 	return nil
 }
 
-func (o *Output) Write(ctx context.Context, shard int, record observability.Record) error {
+func (o *Output) Write(ctx context.Context, _ int, record observability.Record) error {
 	if o == nil {
 		return fmt.Errorf("fluent output is nil")
 	}
 	o.mu.RLock()
-	defer o.mu.RUnlock()
-	if !o.started || o.closed || len(o.clients) == 0 {
+	if !o.started || o.closed || o.client == nil {
+		o.mu.RUnlock()
 		return fmt.Errorf("fluent output is unavailable")
 	}
-	if shard < 0 {
-		shard = 0
-	}
-	client := o.clients[shard%len(o.clients)]
-	err := client.Send(ctx, fluent.Event{Tag: record.Topic, Time: record.Time, Record: record.Map()})
+	client := o.client
+	o.mu.RUnlock()
+	err := client.Send(ctx, record.Topic, fluent.Entry{Time: record.Time, Record: fluent.Record(record.Map())})
 	if err != nil {
 		o.healthy.Store(false)
 		o.lastFailureNano.Store(time.Now().UTC().UnixNano())
@@ -121,7 +77,7 @@ func (o *Output) Health() observability.HealthStatus {
 		return observability.HealthStatus{Status: "unavailable"}
 	}
 	o.mu.RLock()
-	available := o.started && !o.closed && len(o.clients) > 0
+	available := o.started && !o.closed && o.client != nil
 	o.mu.RUnlock()
 	if !available {
 		return observability.HealthStatus{Status: "unavailable"}
@@ -136,28 +92,26 @@ func (o *Output) Health() observability.HealthStatus {
 	return status
 }
 
-func (o *Output) Close(context.Context) error {
+func (o *Output) Close(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.closed {
+		o.mu.Unlock()
 		return nil
 	}
 	o.closed = true
-	var first error
-	for _, client := range o.clients {
-		if err := client.Close(); err != nil && first == nil {
-			first = err
-		}
-	}
-	o.clients = nil
-	return first
-}
+	client := o.client
+	o.client = nil
+	o.mu.Unlock()
 
-func closeClients(clients []*fluent.Client) {
-	for _, client := range clients {
-		_ = client.Close()
+	if client == nil {
+		return nil
 	}
+	if err := client.Shutdown(ctx); err != nil {
+		client.Abort()
+		return err
+	}
+	return nil
 }

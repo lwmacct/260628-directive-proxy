@@ -13,11 +13,10 @@ require (
 	github.com/lwmacct/260622-go-pkg-tddcheck v0.22.260711
 	github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714
 	github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713
-	github.com/lwmacct/260714-go-pkg-fluent v0.2.260714
+	github.com/lwmacct/260714-go-pkg-fluent v0.5.260716
 	github.com/lwmacct/260714-go-pkg-llmperf v0.2.260715
 	github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714
 	github.com/redis/go-redis/v9 v9.21.0
-	github.com/tinylib/msgp v1.6.4
 	github.com/urfave/cli/v3 v3.10.1
 )
 
@@ -31,6 +30,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
+	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

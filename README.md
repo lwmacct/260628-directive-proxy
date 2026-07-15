@@ -45,10 +45,9 @@ server:
       body-read-timeout: 30s
   fluent:
     enabled: false
-    connections: 4
-    queue:
-      max-records: 8192
-      max-bytes: 268435456
+    buffer:
+      max-events: 8192
+      max-bytes: 67108864
 ```
 
 ## 可观测插件与输出
@@ -59,7 +58,7 @@ server:
 - [`builtin.llmusage`](docs/plugin-llmusage.md)：LLM token usage 提取；
 - [`builtin.llmperf`](docs/plugin-llmperf.md)：LLM 响应性能测量；
 - Fluent 是整个 Observability 子系统的总开关；关闭时不创建插件、队列或连接，directive 中的插件配置被忽略且不影响正常代理。
-- 开启后按 trace 分片、通过唯一有界队列异步投递统一 `dproxy.event.v1` Record。
+- 开启后通过内部有界队列投递统一 `dproxy.event.v1` Record，容量由 `fluent.buffer` 控制。
 
 完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，扩展架构见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
 

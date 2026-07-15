@@ -1,13 +1,13 @@
 package config
 
 import (
-	"net/url"
 	"strings"
 
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc/dexgithub"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
+	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
 
 func Validate(cfg Server) (Server, error) {
@@ -106,40 +106,13 @@ func Validate(cfg Server) (Server, error) {
 	return cfg, nil
 }
 
-func validateFluentOutput(cfg FluentOutput) (FluentOutput, error) {
+func validateFluentOutput(cfg fluent.Config) (fluent.Config, error) {
 	if !cfg.Enabled {
 		return cfg, nil
 	}
-	if cfg.Connections <= 0 || cfg.Queue.MaxRecords <= 0 || cfg.Queue.MaxBytes <= 0 {
-		return cfg, ErrInvalidFluent
-	}
-	fluent := &cfg
-	fluent.Endpoint = strings.TrimSpace(fluent.Endpoint)
-	fluent.Delivery = strings.ToLower(strings.TrimSpace(fluent.Delivery))
-	fluent.TagPrefix = strings.Trim(strings.TrimSpace(fluent.TagPrefix), ".")
-	if fluent.Connections <= 0 || fluent.ConnectTimeout <= 0 ||
-		fluent.HandshakeTimeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ACKTimeout <= 0 ||
-		fluent.RetryMaxAttempts <= 0 || fluent.RetryMinBackoff <= 0 ||
-		fluent.RetryMaxBackoff < fluent.RetryMinBackoff || fluent.TagPrefix == "" {
-		return cfg, ErrInvalidFluent
-	}
-	endpoint, err := url.Parse(fluent.Endpoint)
-	if err != nil || endpoint.Scheme == "" {
-		return cfg, ErrInvalidFluent
-	}
-	switch strings.ToLower(endpoint.Scheme) {
-	case "tcp", "tls", "ws", "wss":
-		if endpoint.Host == "" {
-			return cfg, ErrInvalidFluent
-		}
-	case "unix":
-		if endpoint.Path == "" {
-			return cfg, ErrInvalidFluent
-		}
-	default:
-		return cfg, ErrInvalidFluent
-	}
-	if fluent.Delivery != FluentDeliveryUnconfirmed && fluent.Delivery != FluentDeliveryAtLeastOnce {
+	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
+	cfg.TagPrefix = strings.Trim(strings.TrimSpace(cfg.TagPrefix), ".")
+	if cfg.TagPrefix == "" || cfg.Validate() != nil {
 		return cfg, ErrInvalidFluent
 	}
 	return cfg, nil

@@ -45,8 +45,8 @@ github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714 h1:z4x6H9Om8a8IsWJjv/McwmT
 github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714/go.mod h1:E0bTIFJRFJRmmhA1s0AhmqXZMwCMUxiAhfaHdOqNvvA=
 github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713 h1:C3eRbK0JFIa9qcZUupaczKHFnyJfyGLxOM99sAcMqI4=
 github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713/go.mod h1:nHau3a0kI/Bu2f2Jxt9EMBP0p6UWmS5U10HxqwHPi9g=
-github.com/lwmacct/260714-go-pkg-fluent v0.2.260714 h1:flTgngqozZj6OfAb+dtZ+wtIPhBrOFShuErfUSV5ty8=
-github.com/lwmacct/260714-go-pkg-fluent v0.2.260714/go.mod h1:1o8WBQdJCF7a0DYfkuBq6GKKXYEEecwQdDn8vZhnfZU=
+github.com/lwmacct/260714-go-pkg-fluent v0.5.260716 h1:okVxESjN1FVzSeYYgFkUxbuRZqzPJgvU+Zu/NAM4HAg=
+github.com/lwmacct/260714-go-pkg-fluent v0.5.260716/go.mod h1:1o8WBQdJCF7a0DYfkuBq6GKKXYEEecwQdDn8vZhnfZU=
 github.com/lwmacct/260714-go-pkg-llmperf v0.2.260715 h1:e7V01qgjtwftyTjtDHgiuNNKgOSCy0SaKvQvEhOXVCI=
 github.com/lwmacct/260714-go-pkg-llmperf v0.2.260715/go.mod h1:YKuHr5ThpRBJZZFR+d73Pq0zmeRv7esQmUvjExeSlME=
 github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714 h1:gPeFSHUlnJnkYgYgUD/XULWdkVgR0wAGdvuv81F4tko=

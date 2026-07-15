@@ -11,6 +11,7 @@ import (
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
+	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
 
 var (
@@ -28,9 +29,9 @@ type Config struct {
 }
 
 type Server struct {
-	HTTP   ServerHTTP   `json:"http"   desc:"HTTP 服务配置"`
-	Proxy  Proxy        `json:"proxy"  desc:"代理配置"`
-	Fluent FluentOutput `json:"fluent" desc:"Fluent Forward 观测输出配置；关闭时禁用所有观测插件"`
+	HTTP   ServerHTTP    `json:"http"   desc:"HTTP 服务配置"`
+	Proxy  Proxy         `json:"proxy"  desc:"代理配置"`
+	Fluent fluent.Config `json:"fluent" desc:"Fluent Forward 观测输出配置；关闭时禁用所有观测插件"`
 }
 
 type ServerHTTP struct {
@@ -102,33 +103,6 @@ type ProxyBodyMemory struct {
 	QueueWait      time.Duration `json:"queue-max-wait" desc:"请求等待正文内存的最长时间"`
 	ReadTimeout    time.Duration `json:"body-read-timeout" desc:"获得内存后读取完整请求正文的最长时间"`
 }
-
-type SinkQueue struct {
-	MaxRecords int   `json:"max-records" desc:"所有 Fluent 连接合计的排队记录上限"`
-	MaxBytes   int64 `json:"max-bytes"   desc:"所有 Fluent 连接合计的排队字节上限"`
-}
-
-type FluentOutput struct {
-	Enabled               bool          `json:"enabled"                  desc:"是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求"`
-	Endpoint              string        `json:"endpoint"                 desc:"Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss"`
-	Connections           int           `json:"connections"              desc:"按 trace ID 分片的 Fluent 连接与发送并行度"`
-	Queue                 SinkQueue     `json:"queue"                    desc:"Fluent 异步输出队列配置"`
-	ConnectTimeout        time.Duration `json:"connect-timeout"          desc:"Fluent 建连超时"`
-	HandshakeTimeout      time.Duration `json:"handshake-timeout"        desc:"Fluent Forward 握手超时"`
-	WriteTimeout          time.Duration `json:"write-timeout"            desc:"Fluent 单条记录写入超时"`
-	ACKTimeout            time.Duration `json:"ack-timeout"              desc:"Fluent ACK 读取超时"`
-	RetryMaxAttempts      int           `json:"retry-max-attempts"       desc:"Fluent 单条记录最大投递尝试次数"`
-	RetryMinBackoff       time.Duration `json:"retry-min-backoff"        desc:"Fluent 重试最短退避时间"`
-	RetryMaxBackoff       time.Duration `json:"retry-max-backoff"        desc:"Fluent 重试最长退避时间"`
-	TagPrefix             string        `json:"tag-prefix"               desc:"Fluent tag 前缀"`
-	Delivery              string        `json:"delivery"                 desc:"Fluent 投递模式：unconfirmed 或 at-least-once"`
-	TLSInsecureSkipVerify bool          `json:"tls-insecure-skip-verify" desc:"是否跳过 Fluent TLS 证书验证，仅用于开发"`
-}
-
-const (
-	FluentDeliveryUnconfirmed = "unconfirmed"
-	FluentDeliveryAtLeastOnce = "at-least-once"
-)
 
 type ProxyDirective struct {
 	MaxTokenBytes  int64                 `json:"max-token-bytes"  desc:"directive token 最大字节数"`
@@ -255,14 +229,12 @@ func DefaultConfig() Config {
 					DisableKeepAlives:   false,
 				},
 			},
-			Fluent: FluentOutput{
-				Enabled: false, Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4,
-				Queue:          SinkQueue{MaxRecords: 8192, MaxBytes: 256 << 20},
-				ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
-				WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
-				RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
-				TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
-			},
+			Fluent: func() fluent.Config {
+				config := fluent.DefaultConfig()
+				config.Endpoint = "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}"
+				config.TagPrefix = "dproxy"
+				return config
+			}(),
 		},
 	}
 }
@@ -277,5 +249,7 @@ var Manager = cfgm.New(
 	cfgm.HideCLI(
 		"server.http.auth.session.keys",
 		"server.http.auth.token",
+		"server.fluent.auth",
+		"server.fluent.websocket.header",
 	),
 )
