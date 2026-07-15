@@ -6,30 +6,31 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 var (
-	ErrNotFound        = errors.New("proxy request not found")
-	ErrAttemptChanged  = errors.New("proxy request attempt changed")
-	ErrRetryNotReady   = errors.New("proxy request retry is not ready")
-	ErrRetryInProgress = errors.New("proxy request retry is already in progress")
-	ErrMaxAttempts     = errors.New("proxy request maximum attempts reached")
-	ErrAmbiguous       = errors.New("proxy request metadata is ambiguous")
-	ErrInvalidMetadata = errors.New("proxy request metadata is invalid")
+	ErrNotFound               = errors.New("proxy request not found")
+	ErrAttemptChanged         = errors.New("proxy request attempt changed")
+	ErrRetryNotReady          = errors.New("proxy request retry is not ready")
+	ErrMaxAttempts            = errors.New("proxy request maximum attempts reached")
+	ErrIdempotencyKeyRequired = errors.New("proxy request idempotency key is required for retry")
 )
 
 type State string
 
 const (
 	StateResolvingDirective State = "resolving_directive"
-	StateBufferingBody      State = "buffering_body"
+	StateWaitingBodyMemory  State = "waiting_body_memory"
+	StateReadingBody        State = "reading_body"
 	StateAwaitingResponse   State = "awaiting_response"
 	StateRetryRequested     State = "retry_requested"
 )
 
 type ActiveRequest struct {
 	TraceID           string
+	RequestID         string
 	Metadata          requestmeta.Metadata
 	State             State
 	Method            string
@@ -63,21 +64,21 @@ const (
 )
 
 type Tracker interface {
-	Start(*http.Request) Session
+	Start(*http.Request, Identity) Session
 	ListActive() []ActiveRequest
 	GetActive(string) (ActiveRequest, bool)
 	RetryByTraceID(string, int, RetryTrigger) (RetryResult, error)
-	RetryByMetadata(requestmeta.Selector, int, RetryTrigger) (RetryResult, error)
+	RetryByCapability(string, [32]byte, int, RetryTrigger) (RetryResult, error)
 }
 
 type Session interface {
 	TraceID() string
 	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
-	RequestBodyChunk([]byte, int64)
+	BeginBodyRead()
+	RequestBodyAvailable(*bodymemory.Body)
 	RequestBodyEnd(int64, string, bool)
 	BeginAttempt(func(), string, string, string, string) int
 	BindMetadata(int, requestmeta.Metadata) bool
-	BeginBodyBuffering(int)
 	DirectiveResolved(int, *url.URL, time.Duration, string, bool, bool)
 	DirectiveFailed(int, time.Duration, string)
 	ConfigureAttempt(int, map[string][]byte) error

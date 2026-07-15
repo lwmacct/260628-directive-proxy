@@ -9,7 +9,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 )
 
 type resolverFunc func(*http.Request) (Resolution, error)
@@ -367,5 +371,127 @@ func TestHandleProxyErrorSkipsResponseWhenRequestIsCanceled(t *testing.T) {
 	}
 	if got := recorder.Header().Get("Content-Type"); got != "" {
 		t.Fatalf("unexpected content type: %q", got)
+	}
+}
+
+type countedBody struct {
+	reads atomic.Int32
+	data  *strings.Reader
+}
+
+func (b *countedBody) Read(data []byte) (int, error) {
+	b.reads.Add(1)
+	return b.data.Read(data)
+}
+
+func (*countedBody) Close() error { return nil }
+
+func TestHandlerQueuesWithoutReadingBodyUntilMemoryIsAvailable(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if _, err := io.ReadAll(req.Body); err != nil {
+			return nil, err
+		}
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
+	})
+	memory := bodymemory.New(bodymemory.Config{MaxActiveBytes: 4, MaxBodyBytes: 4, QueueMax: 2, QueueWait: time.Second})
+	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
+		return Resolution{Plan: &Plan{Target: target}}, nil
+	}), transport, HandlerOptions{BodyMemory: memory, BodyReadTimeout: time.Second})
+
+	first := httptest.NewRequest(http.MethodPost, "http://proxy.local/one", strings.NewReader("1111"))
+	firstDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), first)
+		close(firstDone)
+	}()
+	<-started
+
+	secondBody := &countedBody{data: strings.NewReader("2222")}
+	second := httptest.NewRequest(http.MethodPost, "http://proxy.local/two", nil)
+	second.Body = secondBody
+	second.ContentLength = 4
+	secondDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), second)
+		close(secondDone)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for memory.Snapshot().QueuedRequests != 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if secondBody.reads.Load() != 0 || memory.Snapshot().QueuedRequests != 1 {
+		t.Fatalf("queued body was read: reads=%d snapshot=%#v", secondBody.reads.Load(), memory.Snapshot())
+	}
+	close(release)
+	<-firstDone
+	<-secondDone
+	if secondBody.reads.Load() == 0 {
+		t.Fatal("queued body was not read after memory became available")
+	}
+}
+
+func TestHandlerRequiresContentLengthBeforeReadingBody(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	var upstreamCalls atomic.Int32
+	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
+		return Resolution{Plan: &Plan{Target: target}}, nil
+	}), roundTripFunc(func(*http.Request) (*http.Response, error) {
+		upstreamCalls.Add(1)
+		return nil, errors.New("unexpected upstream call")
+	}), HandlerOptions{BodyMemory: bodymemory.New(bodymemory.Config{
+		MaxActiveBytes: 16, MaxBodyBytes: 16, QueueMax: 1, QueueWait: time.Second,
+	})})
+
+	body := &countedBody{data: strings.NewReader("payload")}
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/resource", nil)
+	req.Body = body
+	req.ContentLength = -1
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusLengthRequired || body.reads.Load() != 0 || upstreamCalls.Load() != 0 {
+		t.Fatalf("unexpected admission result: status=%d reads=%d upstream_calls=%d body=%s", recorder.Code, body.reads.Load(), upstreamCalls.Load(), recorder.Body.String())
+	}
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != "content_length_required" {
+		t.Fatalf("unexpected error response: %#v", response)
+	}
+}
+
+func TestHandleProxyErrorMapsBodyMemoryAdmissionErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		status     int
+		code       string
+		retryAfter string
+	}{
+		{name: "too large", err: bodymemory.ErrBodyTooLarge, status: http.StatusRequestEntityTooLarge, code: "request_body_too_large"},
+		{name: "queue full", err: bodymemory.ErrQueueFull, status: http.StatusServiceUnavailable, code: "body_memory_queue_full", retryAfter: "1"},
+		{name: "wait timeout", err: bodymemory.ErrWaitTimeout, status: http.StatusServiceUnavailable, code: "body_memory_wait_timeout", retryAfter: "1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handleProxyError(recorder, httptest.NewRequest(http.MethodPost, "http://proxy.local/resource", nil), tt.err)
+			var response errorResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != tt.status || response.Error.Code != tt.code || recorder.Header().Get("Retry-After") != tt.retryAfter {
+				t.Fatalf("unexpected error mapping: status=%d retry_after=%q body=%s", recorder.Code, recorder.Header().Get("Retry-After"), recorder.Body.String())
+			}
+		})
 	}
 }

@@ -1,19 +1,28 @@
 package proxy
 
-import "context"
+import (
+	"context"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+)
 
 type preparedRequestContextKey struct{}
 
 type preparedRequest struct {
 	directive PreparedDirective
 	template  *RequestTemplate
+	body      *bodymemory.Body
 }
 
-func contextWithPreparedRequest(ctx context.Context, directive PreparedDirective, template *RequestTemplate) context.Context {
+func contextWithPreparedRequest(ctx context.Context, directive PreparedDirective, template *RequestTemplate, body ...*bodymemory.Body) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithValue(ctx, preparedRequestContextKey{}, preparedRequest{directive: directive, template: template})
+	var requestBody *bodymemory.Body
+	if len(body) > 0 {
+		requestBody = body[0]
+	}
+	return context.WithValue(ctx, preparedRequestContextKey{}, preparedRequest{directive: directive, template: template, body: requestBody})
 }
 
 func preparedRequestFromContext(ctx context.Context) (preparedRequest, bool) {

@@ -19,6 +19,7 @@ import (
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
@@ -32,6 +33,7 @@ const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
 	requests        *proxyrequestadapter.ProxyRequestService
+	bodyMemory      *bodymemory.Controller
 	proxyTransport  http.RoundTripper
 	observability   *observability.Pipeline
 	controlAuth     *httpauth.Auth
@@ -76,11 +78,17 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		instanceID, _ = os.Hostname()
 	}
 	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
-		RetryAfter:        cfg.Proxy.Retry.RetryableAfter,
-		MaxAttempts:       cfg.Proxy.Retry.MaxAttempts,
-		MaxActiveRequests: cfg.Proxy.Retry.MaxActiveRequests,
-		InstanceID:        instanceID,
+		RetryAfter:       cfg.Proxy.Retry.RetryableAfter,
+		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
+		CommandRetention: cfg.Proxy.Retry.CommandRetention,
+		InstanceID:       instanceID,
 	}, observationPipeline)
+	bodyMemory := bodymemory.New(bodymemory.Config{
+		MaxActiveBytes: cfg.Proxy.BodyMemory.MaxActiveBytes,
+		MaxBodyBytes:   cfg.Proxy.BodyMemory.MaxBodyBytes,
+		QueueMax:       cfg.Proxy.BodyMemory.QueueMax,
+		QueueWait:      cfg.Proxy.BodyMemory.QueueWait,
+	})
 	baseTransport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -88,12 +96,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
 		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
 	})
-	retryTransport, err := proxy.NewRetryTransport(baseTransport, proxy.RetryTransportOptions{
-		TempDir:          cfg.Proxy.Retry.TempDir,
-		MaxBodyBytes:     cfg.Proxy.Retry.MaxBodyBytes,
-		MaxInflightBytes: cfg.Proxy.Retry.MaxInflightBytes,
-		ChunkBytes:       cfg.Proxy.Retry.BufferChunkBytes,
-	})
+	retryTransport, err := proxy.NewRetryTransport(baseTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		_ = observationPipeline.Close(context.Background())
 		if sourceEngine != nil {
@@ -106,6 +109,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	directiveReader := newDirectiveRemoteReader(remoteConfig)
 	return &runtime{
 		requests:        requests,
+		bodyMemory:      bodyMemory,
 		proxyTransport:  retryTransport,
 		observability:   observationPipeline,
 		controlAuth:     controlAuth,
@@ -130,6 +134,7 @@ func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*o
 			plugins = append(plugins, captureplugin.New(captureplugin.Config{
 				Name: configured.Name, BodyChunkBytes: configured.Capture.BodyChunkBytes, MaxSSEEventBytes: configured.Capture.MaxSSEEventBytes,
 				RedactHeaders: configured.Capture.RedactHeaders, RedactQuery: configured.Capture.RedactQuery,
+				MaxRetainedResponseBytes: cfg.ResponseCaptureMemory.MaxRetainedBytes, ResponseOverflow: cfg.ResponseCaptureMemory.Overflow,
 			}))
 		case config.ObservationPluginLLMUsage:
 			if configured.LLMUsage == nil {
@@ -234,17 +239,23 @@ func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Gua
 	return guard, engine, nil
 }
 
-func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, tracker *proxyrequestadapter.ProxyRequestService, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, tracker *proxyrequestadapter.ProxyRequestService, bodyMemory *bodymemory.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
+	options := proxy.HandlerOptions{
+		BodyMemory:      bodyMemory,
+		BodyReadTimeout: cfg.Proxy.BodyMemory.ReadTimeout,
+		RequireIdentity: tracker != nil && cfg.Proxy.Retry.Enabled,
+	}
+	if tracker != nil {
+		options.Tracker = tracker
+		options.TrackBeforeResolve = true
+	}
 	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
 		RemoteReader:   reader,
 		LookupTimeout:  remoteConfig.Timeout,
 		MaxTokenBytes:  cfg.Proxy.Directive.MaxTokenBytes,
 		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
-	}), transport, proxy.HandlerOptions{
-		Tracker:            tracker,
-		TrackBeforeResolve: true,
-	})
+	}), transport, options)
 }
 
 func (rt *runtime) Close(ctx context.Context) error {

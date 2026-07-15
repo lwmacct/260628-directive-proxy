@@ -45,7 +45,7 @@ func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 		controlAPI = rt.controlAuth.RequireAccess(controlAPI)
 	}
 	fallback := newFallbackHTTPHandler(rt, handler.NewSystemEndpoint(services).Handler())
-	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.requests, rt.proxyTransport)
+	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.requests, rt.bodyMemory, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
 		return routeHTTPRequests(publicAPI, controlAPI, directiveProxy, fallback)
 	}

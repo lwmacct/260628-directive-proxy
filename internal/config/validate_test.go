@@ -218,15 +218,26 @@ func TestValidateRetryConfiguration(t *testing.T) {
 	for _, mutate := range []func(*ProxyRetry){
 		func(cfg *ProxyRetry) { cfg.RetryableAfter = -time.Second },
 		func(cfg *ProxyRetry) { cfg.MaxAttempts = 1 },
-		func(cfg *ProxyRetry) { cfg.MaxActiveRequests = 0 },
-		func(cfg *ProxyRetry) { cfg.MaxBodyBytes = 0 },
-		func(cfg *ProxyRetry) { cfg.MaxInflightBytes = cfg.MaxBodyBytes - 1 },
-		func(cfg *ProxyRetry) { cfg.BufferChunkBytes = 0 },
+		func(cfg *ProxyRetry) { cfg.CommandRetention = 0 },
 	} {
 		cfg := validDefaultConfig()
 		mutate(&cfg.Proxy.Retry)
 		if _, err := Validate(cfg); err != ErrInvalidRetry {
 			t.Fatalf("expected invalid retry config, got %v", err)
+		}
+	}
+	for _, mutate := range []func(*ProxyBodyMemory){
+		func(cfg *ProxyBodyMemory) { cfg.MaxActiveBytes = 0 },
+		func(cfg *ProxyBodyMemory) { cfg.MaxBodyBytes = 0 },
+		func(cfg *ProxyBodyMemory) { cfg.MaxBodyBytes = cfg.MaxActiveBytes + 1 },
+		func(cfg *ProxyBodyMemory) { cfg.QueueMax = 0 },
+		func(cfg *ProxyBodyMemory) { cfg.QueueWait = 0 },
+		func(cfg *ProxyBodyMemory) { cfg.ReadTimeout = 0 },
+	} {
+		cfg := validDefaultConfig()
+		mutate(&cfg.Proxy.BodyMemory)
+		if _, err := Validate(cfg); err != ErrInvalidRetry {
+			t.Fatalf("expected invalid body memory config, got %v", err)
 		}
 	}
 	cfg := validDefaultConfig()
@@ -238,6 +249,16 @@ func TestValidateRetryConfiguration(t *testing.T) {
 }
 
 func TestValidateObservabilityConfiguration(t *testing.T) {
+	for _, mutate := range []func(*ResponseCaptureMemory){
+		func(cfg *ResponseCaptureMemory) { cfg.MaxRetainedBytes = 0 },
+		func(cfg *ResponseCaptureMemory) { cfg.Overflow = "unbounded" },
+	} {
+		cfg := validDefaultConfig()
+		mutate(&cfg.Observability.ResponseCaptureMemory)
+		if _, err := Validate(cfg); err != ErrInvalidObservability {
+			t.Fatalf("expected invalid response capture memory, got %v", err)
+		}
+	}
 	cfg := validDefaultConfig()
 	cfg.Observability.Plugins[0].Enabled = true
 	cfg.Observability.Plugins[1].Enabled = true

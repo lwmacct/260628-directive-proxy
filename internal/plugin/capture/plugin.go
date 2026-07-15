@@ -2,7 +2,6 @@ package captureplugin
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"hash"
 	"mime"
@@ -10,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -19,16 +19,26 @@ import (
 const Name = "builtin.capture"
 
 type Config struct {
-	Name             string
-	BodyChunkBytes   int
-	MaxSSEEventBytes int
-	RedactHeaders    []string
-	RedactQuery      []string
+	Name                     string
+	BodyChunkBytes           int
+	MaxSSEEventBytes         int
+	MaxRetainedResponseBytes int64
+	ResponseOverflow         string
+	RedactHeaders            []string
+	RedactQuery              []string
 }
 
 type Plugin struct {
-	name   string
-	config Config
+	name           string
+	config         Config
+	responseBudget *retainedBudget
+}
+
+type retainedBudget struct {
+	mu   sync.Mutex
+	cond *sync.Cond
+	max  int64
+	used int64
 }
 
 type traceObserver struct {
@@ -37,16 +47,20 @@ type traceObserver struct {
 	requestBodyEnded bool
 	requestChunks    int64
 
-	responseHash    hash.Hash
-	responseOffset  int64
-	responseChunks  int64
-	responseEnded   bool
-	responseIsSSE   bool
-	sseParser       *sse.Parser
-	sseEvents       uint64
-	sseComments     uint64
-	responseEmitter observability.Emitter
-	responseAttempt int
+	responseHash         hash.Hash
+	responseOffset       int64
+	responseChunks       int64
+	responseEnded        bool
+	responseIsSSE        bool
+	sseParser            *sse.Parser
+	sseEvents            uint64
+	sseComments          uint64
+	responseEmitter      observability.Emitter
+	responseAttempt      int
+	responseBudget       *retainedBudget
+	responseOverflow     string
+	responseDroppedBytes int64
+	responseGapEmitted   bool
 }
 
 func New(config Config) *Plugin {
@@ -60,6 +74,12 @@ func New(config Config) *Plugin {
 	if config.MaxSSEEventBytes <= 0 {
 		config.MaxSSEEventBytes = 1 << 20
 	}
+	if config.MaxRetainedResponseBytes <= 0 {
+		config.MaxRetainedResponseBytes = 256 << 20
+	}
+	if config.ResponseOverflow != "backpressure" {
+		config.ResponseOverflow = "drop"
+	}
 	if len(config.RedactHeaders) == 0 {
 		config.RedactHeaders = []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"}
 	}
@@ -68,7 +88,9 @@ func New(config Config) *Plugin {
 	}
 	config.RedactHeaders = normalizePatterns(config.RedactHeaders)
 	config.RedactQuery = normalizePatterns(config.RedactQuery)
-	return &Plugin{name: name, config: config}
+	budget := &retainedBudget{max: config.MaxRetainedResponseBytes}
+	budget.cond = sync.NewCond(&budget.mu)
+	return &Plugin{name: name, config: config, responseBudget: budget}
 }
 
 func (p *Plugin) Name() string {
@@ -82,15 +104,18 @@ func (p *Plugin) NewTrace(observability.TraceContext) observability.TraceObserve
 	if p == nil {
 		return nil
 	}
-	return &traceObserver{config: p.config, responseHash: sha256.New()}
+	return &traceObserver{
+		config: p.config, responseHash: sha256.New(), responseBudget: p.responseBudget,
+		responseOverflow: p.config.ResponseOverflow,
+	}
 }
 
 func (t *traceObserver) Observe(signal observability.Signal, emitter observability.Emitter) {
 	switch value := signal.Value.(type) {
 	case observability.RequestStarted:
 		t.emitRequestStarted(value, emitter)
-	case observability.RequestBodyChunk:
-		t.emitRequestBody(value, emitter)
+	case observability.RequestBodyAvailable:
+		t.emitRequestBodyAvailable(value, emitter)
 	case observability.RequestBodyEnded:
 		t.emitRequestBodyEnd(value, emitter)
 	case observability.AttemptStarted:
@@ -155,19 +180,22 @@ func (t *traceObserver) emitRequestStarted(value observability.RequestStarted, e
 	})
 }
 
-func (t *traceObserver) emitRequestBody(value observability.RequestBodyChunk, emitter observability.Emitter) {
-	data := value.Data
-	offset := value.Offset
-	for len(data) > 0 {
-		length := min(len(data), t.config.BodyChunkBytes)
-		chunk := data[:length]
+func (t *traceObserver) emitRequestBodyAvailable(value observability.RequestBodyAvailable, emitter observability.Emitter) {
+	if value.Body == nil {
+		return
+	}
+	for offset := int64(0); offset < value.Body.Size(); offset += int64(t.config.BodyChunkBytes) {
+		lease := value.Body.Acquire()
+		if !lease.Valid() {
+			return
+		}
+		length := min(int64(t.config.BodyChunkBytes), value.Body.Size()-offset)
+		data := lease.Bytes()[offset : offset+length]
 		t.requestChunks++
-		emitter.Emit("capture.request.body.chunk", 0, map[string]any{
+		emitter.EmitOwned("capture.request.body.chunk", 0, map[string]any{
 			"chunk_index": t.requestChunks, "offset": offset, "length": length,
-			"encoding": "base64", "data": base64.StdEncoding.EncodeToString(chunk),
-		})
-		offset += int64(length)
-		data = data[length:]
+			"encoding": "binary", "data": data,
+		}, func() { _ = lease.Close() })
 	}
 }
 
@@ -214,10 +242,22 @@ func (t *traceObserver) emitResponseBody(data []byte, emitter observability.Emit
 		t.responseOffset += int64(length)
 		t.responseChunks++
 		_, _ = t.responseHash.Write(chunk)
-		emitter.Emit("capture.response.body.chunk", t.responseAttempt, map[string]any{
-			"chunk_index": t.responseChunks, "offset": offset, "length": length,
-			"encoding": "base64", "data": base64.StdEncoding.EncodeToString(chunk),
-		})
+		release, retained := t.responseBudget.acquire(int64(length), t.responseOverflow == "backpressure")
+		if retained {
+			owned := append([]byte(nil), chunk...)
+			emitter.EmitOwned("capture.response.body.chunk", t.responseAttempt, map[string]any{
+				"chunk_index": t.responseChunks, "offset": offset, "length": length,
+				"encoding": "binary", "data": owned,
+			}, release)
+		} else {
+			t.responseDroppedBytes += int64(length)
+			if !t.responseGapEmitted {
+				t.responseGapEmitted = true
+				emitter.Emit("capture.response.body.gap", t.responseAttempt, map[string]any{
+					"offset": offset, "reason": "retained_memory_limit",
+				})
+			}
+		}
 		if t.sseParser != nil {
 			t.sseParser.Feed(chunk)
 		}
@@ -236,7 +276,40 @@ func (t *traceObserver) finishResponse(emitter observability.Emitter) {
 	emitter.Emit("capture.response.body.end", t.responseAttempt, map[string]any{
 		"total_bytes": t.responseOffset, "chunks": t.responseChunks,
 		"sha256": hex.EncodeToString(t.responseHash.Sum(nil)), "sse_events": t.sseEvents, "sse_comments": t.sseComments,
+		"dropped_bytes": t.responseDroppedBytes,
 	})
+}
+
+func (b *retainedBudget) acquire(size int64, block bool) (func(), bool) {
+	if b == nil || size <= 0 {
+		return func() {}, true
+	}
+	b.mu.Lock()
+	if size > b.max {
+		b.mu.Unlock()
+		return nil, false
+	}
+	for b.used+size > b.max {
+		if !block {
+			b.mu.Unlock()
+			return nil, false
+		}
+		b.cond.Wait()
+	}
+	b.used += size
+	b.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			b.mu.Lock()
+			b.used -= size
+			if b.used < 0 {
+				b.used = 0
+			}
+			b.cond.Broadcast()
+			b.mu.Unlock()
+		})
+	}, true
 }
 
 func (t *traceObserver) onSSEEvent(event sse.Event) {

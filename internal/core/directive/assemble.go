@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -145,6 +146,9 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, map[string][]string, erro
 			return nil, nil, ErrInvalidPayload
 		}
 		selector := proxy.HeaderSelector{Kind: proxy.HeaderSelectorExact, Pattern: name}
+		if strings.EqualFold(name, proxyrequest.RequestIDHeader) || strings.EqualFold(name, proxyrequest.RetryCapabilityHeader) {
+			return nil, nil, ErrInvalidPayload
+		}
 		switch {
 		case glob != "":
 			if _, err := path.Match(strings.ToLower(glob), ""); err != nil {

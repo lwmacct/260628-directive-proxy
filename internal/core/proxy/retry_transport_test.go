@@ -6,12 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -30,7 +30,7 @@ func TestRetryTransportRejectsDirectiveSpecForDisabledPluginBeforeUpstream(t *te
 	}
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, pipeline)
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	session := tracker.Start(inbound)
+	session := tracker.Start(inbound, proxyrequest.Identity{})
 	called := false
 	transport, err := NewRetryTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
 		called = true
@@ -40,10 +40,9 @@ func TestRetryTransportRejectsDirectiveSpecForDisabledPluginBeforeUpstream(t *te
 		t.Fatal(err)
 	}
 	target, _ := url.Parse("https://upstream.example")
-	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
-	ctx = contextWithPreparedRequest(ctx, staticPrepared{resolution: Resolution{Plan: &Plan{
+	ctx := retryTestContext(t, inbound, session, staticPrepared{resolution: Resolution{Plan: &Plan{
 		Target: target, PluginSpecs: map[string][]byte{"llmusage": []byte(`{"protocol":"openai.responses"}`)},
-	}}}, NewRequestTemplate(inbound))
+	}}})
 	if _, err = transport.RoundTrip(inbound.Clone(ctx)); !errors.Is(err, ErrInvalidDirective) {
 		t.Fatalf("unexpected plugin configuration error: %v", err)
 	}
@@ -74,7 +73,7 @@ func (p *rotatingPrepared) ResolveAttempt(context.Context, int) (Resolution, err
 func TestRetryTransportDoesNotFallBackWhenRemoteRefreshFails(t *testing.T) {
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, nil)
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	session := tracker.Start(inbound)
+	session := tracker.Start(inbound, proxyrequest.Identity{})
 	target, _ := url.Parse("https://one.example")
 	prepared := &rotatingPrepared{plans: []*Plan{{Target: target}}, errs: []error{nil, ErrDirectiveNotFound}}
 	started := make(chan struct{})
@@ -85,12 +84,11 @@ func TestRetryTransportDoesNotFallBackWhenRemoteRefreshFails(t *testing.T) {
 		<-req.Context().Done()
 		return nil, req.Context().Err()
 	})
-	transport, err := NewRetryTransport(base, RetryTransportOptions{TempDir: t.TempDir()})
+	transport, err := NewRetryTransport(base, RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
-	ctx = contextWithPreparedRequest(ctx, prepared, NewRequestTemplate(inbound))
+	ctx := retryTestContext(t, inbound, session, prepared)
 	result := make(chan error, 1)
 	go func() {
 		_, roundTripErr := transport.RoundTrip(inbound.Clone(ctx))
@@ -118,7 +116,8 @@ func TestRetryTransportReplaysBodyAfterManualRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := tracker.Start(inbound)
+	inbound.Header.Set("Idempotency-Key", "replay-test")
+	session := tracker.Start(inbound, proxyrequest.Identity{})
 	started := make(chan struct{})
 	var mu sync.Mutex
 	var bodies []string
@@ -145,19 +144,12 @@ func TestRetryTransportReplaysBodyAfterManualRetry(t *testing.T) {
 			Request:    req,
 		}, nil
 	})
-	tempDir := t.TempDir()
-	transport, err := NewRetryTransport(base, RetryTransportOptions{
-		TempDir:          tempDir,
-		MaxBodyBytes:     1024,
-		MaxInflightBytes: 4096,
-		ChunkBytes:       4,
-	})
+	transport, err := NewRetryTransport(base, RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	target, _ := url.Parse("https://upstream.example")
-	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
-	ctx = contextWithPreparedRequest(ctx, staticPrepared{resolution: Resolution{Plan: &Plan{Target: target, JoinPath: true}}}, NewRequestTemplate(inbound))
+	ctx := retryTestContext(t, inbound, session, staticPrepared{resolution: Resolution{Plan: &Plan{Target: target, JoinPath: true}}})
 	outbound := inbound.Clone(ctx)
 	result := make(chan struct {
 		response *http.Response
@@ -193,34 +185,6 @@ func TestRetryTransportReplaysBodyAfterManualRetry(t *testing.T) {
 	if calls != 2 || len(bodies) != 2 || bodies[0] != "request-body" || bodies[1] != "request-body" {
 		t.Fatalf("request was not replayed: calls=%d bodies=%#v", calls, bodies)
 	}
-	entries, _ := os.ReadDir(tempDir)
-	if len(entries) != 0 {
-		t.Fatalf("replay files were not cleaned up: %#v", entries)
-	}
-	session.Complete()
-}
-
-func TestRetryTransportRejectsOversizedReplayBodyBeforeUpstream(t *testing.T) {
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, nil)
-	req, _ := http.NewRequest(http.MethodPost, "http://proxy.local/", strings.NewReader("too-large"))
-	session := tracker.Start(req)
-	called := false
-	transport, err := NewRetryTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
-		called = true
-		return nil, nil
-	}), RetryTransportOptions{MaxBodyBytes: 3, MaxInflightBytes: 1024})
-	if err != nil {
-		t.Fatal(err)
-	}
-	req = req.WithContext(proxyrequest.ContextWithSession(req.Context(), session))
-	target, _ := url.Parse("https://upstream.example")
-	req = req.WithContext(contextWithPreparedRequest(req.Context(), staticPrepared{resolution: Resolution{Plan: &Plan{Target: target}}}, NewRequestTemplate(req)))
-	if _, err = transport.RoundTrip(req); err != ErrReplayBodyTooLarge {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if called {
-		t.Fatal("upstream was called for oversized replay body")
-	}
 	session.Complete()
 }
 
@@ -230,10 +194,11 @@ func TestRetryTransportRefreshesPlanAndRebuildsFromOriginalTemplate(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	inbound.Header.Set("Idempotency-Key", "refresh-test")
 	inbound.Host = "proxy.local"
 	inbound.Header.Set("Authorization", "Bearer dproxy.remote")
 	inbound.Header.Set("X-Original", "kept-on-patch")
-	session := tracker.Start(inbound)
+	session := tracker.Start(inbound, proxyrequest.Identity{})
 	firstTarget, _ := url.Parse("https://one.example/base")
 	secondTarget, _ := url.Parse("https://two.example/other")
 	secondProxy, _ := url.Parse("socks5://127.0.0.1:1080")
@@ -290,12 +255,11 @@ func TestRetryTransportRefreshesPlanAndRebuildsFromOriginalTemplate(t *testing.T
 		}
 		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
 	})
-	transport, err := NewRetryTransport(base, RetryTransportOptions{TempDir: t.TempDir(), MaxBodyBytes: 1024, MaxInflightBytes: 4096})
+	transport, err := NewRetryTransport(base, RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
-	ctx = contextWithPreparedRequest(ctx, prepared, NewRequestTemplate(inbound))
+	ctx := retryTestContext(t, inbound, session, prepared)
 	result := make(chan error, 1)
 	go func() {
 		response, roundTripErr := transport.RoundTrip(inbound.Clone(ctx))
@@ -336,4 +300,22 @@ func TestRetryTransportRefreshesPlanAndRebuildsFromOriginalTemplate(t *testing.T
 		t.Fatalf("request body changed across attempts: %#v", seen)
 	}
 	session.Complete()
+}
+
+func retryTestContext(t *testing.T, inbound *http.Request, session proxyrequest.Session, prepared PreparedDirective) context.Context {
+	t.Helper()
+	var data []byte
+	if inbound.Body != nil && inbound.Body != http.NoBody {
+		var err error
+		data, err = io.ReadAll(inbound.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = inbound.Body.Close()
+		inbound.Body = http.NoBody
+	}
+	body := bodymemory.NewBody(data, nil)
+	t.Cleanup(body.Release)
+	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
+	return contextWithPreparedRequest(ctx, prepared, NewRequestTemplate(inbound), body)
 }

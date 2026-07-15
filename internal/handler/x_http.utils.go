@@ -33,20 +33,16 @@ func utilNewAPIError(status int, code, message string) *apierror.Error {
 
 func utilRetryAPIError(err error) error {
 	switch {
-	case errors.Is(err, proxyrequest.ErrInvalidMetadata):
-		return utilNewAPIError(http.StatusBadRequest, "invalid_metadata", "proxy request metadata is invalid")
 	case errors.Is(err, proxyrequest.ErrNotFound):
 		return utilNewAPIError(http.StatusNotFound, "proxy_request_not_found", "proxy request was not found")
-	case errors.Is(err, proxyrequest.ErrAmbiguous):
-		return utilNewAPIError(http.StatusConflict, "ambiguous_request", "metadata matches multiple active proxy requests")
 	case errors.Is(err, proxyrequest.ErrAttemptChanged):
 		return utilNewAPIError(http.StatusConflict, "attempt_changed", "proxy request attempt changed")
 	case errors.Is(err, proxyrequest.ErrRetryNotReady):
 		return utilNewAPIError(http.StatusConflict, "retry_not_ready", "proxy request is not ready for retry")
-	case errors.Is(err, proxyrequest.ErrRetryInProgress):
-		return utilNewAPIError(http.StatusConflict, "retry_in_progress", "proxy request retry is already in progress")
 	case errors.Is(err, proxyrequest.ErrMaxAttempts):
 		return utilNewAPIError(http.StatusTooManyRequests, "max_attempts_reached", "proxy request maximum attempts reached")
+	case errors.Is(err, proxyrequest.ErrIdempotencyKeyRequired):
+		return utilNewAPIError(http.StatusUnprocessableEntity, "idempotency_key_required", "Idempotency-Key is required to retry POST or PATCH requests")
 	default:
 		return utilNewAPIError(http.StatusConflict, "request_state_changed", "proxy request state changed")
 	}

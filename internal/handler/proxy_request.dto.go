@@ -13,6 +13,7 @@ type ActiveProxyRequestSnapshotDTO struct {
 
 type ActiveProxyRequestDTO struct {
 	TraceID           string              `json:"trace_id"`
+	RequestID         string              `json:"request_id,omitempty"`
 	Metadata          map[string][]string `json:"metadata,omitempty"`
 	State             string              `json:"state"`
 	Method            string              `json:"method"`
@@ -37,12 +38,9 @@ type GetActiveProxyRequestOutputDTO struct {
 }
 
 type RetryActiveProxyRequestInputDTO struct {
-	TraceID string `path:"trace_id" pattern:"^[0-9a-f]{32}$" doc:"Proxy request tracking ID"`
-	Body    RetryActiveProxyRequestRequestDTO
-}
-
-type RetryActiveProxyRequestRequestDTO struct {
-	ExpectedAttempt int `json:"expected_attempt" minimum:"1" doc:"Current attempt number used as a compare-and-swap guard"`
+	TraceID     string `path:"trace_id" pattern:"^[0-9a-f]{32}$" doc:"Proxy request tracking ID"`
+	NextAttempt int    `path:"next_attempt" minimum:"2"`
+	IfMatch     string `header:"If-Match"`
 }
 
 type RetryActiveProxyRequestOutputDTO struct {

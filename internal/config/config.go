@@ -71,26 +71,37 @@ func (c OIDCAuth) MethodConfig() oidc.Config {
 }
 
 type Proxy struct {
-	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
-	Retry     ProxyRetry     `json:"retry"     desc:"等待上游响应时的外部介入重试配置"`
-	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
+	Transport  ProxyTransport  `json:"transport" desc:"上游连接池与连接复用配置"`
+	Retry      ProxyRetry      `json:"retry"     desc:"等待上游响应时的外部介入重试配置"`
+	BodyMemory ProxyBodyMemory `json:"body-memory" desc:"可重放请求正文的内存与等待队列配置"`
+	Directive  ProxyDirective  `json:"directive" desc:"指令来源配置"`
 }
 
 type ProxyRetry struct {
-	Enabled           bool          `json:"enabled"            desc:"是否启用等待响应请求的外部介入重试"`
-	RetryableAfter    time.Duration `json:"retryable-after"    desc:"单次上游请求等待多久后允许外部介入重试"`
-	MaxAttempts       int           `json:"max-attempts"       desc:"单个逻辑请求允许的最大上游尝试次数，包含首次请求"`
-	MaxActiveRequests int           `json:"max-active-requests" desc:"同时等待上游最终响应的最大请求数"`
-	TempDir           string        `json:"temp-dir"           desc:"可重放请求正文临时文件目录，留空使用系统临时目录"`
-	MaxBodyBytes      int64         `json:"max-body-bytes"     desc:"单个可重放请求正文最大字节数"`
-	MaxInflightBytes  int64         `json:"max-inflight-bytes" desc:"所有进行中请求正文临时文件的总字节上限"`
-	BufferChunkBytes  int           `json:"buffer-chunk-bytes" desc:"读取并写入可重放请求正文时的分块大小"`
+	Enabled          bool          `json:"enabled"            desc:"是否启用等待响应请求的外部介入重试"`
+	RetryableAfter   time.Duration `json:"retryable-after"    desc:"单次上游请求等待多久后允许外部介入重试"`
+	MaxAttempts      int           `json:"max-attempts"       desc:"单个逻辑请求允许的最大上游尝试次数，包含首次请求"`
+	CommandRetention time.Duration `json:"command-retention"  desc:"已接受重试命令终态的保留时间"`
+}
+
+type ProxyBodyMemory struct {
+	MaxActiveBytes int64         `json:"max-active-bytes" desc:"所有活动可重放请求正文占用的最大逻辑字节数"`
+	MaxBodyBytes   int64         `json:"max-body-bytes"   desc:"单个可重放请求正文最大字节数"`
+	QueueMax       int           `json:"queue-max-requests" desc:"等待正文内存的最大请求数"`
+	QueueWait      time.Duration `json:"queue-max-wait" desc:"请求等待正文内存的最长时间"`
+	ReadTimeout    time.Duration `json:"body-read-timeout" desc:"获得内存后读取完整请求正文的最长时间"`
 }
 
 type Observability struct {
-	InstanceID string                `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
-	Plugins    []ObservationPlugin   `json:"plugins"     desc:"内置观测插件列表"`
-	Outputs    []ObservabilityOutput `json:"outputs"     desc:"观测记录输出插件列表"`
+	InstanceID            string                `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
+	ResponseCaptureMemory ResponseCaptureMemory `json:"response-capture-memory" desc:"异步响应原文 Capture 的有界内存配置"`
+	Plugins               []ObservationPlugin   `json:"plugins"     desc:"内置观测插件列表"`
+	Outputs               []ObservabilityOutput `json:"outputs"     desc:"观测记录输出插件列表"`
+}
+
+type ResponseCaptureMemory struct {
+	MaxRetainedBytes int64  `json:"max-retained-bytes" desc:"等待输出完成的响应原文最大字节数"`
+	Overflow         string `json:"overflow" desc:"达到响应 Capture 内存上限后的行为：drop 或 backpressure"`
 }
 
 type ObservationPlugin struct {
@@ -235,13 +246,17 @@ func DefaultConfig() Config {
 		},
 		Proxy: Proxy{
 			Retry: ProxyRetry{
-				Enabled:           true,
-				RetryableAfter:    10 * time.Second,
-				MaxAttempts:       3,
-				MaxActiveRequests: 4096,
-				MaxBodyBytes:      32 << 20,
-				MaxInflightBytes:  1 << 30,
-				BufferChunkBytes:  32 << 10,
+				Enabled:          true,
+				RetryableAfter:   10 * time.Second,
+				MaxAttempts:      3,
+				CommandRetention: time.Minute,
+			},
+			BodyMemory: ProxyBodyMemory{
+				MaxActiveBytes: 2 << 30,
+				MaxBodyBytes:   32 << 20,
+				QueueMax:       512,
+				QueueWait:      15 * time.Second,
+				ReadTimeout:    30 * time.Second,
 			},
 			Directive: ProxyDirective{
 				MaxTokenBytes:  64 << 10,
@@ -273,6 +288,7 @@ func DefaultConfig() Config {
 			},
 		},
 		Observability: Observability{
+			ResponseCaptureMemory: ResponseCaptureMemory{MaxRetainedBytes: 256 << 20, Overflow: "drop"},
 			Plugins: []ObservationPlugin{
 				{
 					Name: "capture", Type: ObservationPluginCapture, Enabled: false,

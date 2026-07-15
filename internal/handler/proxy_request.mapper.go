@@ -8,6 +8,9 @@ import (
 
 func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) ActiveProxyRequestDTO {
 	waitStartedAt := item.AttemptStartedAt
+	if waitStartedAt.IsZero() {
+		waitStartedAt = item.StartedAt
+	}
 	var upstreamStartedAt *time.Time
 	var retryableAt *time.Time
 	if !item.UpstreamStartedAt.IsZero() {
@@ -25,6 +28,7 @@ func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) Act
 	}
 	return ActiveProxyRequestDTO{
 		TraceID:           item.TraceID,
+		RequestID:         item.RequestID,
 		Metadata:          map[string][]string(item.Metadata),
 		State:             string(item.State),
 		Method:            item.Method,

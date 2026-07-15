@@ -77,11 +77,15 @@ proxy:
     enabled: true # 是否启用等待响应请求的外部介入重试
     retryable-after: 10s # 单次上游请求等待多久后允许外部介入重试
     max-attempts: 3 # 单个逻辑请求允许的最大上游尝试次数，包含首次请求
-    max-active-requests: 4096 # 同时等待上游最终响应的最大请求数
-    temp-dir: "" # 可重放请求正文临时文件目录，留空使用系统临时目录
+    command-retention: 1m0s # 已接受重试命令终态的保留时间
+
+  # 可重放请求正文的内存与等待队列配置
+  body-memory:
+    max-active-bytes: 2147483648 # 所有活动可重放请求正文占用的最大逻辑字节数
     max-body-bytes: 33554432 # 单个可重放请求正文最大字节数
-    max-inflight-bytes: 1073741824 # 所有进行中请求正文临时文件的总字节上限
-    buffer-chunk-bytes: 32768 # 读取并写入可重放请求正文时的分块大小
+    queue-max-requests: 512 # 等待正文内存的最大请求数
+    queue-max-wait: 15s # 请求等待正文内存的最长时间
+    body-read-timeout: 30s # 获得内存后读取完整请求正文的最长时间
 
   # 指令来源配置
   directive:
@@ -127,6 +131,11 @@ proxy:
 # 可观测插件与输出配置
 observability:
   instance-id: "" # 写入观测记录的代理实例标识，留空使用主机名
+
+  # 异步响应原文 Capture 的有界内存配置
+  response-capture-memory:
+    max-retained-bytes: 268435456 # 等待输出完成的响应原文最大字节数
+    overflow: "drop" # 达到响应 Capture 内存上限后的行为：drop 或 backpressure
 
   # 内置观测插件列表
   plugins:

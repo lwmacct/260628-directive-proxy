@@ -86,11 +86,10 @@ export function ExchangesPage() {
     setError(null);
     try {
       const response = await apiFetch(
-        `/api/control/proxy-requests/${request.trace_id}/retries`,
+        `/api/control/proxy-requests/${request.trace_id}/attempts/${request.attempt + 1}`,
         {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ expected_attempt: request.attempt }),
+          method: "PUT",
+          headers: { "If-Match": `"attempt:${request.attempt}"` },
         },
       );
       if (!response.ok) {
@@ -197,13 +196,15 @@ export function ExchangesPage() {
       render: (value: ActiveProxyRequest["state"]) => {
         const labels = {
           resolving_directive: t.exchanges.resolving,
-          buffering_body: t.exchanges.buffering,
+          waiting_body_memory: t.exchanges.memoryWait,
+          reading_body: t.exchanges.bodyReading,
           awaiting_response: t.exchanges.awaiting,
           retry_requested: t.exchanges.retrying,
         };
         const colors = {
           resolving_directive: "blue",
-          buffering_body: "cyan",
+          waiting_body_memory: "cyan",
+          reading_body: "geekblue",
           awaiting_response: "warning",
           retry_requested: "processing",
         };

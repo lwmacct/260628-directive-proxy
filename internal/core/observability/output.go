@@ -16,6 +16,7 @@ type HealthStatus struct {
 type Output interface {
 	Name() string
 	Start(context.Context) error
+	// Write must consume Record synchronously and must not retain it after return.
 	Write(context.Context, Record) error
 	Health() HealthStatus
 	Close(context.Context) error

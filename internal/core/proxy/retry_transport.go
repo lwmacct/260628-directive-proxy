@@ -6,11 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sync/atomic"
 	"time"
 
@@ -19,46 +17,23 @@ import (
 )
 
 var (
-	ErrReplayBodyTooLarge = errors.New("proxy request replay body is too large")
-	ErrReplayBudgetFull   = errors.New("proxy request replay budget is full")
-	ErrActiveCapacity     = errors.New("proxy active request capacity is full")
-	ErrResolverFailed     = errors.New("proxy directive resolver failed")
+	ErrActiveCapacity        = errors.New("proxy active request capacity is full")
+	ErrResolverFailed        = errors.New("proxy directive resolver failed")
+	ErrContentLengthRequired = errors.New("proxy request Content-Length is required")
+	ErrBodyMemoryUnavailable = errors.New("proxy request body memory is unavailable")
 )
 
-type RetryTransportOptions struct {
-	TempDir          string
-	MaxBodyBytes     int64
-	MaxInflightBytes int64
-	ChunkBytes       int
-}
+type RetryTransportOptions struct{}
 
-type RetryTransport struct {
-	base      http.RoundTripper
-	options   RetryTransportOptions
-	usedBytes atomic.Int64
-}
+type RetryTransport struct{ base http.RoundTripper }
 
 func (*RetryTransport) orchestratesPreparedRequests() {}
 
-func NewRetryTransport(base http.RoundTripper, options RetryTransportOptions) (*RetryTransport, error) {
+func NewRetryTransport(base http.RoundTripper, _ RetryTransportOptions) (*RetryTransport, error) {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	if options.MaxBodyBytes <= 0 {
-		options.MaxBodyBytes = 32 << 20
-	}
-	if options.MaxInflightBytes <= 0 {
-		options.MaxInflightBytes = 1 << 30
-	}
-	if options.ChunkBytes <= 0 {
-		options.ChunkBytes = 32 << 10
-	}
-	if options.TempDir != "" {
-		if err := os.MkdirAll(options.TempDir, 0o700); err != nil {
-			return nil, fmt.Errorf("create retry temp directory: %w", err)
-		}
-	}
-	return &RetryTransport{base: base, options: options}, nil
+	return &RetryTransport{base: base}, nil
 }
 
 func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -74,14 +49,16 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.roundTripOnce(req, prepared)
 	}
 
-	var replay *replayBody
+	if prepared.body == nil {
+		return nil, ErrBodyMemoryUnavailable
+	}
+	bodyLease := prepared.body.Acquire()
+	if !bodyLease.Valid() {
+		return nil, ErrBodyMemoryUnavailable
+	}
+	defer func() { _ = bodyLease.Close() }()
 	var previousFingerprint string
 	var previousTarget string
-	defer func() {
-		if replay != nil {
-			_ = replay.Close()
-		}
-	}()
 	for {
 		if err := req.Context().Err(); err != nil {
 			return nil, err
@@ -136,22 +113,7 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		session.BindMetadata(attempt, resolution.Plan.Metadata)
 		session.DirectiveResolved(attempt, target, resolveDuration, resolution.Source.PayloadSHA256, targetChanged, planChanged)
 
-		if replay == nil {
-			session.BeginBodyBuffering(attempt)
-			var replayErr error
-			replay, replayErr = t.prepareReplay(req, session)
-			if replayErr != nil {
-				session.FinishAttempt(attempt, false, replayErr)
-				cancel()
-				return nil, replayErr
-			}
-		}
-		body, bodyErr := replay.Open()
-		if bodyErr != nil {
-			session.FinishAttempt(attempt, false, bodyErr)
-			cancel()
-			return nil, bodyErr
-		}
+		body := bodyLease.Reader()
 		attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, attemptCtx, body)
 		if attemptRequest == nil {
 			_ = body.Close()
@@ -160,8 +122,8 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, ErrResolverFailed
 		}
 		attemptRequest.Body = body
-		attemptRequest.GetBody = func() (io.ReadCloser, error) { return replay.Open() }
-		attemptRequest.ContentLength = replay.Size()
+		attemptRequest.GetBody = func() (io.ReadCloser, error) { return bodyLease.Reader(), nil }
+		attemptRequest.ContentLength = bodyLease.Size()
 		attemptRequest.TransferEncoding = nil
 		if !session.BeginUpstream(attempt, attemptRequest) {
 			_ = body.Close()
@@ -203,11 +165,22 @@ func (t *RetryTransport) roundTripOnce(req *http.Request, prepared preparedReque
 		return nil, ErrResolverFailed
 	}
 	resolution.Plan.Metadata = normalizedMetadata
-	attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, req.Context(), req.Body)
+	if prepared.body == nil {
+		return nil, ErrBodyMemoryUnavailable
+	}
+	bodyLease := prepared.body.Acquire()
+	if !bodyLease.Valid() {
+		return nil, ErrBodyMemoryUnavailable
+	}
+	defer func() { _ = bodyLease.Close() }()
+	body := bodyLease.Reader()
+	attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, req.Context(), body)
 	if attemptRequest == nil {
 		return nil, ErrResolverFailed
 	}
-	attemptRequest.GetBody = req.GetBody
+	attemptRequest.GetBody = func() (io.ReadCloser, error) { return bodyLease.Reader(), nil }
+	attemptRequest.ContentLength = bodyLease.Size()
+	attemptRequest.TransferEncoding = nil
 	return t.base.RoundTrip(attemptRequest)
 }
 
@@ -289,115 +262,4 @@ func (b *cancelOnCloseBody) finish() {
 	if b != nil && b.done.CompareAndSwap(false, true) && b.cancel != nil {
 		b.cancel()
 	}
-}
-
-type replayBody struct {
-	transport *RetryTransport
-	file      *os.File
-	path      string
-	size      int64
-}
-
-func (t *RetryTransport) prepareReplay(req *http.Request, session proxyrequest.Session) (*replayBody, error) {
-	if req.Body == nil || req.Body == http.NoBody {
-		digest := sha256.Sum256(nil)
-		session.RequestBodyEnd(0, hex.EncodeToString(digest[:]), true)
-		return &replayBody{transport: t}, nil
-	}
-	defer func() { _ = req.Body.Close() }()
-	file, err := os.CreateTemp(t.options.TempDir, "dproxy-replay-*")
-	if err != nil {
-		return nil, fmt.Errorf("create replay body: %w", err)
-	}
-	replay := &replayBody{transport: t, file: file, path: file.Name()}
-	completed := false
-	defer func() {
-		if !completed {
-			_ = replay.Close()
-		}
-	}()
-	hasher := sha256.New()
-	buffer := make([]byte, t.options.ChunkBytes)
-	for {
-		n, readErr := req.Body.Read(buffer)
-		if n > 0 {
-			if replay.size+int64(n) > t.options.MaxBodyBytes {
-				session.RequestBodyEnd(replay.size, hex.EncodeToString(hasher.Sum(nil)), false)
-				return nil, ErrReplayBodyTooLarge
-			}
-			if !t.reserve(int64(n)) {
-				session.RequestBodyEnd(replay.size, hex.EncodeToString(hasher.Sum(nil)), false)
-				return nil, ErrReplayBudgetFull
-			}
-			written := 0
-			if written, err = file.Write(buffer[:n]); err != nil || written != n {
-				t.release(int64(n))
-				if err == nil {
-					err = io.ErrShortWrite
-				}
-				return nil, fmt.Errorf("write replay body: wrote %d of %d bytes: %w", written, n, err)
-			}
-			_, _ = hasher.Write(buffer[:n])
-			session.RequestBodyChunk(buffer[:n], replay.size)
-			replay.size += int64(n)
-		}
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			session.RequestBodyEnd(replay.size, hex.EncodeToString(hasher.Sum(nil)), false)
-			return nil, readErr
-		}
-	}
-	session.RequestBodyEnd(replay.size, hex.EncodeToString(hasher.Sum(nil)), true)
-	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-	completed = true
-	return replay, nil
-}
-
-func (t *RetryTransport) reserve(size int64) bool {
-	for {
-		current := t.usedBytes.Load()
-		if current+size > t.options.MaxInflightBytes {
-			return false
-		}
-		if t.usedBytes.CompareAndSwap(current, current+size) {
-			return true
-		}
-	}
-}
-
-func (t *RetryTransport) release(size int64) { t.usedBytes.Add(-size) }
-
-func (r *replayBody) Size() int64 {
-	if r == nil {
-		return 0
-	}
-	return r.size
-}
-
-func (r *replayBody) Open() (io.ReadCloser, error) {
-	if r == nil || r.file == nil || r.size == 0 {
-		return http.NoBody, nil
-	}
-	return os.Open(r.path)
-}
-
-func (r *replayBody) Close() error {
-	if r == nil {
-		return nil
-	}
-	if r.file != nil {
-		_ = r.file.Close()
-	}
-	if r.path != "" {
-		_ = os.Remove(r.path)
-	}
-	if r.transport != nil && r.size > 0 {
-		r.transport.release(r.size)
-		r.size = 0
-	}
-	return nil
 }

@@ -5,11 +5,13 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
-// Signal is an in-process observation. Body slices are borrowed and are only
-// valid for the duration of Trace.Observe.
+// Signal is an in-process observation. Streaming body slices are borrowed and
+// only valid for Trace.Observe. RequestBodyAvailable exposes an immutable body
+// whose lifetime must be extended with a lease before it is retained.
 type Signal struct {
 	Attempt int
 	Value   any
@@ -22,10 +24,7 @@ type RequestStarted struct {
 	Header http.Header
 }
 
-type RequestBodyChunk struct {
-	Data   []byte
-	Offset int64
-}
+type RequestBodyAvailable struct{ Body *bodymemory.Body }
 
 type RequestBodyEnded struct {
 	Total    int64

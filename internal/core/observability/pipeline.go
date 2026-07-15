@@ -150,7 +150,7 @@ func (t *Trace) invoke(plugin tracePlugin, signal Signal) {
 			t.emit("observability", "observability.plugin.panic", signal.Attempt, map[string]any{
 				"plugin": plugin.name,
 				"error":  fmt.Sprint(recovered),
-			})
+			}, nil)
 		}
 	}()
 	plugin.observer.Observe(signal, traceEmitter{trace: t, plugin: plugin.name})
@@ -164,7 +164,7 @@ func (t *Trace) invokeClose(plugin tracePlugin) {
 			t.emit("observability", "observability.plugin.panic", 0, map[string]any{
 				"plugin": plugin.name,
 				"error":  fmt.Sprint(recovered),
-			})
+			}, nil)
 		}
 	}()
 	plugin.observer.Close(traceEmitter{trace: t, plugin: plugin.name})
@@ -174,10 +174,20 @@ func (e traceEmitter) Emit(topic string, attempt int, data map[string]any) {
 	if e.trace == nil {
 		return
 	}
-	e.trace.emit(e.plugin, topic, attempt, data)
+	e.trace.emit(e.plugin, topic, attempt, data, nil)
 }
 
-func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any) {
+func (e traceEmitter) EmitOwned(topic string, attempt int, data map[string]any, release func()) {
+	if e.trace == nil {
+		if release != nil {
+			release()
+		}
+		return
+	}
+	e.trace.emit(e.plugin, topic, attempt, data, release)
+}
+
+func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any, release func()) {
 	t.sequence++
 	now := time.Now().UTC()
 	record := Record{
@@ -192,10 +202,12 @@ func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any) {
 		OccurredAt:    now.Format(time.RFC3339Nano),
 		Data:          data,
 		Time:          now,
+		resource:      newRecordResource(release),
 	}
 	for _, output := range t.pipeline.outputs {
 		output.enqueue(record)
 	}
+	record.release()
 }
 
 func (p *Pipeline) ObservabilityHealth() HealthSnapshot {
@@ -291,6 +303,7 @@ func (r *outputRunner) enqueue(record Record) {
 		r.dropped.Add(1)
 		return
 	}
+	record.retain()
 	index := shard(record.TraceID, len(r.queues))
 	select {
 	case r.queues[index] <- queuedRecord{record: record, size: size}:
@@ -298,6 +311,7 @@ func (r *outputRunner) enqueue(record Record) {
 	default:
 		r.queuedBytes.Add(-size)
 		r.dropped.Add(1)
+		record.release()
 	}
 }
 
@@ -317,6 +331,7 @@ func (r *outputRunner) run(queue <-chan queuedRecord) {
 	defer r.wg.Done()
 	for item := range queue {
 		err := r.output.Write(context.Background(), item.record)
+		item.record.release()
 		r.queuedBytes.Add(-item.size)
 		r.queuedCount.Add(-1)
 		if err != nil {

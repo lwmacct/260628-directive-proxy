@@ -16,16 +16,18 @@
 
 ## 等待响应请求与外部介入重试
 
-代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并使用磁盘临时文件中的相同请求正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
+代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并从同一份不可变内存正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
 
-请求发起方可以在 directive 中通过精确 `X-Dproxy-*` header op 声明请求 Metadata。Metadata 在第一次成功解析后绑定到逻辑请求、不会发送给上游，并可用于匿名重试：
+启用重试时，入站请求必须同时携带 `Dproxy-Request-ID`（16 个随机字节的无填充 Base64URL）和 `Dproxy-Retry-Capability`（32 个随机字节的无填充 Base64URL）。代理在任何日志、插件或上游处理前移除这两个 header，只保留绑定两者的 SHA-256 verifier；调用方必须自行保存 capability。匿名调用方用 possession proof 介入自己的请求：
 
-- `POST /api/public/request-retries`：无需认证，提交 Metadata 和 `expected_attempt`。
+- `PUT /api/public/proxy-requests/{request_id}/attempts/{next_attempt}`：无需 Control Auth，但必须携带 `Authorization: DProxy-Retry <request_id>.<capability>` 和 `If-Match: "attempt:<current_attempt>"`。
 - `GET /api/control/proxy-requests`：认证后列出活动请求。
 - `GET /api/control/proxy-requests/{trace_id}`：认证后读取一个活动请求。
-- `POST /api/control/proxy-requests/{trace_id}/retries`：认证后按 trace ID 介入。
+- `PUT /api/control/proxy-requests/{trace_id}/attempts/{next_attempt}`：认证后按 trace ID 介入，并携带相同的 `If-Match` 前置条件。
 
-收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST 等非幂等请求的重试是 at-least-once，上游可能已经执行了第一次请求但响应尚未返回。
+重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 attempt 强制保留原值，但上游仍需正确实现幂等语义。
+
+带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由逻辑请求、重试 attempt 和异步 Capture 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；同步插件借用当前响应 buffer，异步 Capture 只复制固定大小 chunk，并受独立内存预算限制。
 
 活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Control API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
 
@@ -35,10 +37,17 @@ proxy:
     enabled: true
     retryable-after: 10s
     max-attempts: 3
-    max-active-requests: 4096
-    temp-dir: ""
+    command-retention: 1m
+  body-memory:
+    max-active-bytes: 2147483648
     max-body-bytes: 33554432
-    max-inflight-bytes: 1073741824
+    queue-max-requests: 512
+    queue-max-wait: 15s
+    body-read-timeout: 30s
+observability:
+  response-capture-memory:
+    max-retained-bytes: 268435456
+    overflow: drop
 ```
 
 ## 可观测插件与输出
@@ -49,13 +58,13 @@ proxy:
 - `builtin.llmusage`：从上游 JSON/SSE 响应增量提取 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Google GenerateContent token usage。
 - `fluent` output：按 topic 路由 Record，经有界队列异步发送到 Fluent Forward endpoint。
 
-Capture 解析成功写给下游的响应字节；LLM Usage 解析代理从上游实际读取的响应字节。插件同步消费临时 body slice，生成的 Record 再按 `trace_id` 分片进入异步输出队列。输出故障和解析失败均 fail-open，不改变代理响应；队列溢出与输出故障会在 `/health` 的 `observability` 字段报告 degraded。
+Capture 解析成功写给下游的响应字节；LLM Usage 解析代理从上游实际读取的响应字节。请求 Capture 通过 lease 引用 canonical body，响应插件同步借用流式 buffer；需要异步保留的响应 Capture chunk 只复制一次。Record 再按 `trace_id` 分片进入异步输出队列，并在最后一个 output 完成后自然释放资源。输出故障和解析失败均 fail-open，不改变代理响应；队列溢出与输出故障会在 `/health` 的 `observability` 字段报告 degraded。
 
 插件和输出必须成对启用；完整配置见 [`config/config.example.yaml`](config/config.example.yaml)，架构和扩展约束见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
 
 完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
 
-Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/control/*` 必须通过当前模式认证；`/api/public/request-retries`、`/health` 和 Web UI 不要求 Control Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
+Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/control/*` 必须通过当前模式认证；`/api/public/proxy-requests/*`、`/health` 和 Web UI 不要求 Control Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
 ## Control API 登录
 
@@ -372,7 +381,9 @@ HTTP (:23198)
   GET /auth/login/github
   GET /auth/callback/github
   GET /health
-  POST /api/public/request-retries
+  PUT /api/public/proxy-requests/{request_id}/attempts/{next_attempt}
+  GET /api/control/proxy-requests
+  PUT /api/control/proxy-requests/{trace_id}/attempts/{next_attempt}
   GET /api/control/openapi.json
   GET /api/control/docs
   ANY /*  (需要 Authorization: Bearer dproxy.*)

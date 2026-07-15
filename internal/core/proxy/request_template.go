@@ -22,6 +22,7 @@ type RequestTemplate struct {
 	ProtoMinor       int
 	ContentLength    int64
 	Close            bool
+	IdempotencyKey   string
 }
 
 func NewRequestTemplate(req *http.Request) *RequestTemplate {
@@ -40,6 +41,7 @@ func NewRequestTemplate(req *http.Request) *RequestTemplate {
 		ProtoMinor:       req.ProtoMinor,
 		ContentLength:    req.ContentLength,
 		Close:            req.Close,
+		IdempotencyKey:   req.Header.Get("Idempotency-Key"),
 	}
 }
 
@@ -66,6 +68,9 @@ func BuildAttemptRequest(template *RequestTemplate, plan *Plan, ctx context.Cont
 	}
 	req = req.WithContext(ctx)
 	applyPlan(req, template.Header, plan)
+	if template.IdempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", template.IdempotencyKey)
+	}
 	if plan.Proxy != nil {
 		req = withRequestProxy(req, plan.Proxy)
 	}

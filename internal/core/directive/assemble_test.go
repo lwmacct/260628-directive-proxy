@@ -123,6 +123,8 @@ func TestToPlanRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
 		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{""}},
 		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
 		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
+		{Op: "=", Name: "Dproxy-Request-ID", Values: []string{"forged"}},
+		{Op: "=", Name: "Dproxy-Retry-Capability", Values: []string{"forged"}},
 	} {
 		if _, err := ToPlan(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: &HeaderSection{Ops: []HeaderOp{op}}}, AssembleOptions{}); err == nil {
 			t.Fatalf("expected invalid metadata op: %#v", op)

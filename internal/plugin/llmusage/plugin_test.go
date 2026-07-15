@@ -20,6 +20,13 @@ func (e *recordingEmitter) Emit(topic string, attempt int, data map[string]any) 
 	e.records = append(e.records, emittedRecord{topic: topic, attempt: attempt, data: data})
 }
 
+func (e *recordingEmitter) EmitOwned(topic string, attempt int, data map[string]any, release func()) {
+	e.Emit(topic, attempt, data)
+	if release != nil {
+		release()
+	}
+}
+
 func TestPluginExtractsOpenAIResponsesSSEUsage(t *testing.T) {
 	plugin := New(Config{})
 	rawSpec := []byte(`{"protocol":"openai.responses","labels":{"provider":"openai"}}`)

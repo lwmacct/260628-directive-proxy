@@ -1,6 +1,10 @@
 package observability
 
-import "time"
+import (
+	"sync"
+	"sync/atomic"
+	"time"
+)
 
 const SchemaVersion = "dproxy.event.v1"
 
@@ -16,6 +20,35 @@ type Record struct {
 	OccurredAt    string         `msg:"occurred_at"`
 	Data          map[string]any `msg:"data"`
 	Time          time.Time      `msg:"-"`
+	resource      *recordResource
+}
+
+type recordResource struct {
+	refs    atomic.Int64
+	once    sync.Once
+	release func()
+}
+
+func newRecordResource(release func()) *recordResource {
+	if release == nil {
+		return nil
+	}
+	resource := &recordResource{release: release}
+	resource.refs.Store(1)
+	return resource
+}
+
+func (r Record) retain() {
+	if r.resource != nil {
+		r.resource.refs.Add(1)
+	}
+}
+
+func (r Record) release() {
+	if r.resource == nil || r.resource.refs.Add(-1) != 0 {
+		return
+	}
+	r.resource.once.Do(r.resource.release)
 }
 
 func (r Record) Map() map[string]any {

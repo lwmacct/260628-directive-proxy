@@ -79,17 +79,19 @@ func Validate(cfg Config) (Config, error) {
 	}
 	retry := cfg.Proxy.Retry
 	if retry.Enabled {
-		if retry.RetryableAfter < 0 || retry.MaxAttempts < 2 || retry.MaxActiveRequests <= 0 || retry.MaxBodyBytes <= 0 ||
-			retry.MaxInflightBytes < retry.MaxBodyBytes {
+		if retry.RetryableAfter < 0 || retry.MaxAttempts < 2 || retry.CommandRetention <= 0 {
 			return cfg, ErrInvalidRetry
 		}
 	} else {
 		cfg.Proxy.Retry.MaxAttempts = 1
-		if cfg.Proxy.Retry.MaxActiveRequests <= 0 {
-			cfg.Proxy.Retry.MaxActiveRequests = 4096
+		if retry.CommandRetention <= 0 {
+			return cfg, ErrInvalidRetry
 		}
 	}
-	if retry.BufferChunkBytes <= 0 {
+	bodyMemory := cfg.Proxy.BodyMemory
+	if bodyMemory.MaxActiveBytes <= 0 || bodyMemory.MaxBodyBytes <= 0 ||
+		bodyMemory.MaxBodyBytes > bodyMemory.MaxActiveBytes || bodyMemory.QueueMax <= 0 ||
+		bodyMemory.QueueWait <= 0 || bodyMemory.ReadTimeout <= 0 {
 		return cfg, ErrInvalidRetry
 	}
 	validatedObservability, err := validateObservability(cfg.Observability)
@@ -108,6 +110,10 @@ func Validate(cfg Config) (Config, error) {
 }
 
 func validateObservability(cfg Observability) (Observability, error) {
+	if cfg.ResponseCaptureMemory.MaxRetainedBytes <= 0 ||
+		cfg.ResponseCaptureMemory.Overflow != "drop" && cfg.ResponseCaptureMemory.Overflow != "backpressure" {
+		return cfg, ErrInvalidObservability
+	}
 	pluginNames := make(map[string]struct{}, len(cfg.Plugins))
 	pluginTypes := make(map[string]struct{}, len(cfg.Plugins))
 	enabledPlugins := 0

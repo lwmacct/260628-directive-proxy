@@ -9,6 +9,7 @@ type TraceContext struct {
 
 type Emitter interface {
 	Emit(topic string, attempt int, data map[string]any)
+	EmitOwned(topic string, attempt int, data map[string]any, release func())
 }
 
 type Plugin interface {

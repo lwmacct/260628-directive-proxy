@@ -16,14 +16,15 @@ proxy/retry/response writer
 
 1. 实现 `observability.Plugin`，每个 trace 返回独立 `TraceObserver`。
 2. 如需 directive 配置，再实现 `observability.DirectivePlugin`；配置必须在上游请求前完成严格校验。
-3. 不保留 Signal 中的 borrowed body slice。
-4. 只通过 `Emitter` 产生 namespaced topic，不自行生成 record ID 或 sequence。
-5. payload 解析错误 fail-open；插件 panic 由 Pipeline containment 并降级健康状态。
+3. 不保留 Signal 中的 borrowed body slice；保留 canonical request body 时必须取得 lease。
+4. 异步拥有的 buffer 使用 `EmitOwned` 注册 release，禁止在多个 output 间自行复制。
+5. 只通过 `Emitter` 产生 namespaced topic，不自行生成 record ID 或 sequence。
+6. payload 解析错误 fail-open；插件 panic 由 Pipeline containment 并降级健康状态。
 
 新增输出时：
 
 1. 实现并发安全的 `observability.Output`。
 2. 连接与静态配置错误在 `Start` 返回。
-3. `Write` 不修改 Record，重试和协议 ACK 由输出实现。
+3. `Write` 同步消费且不得在返回后保留 Record；不修改 Record，重试和协议 ACK 由输出实现。
 4. `Health` 只报告输出自身状态；Pipeline 叠加 queued/dropped 指标。
 5. `Close` 应在 context 截止前完成 drain 和资源释放。

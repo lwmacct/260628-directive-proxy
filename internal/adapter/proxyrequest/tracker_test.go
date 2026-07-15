@@ -2,6 +2,7 @@ package proxyrequestadapter
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,12 +25,12 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	}, pipeline)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
-	session := tracker.Start(req)
+	req.Header.Set("Idempotency-Key", "lifecycle-test")
+	session := tracker.Start(req, proxyrequest.Identity{})
 	if len(session.TraceID()) != 32 {
 		t.Fatalf("unexpected trace ID: %q", session.TraceID())
 	}
 	target, _ := url.Parse("https://upstream.example/v1/chat?token=upstream-secret")
-	session.RequestBodyChunk([]byte("hello"), 0)
 	session.RequestBodyEnd(5, "digest", true)
 
 	canceled := false
@@ -112,55 +113,49 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	}
 }
 
-func TestProxyRequestRetryByMetadataRequiresUniqueMatchAndUsesCAS(t *testing.T) {
+func TestProxyRequestRetryByCapabilityUsesProofAndCAS(t *testing.T) {
 	pipeline, output := newCapturePipeline(t, captureplugin.Config{})
 	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: 0, MaxAttempts: 3}, pipeline)
-	newActive := func(path, requestID, tenant string, canceled *bool) proxyrequest.Session {
-		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/"+path, nil))
+	newActive := func(path string, seed byte, canceled *bool) (proxyrequest.Session, proxyrequest.Identity, [32]byte) {
+		identity, digest := testIdentity(t, seed)
+		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/"+path, nil), identity)
 		attempt := session.BeginAttempt(func() { *canceled = true }, "inline", "", "", "")
-		session.BindMetadata(attempt, requestmeta.Metadata{
-			"X-Dproxy-Request-Id": {requestID},
-			"X-Dproxy-Tenant":     {tenant},
-		})
 		session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)
 		if !session.BeginUpstream(attempt, nil) {
 			t.Fatal("attempt did not enter upstream state")
 		}
-		return session
+		return session, identity, digest
 	}
 	var firstCanceled, secondCanceled bool
-	first := newActive("one", "shared", "one", &firstCanceled)
-	second := newActive("two", "shared", "two", &secondCanceled)
-	shared, _ := requestmeta.NormalizeSelector(map[string]string{"X-Dproxy-Request-ID": "shared"})
-	if _, err := tracker.RetryByMetadata(shared, 1, proxyrequest.RetryTriggerRequesterAPI); err != proxyrequest.ErrAmbiguous {
-		t.Fatalf("unexpected ambiguous retry error: %v", err)
+	first, _, _ := newActive("one", 1, &firstCanceled)
+	second, secondIdentity, secondDigest := newActive("two", 2, &secondCanceled)
+	if _, err := tracker.RetryByCapability(secondIdentity.RequestID, [32]byte{}, 1, proxyrequest.RetryTriggerRequesterAPI); err != proxyrequest.ErrNotFound {
+		t.Fatalf("invalid proof was accepted: %v", err)
 	}
-	unique, _ := requestmeta.NormalizeSelector(map[string]string{
-		"X-Dproxy-Request-ID": "shared",
-		"X-Dproxy-Tenant":     "two",
-	})
-	result, err := tracker.RetryByMetadata(unique, 1, proxyrequest.RetryTriggerRequesterAPI)
+	result, err := tracker.RetryByCapability(secondIdentity.RequestID, secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI)
 	if err != nil || result.Request.TraceID != second.TraceID() || !secondCanceled || firstCanceled {
-		t.Fatalf("unexpected metadata retry: result=%#v err=%v first_canceled=%t second_canceled=%t", result, err, firstCanceled, secondCanceled)
+		t.Fatalf("unexpected capability retry: result=%#v err=%v first_canceled=%t second_canceled=%t", result, err, firstCanceled, secondCanceled)
 	}
-	if _, err := tracker.RetryByMetadata(unique, 1, proxyrequest.RetryTriggerRequesterAPI); err != proxyrequest.ErrRetryInProgress {
-		t.Fatalf("duplicate retry was not rejected: %v", err)
+	if repeated, err := tracker.RetryByCapability(secondIdentity.RequestID, secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI); err != nil || repeated.NextAttempt != 2 {
+		t.Fatalf("duplicate retry was not idempotent: result=%#v err=%v", repeated, err)
 	}
 	first.Complete()
 	second.Complete()
+	repeatedAfterCompletion, err := tracker.RetryByCapability(secondIdentity.RequestID, secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI)
+	if err != nil || repeatedAfterCompletion.NextAttempt != 2 {
+		t.Fatalf("completed retry command tombstone was not idempotent: result=%#v err=%v", repeatedAfterCompletion, err)
+	}
 	if err := pipeline.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	sawSelectorCapture := false
+	sawRequesterRetry := false
 	for _, event := range output.Records() {
-		if event.Topic != "capture.retry.requested" || event.Data["trigger"] != string(proxyrequest.RetryTriggerRequesterAPI) {
-			continue
+		if event.Topic == "capture.retry.requested" && event.Data["trigger"] == string(proxyrequest.RetryTriggerRequesterAPI) {
+			sawRequesterRetry = true
 		}
-		selector := event.Data["selector_metadata"].(map[string][]string)
-		sawSelectorCapture = selector["X-Dproxy-Request-Id"][0] == "shared" && selector["X-Dproxy-Tenant"][0] == "two"
 	}
-	if !sawSelectorCapture {
-		t.Fatal("requester retry selector was not captured")
+	if !sawRequesterRetry {
+		t.Fatal("requester retry was not captured")
 	}
 }
 
@@ -169,7 +164,7 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 2,
 	}, pipeline)
-	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
 	session.BindMetadata(attempt, requestmeta.Metadata{
 		"X-Dproxy-Request-Id": {"request-1"},
@@ -194,7 +189,7 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 
 func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
 	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: time.Hour, MaxAttempts: 2}, nil)
-	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
 	if active, ok := tracker.GetActive(session.TraceID()); !ok || active.State != proxyrequest.StateResolvingDirective || !active.RetryableAt.IsZero() {
 		t.Fatalf("unexpected resolving state: active=%#v ok=%t", active, ok)
@@ -213,18 +208,37 @@ func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
 	session.Complete()
 }
 
-func TestProxyRequestTrackerBoundsActiveRequests(t *testing.T) {
-	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2, MaxActiveRequests: 1}, nil)
-	first := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/one", nil))
-	second := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/two", nil))
-	if attempt := first.BeginAttempt(func() {}, "inline", "", "", ""); attempt != 1 {
-		t.Fatalf("unexpected first attempt: %d", attempt)
+func TestProxyRequestRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPatch} {
+		t.Run(method, func(t *testing.T) {
+			tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: 0, MaxAttempts: 2}, nil)
+			session := tracker.Start(httptest.NewRequest(method, "http://proxy.local/resource", nil), proxyrequest.Identity{})
+			attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
+			session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)
+			if !session.BeginUpstream(attempt, nil) {
+				t.Fatal("attempt did not enter upstream state")
+			}
+			if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrIdempotencyKeyRequired {
+				t.Fatalf("unexpected retry result: %v", err)
+			}
+			session.Complete()
+		})
 	}
-	if attempt := second.BeginAttempt(func() {}, "inline", "", "", ""); attempt != 0 {
-		t.Fatalf("active request capacity was not enforced: %d", attempt)
+}
+
+func TestProxyRequestTrackerRejectsDuplicateActiveRequestID(t *testing.T) {
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, nil)
+	identity, _ := testIdentity(t, 9)
+	first := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/one", nil), identity)
+	second := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/two", nil), identity)
+	if first == nil || second != nil {
+		t.Fatalf("duplicate request ID was not rejected: first=%v second=%v", first, second)
 	}
 	first.Complete()
-	second.Complete()
+	third := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/three", nil), identity)
+	if third != nil {
+		t.Fatal("recently terminal request ID was accepted")
+	}
 }
 
 func newCapturePipeline(t *testing.T, config captureplugin.Config) (*observability.Pipeline, *recordoutput.Output) {
@@ -246,4 +260,30 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatal(err)
 	}
 	return value
+}
+
+func testIdentity(t *testing.T, seed byte) (proxyrequest.Identity, [32]byte) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
+	requestID := base64.RawURLEncoding.EncodeToString(bytesOf(seed, 16))
+	capability := base64.RawURLEncoding.EncodeToString(bytesOf(seed+32, 32))
+	request.Header.Set(proxyrequest.RequestIDHeader, requestID)
+	request.Header.Set(proxyrequest.RetryCapabilityHeader, capability)
+	identity, err := proxyrequest.TakeIdentity(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := proxyrequest.DigestCapability(requestID, capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity, digest
+}
+
+func bytesOf(value byte, count int) []byte {
+	result := make([]byte, count)
+	for index := range result {
+		result[index] = value
+	}
+	return result
 }

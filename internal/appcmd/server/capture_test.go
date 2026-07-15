@@ -28,6 +28,9 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 		if value := r.Header.Get("X-Dproxy-Request-ID"); value != "" {
 			t.Errorf("request metadata leaked upstream: %q", value)
 		}
+		if r.Header.Get("Dproxy-Request-ID") != "" || r.Header.Get("Dproxy-Retry-Capability") != "" {
+			t.Errorf("retry identity leaked upstream: %#v", r.Header)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "id: 1\nevent: token\ndata: hello\n\n")
@@ -49,16 +52,12 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		RetryAfter: 0, MaxAttempts: 3,
 	}, pipeline)
-	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{
-		TempDir:          t.TempDir(),
-		MaxBodyBytes:     1024,
-		MaxInflightBytes: 4096,
-	})
+	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig()
-	rt := &runtime{requests: tracker, proxyTransport: transport, observability: pipeline}
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: pipeline}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -72,6 +71,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	}
 	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL+"/events", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	setTestRetryIdentity(req, 1)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	_, _ = io.ReadAll(reader)
 	deadline := time.Now().Add(time.Second)
 	var values []string
-	var metadataCaptured bool
+	var metadataCaptured, retryIdentityHidden bool
 	for time.Now().Before(deadline) {
 		values = values[:0]
 		for _, event := range output.Records() {
@@ -119,15 +119,19 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 				metadata := event.Data["metadata"].(map[string][]string)
 				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
 			}
+			if event.Topic == "capture.request.headers" {
+				headers := event.Data["headers"].(map[string][]string)
+				retryIdentityHidden = len(headers["Dproxy-Request-Id"]) == 0 && len(headers["Dproxy-Retry-Capability"]) == 0
+			}
 		}
-		if len(values) == 2 && metadataCaptured {
+		if len(values) == 2 && metadataCaptured && retryIdentityHidden {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured {
+	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured || !retryIdentityHidden {
 		allEvents := output.Records()
-		t.Fatalf("unexpected captured events: values=%#v metadata=%t events=%#v", values, metadataCaptured, allEvents)
+		t.Fatalf("unexpected captured events: values=%#v metadata=%t retry_identity_hidden=%t events=%#v", values, metadataCaptured, retryIdentityHidden, allEvents)
 	}
 }
 
@@ -147,12 +151,12 @@ func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pipeline.Close(context.Background()) })
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, pipeline)
-	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{TempDir: t.TempDir()})
+	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig()
-	rt := &runtime{requests: tracker, proxyTransport: transport, observability: pipeline}
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: pipeline}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -166,6 +170,7 @@ func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	}
 	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	setTestRetryIdentity(req, 2)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

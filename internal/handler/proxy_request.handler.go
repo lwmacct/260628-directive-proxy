@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -29,8 +30,8 @@ func RegisterProxyRequest(api huma.API, tracker proxyrequest.Tracker) {
 	}, handler.get)
 	huma.Register(api, huma.Operation{
 		OperationID: "retry-active-proxy-request",
-		Method:      http.MethodPost,
-		Path:        "/api/control/proxy-requests/{trace_id}/retries",
+		Method:      http.MethodPut,
+		Path:        "/api/control/proxy-requests/{trace_id}/attempts/{next_attempt}",
 		Summary:     "Retry an active upstream request attempt by trace ID",
 	}, handler.retry)
 }
@@ -63,7 +64,10 @@ func (h *proxyRequestHandler) retry(_ context.Context, input *RetryActiveProxyRe
 	if h == nil || h.tracker == nil || input == nil {
 		return nil, huma.Error404NotFound("proxy request not found")
 	}
-	result, err := h.tracker.RetryByTraceID(input.TraceID, input.Body.ExpectedAttempt, proxyrequest.RetryTriggerControlAPI)
+	if input.NextAttempt < 2 || input.IfMatch != fmt.Sprintf("\"attempt:%d\"", input.NextAttempt-1) {
+		return nil, utilNewAPIError(http.StatusBadRequest, "invalid_retry_precondition", "If-Match must identify the current attempt")
+	}
+	result, err := h.tracker.RetryByTraceID(input.TraceID, input.NextAttempt-1, proxyrequest.RetryTriggerControlAPI)
 	if err != nil {
 		return nil, utilRetryAPIError(err)
 	}
