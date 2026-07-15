@@ -1,6 +1,6 @@
 {
   "name": "directive-proxy-web",
-  "version": "0.45.260715",
+  "version": "0.46.260715",
   "private": true,
   "packageManager": "pnpm@11.13.0",
   "type": "module",
