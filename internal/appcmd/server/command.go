@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	definition = cfgm.New(config.DefaultConfig())
-	binding    = definition.Bind(cfgm.NoCLI(
+	binding = config.Definition.Bind(cfgm.NoCLI(
 		"server.http.auth.session.keys",
 		"server.http.auth.token",
 	))

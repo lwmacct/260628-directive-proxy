@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc"
@@ -279,3 +280,5 @@ func DefaultConfig() Config {
 func (c Auth) HasMethod(method AuthMethod) bool {
 	return slices.Contains(c.Methods, method)
 }
+
+var Definition = cfgm.New(DefaultConfig(), cfgm.AppName("app"))

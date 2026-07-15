@@ -6,10 +6,8 @@ import (
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 )
 
-var testDefinition = cfgm.New(DefaultConfig(), cfgm.WithoutDefaultPaths())
-
 var files = cfgm.ConfigFiles[Config]{
-	Definition:  testDefinition,
+	Definition:  Definition,
 	ExampleFile: "config/config.example.yaml",
 	RuntimeFile: "config/config.yaml",
 }
