@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	publicAPIPrefix  = "/api/public"
-	controlAPIPrefix = "/api/control"
+	publicAPIPrefix = "/api/public"
+	adminAPIPrefix  = "/api/admin"
 )
 
 func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
@@ -40,14 +40,14 @@ func newHTTPServer(cfg *config.Config, rt *runtime) *http.Server {
 func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	services := handler.Services{Requests: rt.requests, Observability: rt.observability}
 	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
-	controlAPI := limitRequestBody(handler.NewControlEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
-	if rt.controlAuth != nil {
-		controlAPI = rt.controlAuth.RequireAccess(controlAPI)
+	adminAPI := limitRequestBody(handler.NewAdminEndpoint(services).Handler(), cfg.Server.HTTP.MaxAPIBodyBytes)
+	if rt.adminAuth != nil {
+		adminAPI = rt.adminAuth.RequireAccess(adminAPI)
 	}
 	fallback := newFallbackHTTPHandler(rt, handler.NewSystemEndpoint(services).Handler())
 	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.requests, rt.bodyMemory, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
-		return routeHTTPRequests(publicAPI, controlAPI, directiveProxy, fallback)
+		return routeHTTPRequests(publicAPI, adminAPI, directiveProxy, fallback)
 	}
 	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
@@ -55,16 +55,16 @@ func newHTTPHandler(cfg *config.Config, rt *runtime) http.Handler {
 	if rt.sourceAccess != nil {
 		protectedDirective = rt.sourceAccess.RequireAccess(directiveProxy)
 	}
-	return routeHTTPRequests(publicAPI, controlAPI, protectedDirective, fallback)
+	return routeHTTPRequests(publicAPI, adminAPI, protectedDirective, fallback)
 }
 
-func routeHTTPRequests(publicAPI, controlAPI, directiveHandler, fallback http.Handler) http.Handler {
+func routeHTTPRequests(publicAPI, adminAPI, directiveHandler, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case pathWithin(r.URL.Path, publicAPIPrefix):
 			publicAPI.ServeHTTP(w, r)
-		case pathWithin(r.URL.Path, controlAPIPrefix):
-			controlAPI.ServeHTTP(w, r)
+		case pathWithin(r.URL.Path, adminAPIPrefix):
+			adminAPI.ServeHTTP(w, r)
 		case directive.MatchesRequest(r):
 			directiveHandler.ServeHTTP(w, r)
 		default:
@@ -79,8 +79,8 @@ func pathWithin(requestPath, prefix string) bool {
 
 func newFallbackHTTPHandler(rt *runtime, systemAPI http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	if rt.controlAuth != nil {
-		mux.Handle("/auth/", rt.controlAuth.Handler())
+	if rt.adminAuth != nil {
+		mux.Handle("/auth/", rt.adminAuth.Handler())
 	}
 	mux.Handle("/health", systemAPI)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {

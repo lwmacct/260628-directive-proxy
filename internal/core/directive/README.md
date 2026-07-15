@@ -9,7 +9,7 @@
 ## 职责
 
 - 从 `Authorization: Bearer <token>` 提取 `dproxy.` family token
-- 将 dproxy family 请求与 control 请求分流，decoder 只接受 `dproxy.15.i/r` 四段格式
+- 将 dproxy family 请求与 admin API 请求分流，decoder 只接受 `dproxy.15.i/r` 四段格式
 - inline 解码 directive JSON；remote 解码自包含 `RemoteSpec` 并通过 `RemoteReader` 读取完整 JSON
 - 校验 v14 token、RemoteSpec 与 directive payload schema
 - 将 target、proxy、headers 等 payload 字段组装成 `proxy.Plan`

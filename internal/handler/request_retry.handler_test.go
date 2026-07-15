@@ -40,7 +40,7 @@ func (s *requestRetryTrackerStub) RetryByRetryID(digest [32]byte, attempt int, t
 	}, nil
 }
 
-func TestPublicRequestRetryEndpointUsesCapabilityWithoutControlAuthentication(t *testing.T) {
+func TestPublicRequestRetryEndpointUsesCapabilityWithoutAdminAuthentication(t *testing.T) {
 	tracker := &requestRetryTrackerStub{}
 	handler := NewPublicEndpoint(Services{Requests: tracker}).Handler()
 	retryID := "01982d4f-7c2a-7abc-9d43-1a2b3c4d5e6f"

@@ -43,7 +43,7 @@ func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
 	}
 }
 
-func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
+func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
 	cfg := config.DefaultConfig()
 	var proxyPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,20 +91,19 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	if reservedRecorder.Code != http.StatusNotFound || proxyPath != "/api/resources" {
 		t.Fatalf("reserved public API path reached data plane: status=%d proxy_path=%q", reservedRecorder.Code, proxyPath)
 	}
-
 	ordinaryBearerReq := httptest.NewRequest(http.MethodGet, "http://service.local/health", nil)
 	ordinaryBearerReq.Header.Set("Authorization", "Bearer upstream-token")
 	ordinaryBearerRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(ordinaryBearerRecorder, ordinaryBearerReq)
 	if ordinaryBearerRecorder.Code != http.StatusOK {
-		t.Fatalf("ordinary bearer request must use control handler, got %d", ordinaryBearerRecorder.Code)
+		t.Fatalf("ordinary bearer request must use fallback handler, got %d", ordinaryBearerRecorder.Code)
 	}
 }
 
-func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutControlAuthentication(t *testing.T) {
+func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *testing.T) {
 	cfg := config.DefaultConfig()
-	controlToken := "dpctl.10.admin." + strings.Repeat("Z", 32)
-	digest, err := statictoken.Digest(types.ControlTokenNamespace, controlToken)
+	adminToken := "dpctl.10.admin." + strings.Repeat("Z", 32)
+	digest, err := statictoken.Digest(types.AdminTokenNamespace, adminToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +112,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutControlAuthentication(t *
 	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: digest},
 	}
-	controlAuth, err := newControlAuth(t.Context(), cfg.Server.HTTP)
+	adminAuth, err := newAdminAuth(t.Context(), cfg.Server.HTTP)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +152,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutControlAuthentication(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: retryTransport, controlAuth: controlAuth}
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: retryTransport, adminAuth: adminAuth}
 	handler := newHTTPServer(&cfg, rt).Handler
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
@@ -500,9 +499,9 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 	}
 }
 
-func TestTokenAuthProtectsControlAPI(t *testing.T) {
+func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 	token := "dpctl.10.admin." + strings.Repeat("Y", 32)
-	digest, err := statictoken.Digest(types.ControlTokenNamespace, token)
+	digest, err := statictoken.Digest(types.AdminTokenNamespace, token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,11 +511,11 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	cfg.Server.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: digest},
 	}
-	auth, err := newControlAuth(t.Context(), cfg.Server.HTTP)
+	auth, err := newAdminAuth(t.Context(), cfg.Server.HTTP)
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)
 	}
-	rt := &runtime{controlAuth: auth}
+	rt := &runtime{adminAuth: auth}
 	handler := newHTTPServer(&cfg, rt).Handler
 
 	authSession := httptest.NewRecorder()
@@ -527,7 +526,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 	}
 
 	unauthenticated := httptest.NewRecorder()
-	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/control/proxy-requests", nil))
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "http://localhost/api/admin/proxy-requests", nil))
 	if unauthenticated.Code != http.StatusUnauthorized {
 		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
 	}
@@ -540,7 +539,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
 	}
 
-	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/control/proxy-requests", nil)
+	protectedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/admin/proxy-requests", nil)
 	protectedRequest.AddCookie(login.Result().Cookies()[0])
 	protected := httptest.NewRecorder()
 	handler.ServeHTTP(protected, protectedRequest)
@@ -548,7 +547,7 @@ func TestTokenAuthProtectsControlAPI(t *testing.T) {
 		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
 	}
 
-	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/control/proxy-requests", nil)
+	bearerRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/admin/proxy-requests", nil)
 	bearerRequest.Header.Set("Authorization", "Bearer "+token)
 	bearer := httptest.NewRecorder()
 	handler.ServeHTTP(bearer, bearerRequest)

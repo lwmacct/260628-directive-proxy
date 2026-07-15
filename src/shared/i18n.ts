@@ -39,7 +39,7 @@ const zh = {
     setNeedsValues: (label: string) => `${label} Set/Add 操作必须包含 values`, hostValues: (label: string) => `${label} Host 只支持单值 Set 或 Remove`,
     tokenPrefix: "Token 必须是 dproxy.14.i 或 dproxy.14.r 格式", tokenPayloadMissing: "Token 缺少 payload", tokenDecodeFailed: "Token payload 解码失败", invalidRedisKey: "远程 Key 必须是 1-256 字节且不能包含首尾空白或控制字符", invalidRemoteURL: "远程 URL 与所选类型不匹配", invalidResolverHeader: "Resolver 请求头名称或值不合法",
     unknownField: (label: string, field: string) => `${label} 包含未知字段 ${field}`, pathRequired: "请求路径不能为空",
-    pathSameOrigin: "请求路径必须是以 / 开头的同源路径", pathControlPlane: "请求路径不能指向 control plane",
+    pathSameOrigin: "请求路径必须是以 / 开头的同源路径", pathReservedAPI: "请求路径不能指向保留 API",
     headerValueString: (name: string) => `Request Header ${name} 的值必须是 string`,
   },
 } as const;
@@ -56,7 +56,7 @@ const en: Text = {
   },
   appearance: { panel: "Theme and interface" },
   exchanges: {
-    description: "View requests waiting for body memory, reading a body, resolving a directive, or awaiting final upstream response headers, and trigger a conditional retry through the control API.",
+    description: "View requests waiting for body memory, reading a body, resolving a directive, or awaiting final upstream response headers, and trigger a conditional retry through the admin API.",
     auto: "Auto refresh", refresh: "Refresh", active: "Active requests", retryable: "Retryable", oldestWait: "Oldest state",
     time: "Attempt time", method: "Method", status: "Status", metadata: "Request metadata", search: "Search URL, target, metadata, or Trace ID",
     target: "Target", attempt: "Attempt", waiting: "State time", resolving: "Resolving directive", memoryWait: "Waiting for body memory", bodyReading: "Reading request body", awaiting: "Awaiting upstream", retrying: "Switching attempt",
@@ -83,7 +83,7 @@ const en: Text = {
     setNeedsValues: (label: string) => `${label} requires values for Set/Add`, hostValues: (label: string) => `${label} Host only supports single-value Set or Remove`,
     tokenPrefix: "Token must use the dproxy.14.i or dproxy.14.r format", tokenPayloadMissing: "Token payload is missing", tokenDecodeFailed: "Failed to decode Token payload", invalidRedisKey: "Remote key must be 1-256 bytes without surrounding whitespace or control characters", invalidRemoteURL: "Remote URL does not match the selected type", invalidResolverHeader: "Resolver header name or value is invalid",
     unknownField: (label: string, field: string) => `${label} contains unknown field ${field}`, pathRequired: "Request path is required",
-    pathSameOrigin: "Request path must be a same-origin path starting with /", pathControlPlane: "Request path cannot target the control plane",
+    pathSameOrigin: "Request path must be a same-origin path starting with /", pathReservedAPI: "Request path cannot target a reserved API",
     headerValueString: (name: string) => `Request Header ${name} must be a string`,
   },
 };

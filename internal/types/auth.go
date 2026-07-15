@@ -1,3 +1,3 @@
 package types
 
-const ControlTokenNamespace = "dpctl"
+const AdminTokenNamespace = "dpctl"

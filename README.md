@@ -9,10 +9,10 @@
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
 - 携带 `Authorization: Bearer dproxy.*` 且通过来源白名单的请求进入基于原生 `net/http` 的反向代理。
-- `/api/public/*` 进入匿名请求协作 API，`/api/control/*` 进入受认证保护的管理 API。
+- `/api/public/*` 进入匿名请求协作 API，`/api/admin/*` 进入受认证保护的管理 API。
 - 其他请求进入 `/health`、认证端点或可选 Web UI。
 
-`/api/public/*` 和 `/api/control/*` 是系统保留前缀，优先于 dproxy token 分流；其他路径（包括普通 `/api/...`）携带 dproxy token 时仍可进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
+`/api/public/*` 和 `/api/admin/*` 是系统保留前缀，优先于 dproxy token 分流；其他路径（包括普通 `/api/...`）携带 dproxy token 时仍可进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
 ## 等待响应请求与外部介入重试
 
@@ -21,15 +21,15 @@
 Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retry identity 即可正常转发。需要通过 Public API 介入自己的请求时，调用方携带一个 canonical UUIDv7 `Dproxy-Retry-ID`。该 header 是 bearer retry credential，代理在任何日志、插件或上游处理前移除它，只保存 SHA-256 verifier：
 
 - `PUT /api/public/retry`：无需 Control Auth，但必须携带 `Dproxy-Retry-ID: <uuidv7>` 和 `If-Match: "attempt:<current_attempt>"`；服务端自动计算下一 attempt。
-- `GET /api/control/proxy-requests`：认证后列出活动请求。
-- `GET /api/control/proxy-requests/{trace_id}`：认证后读取一个活动请求。
-- `PUT /api/control/proxy-requests/{trace_id}/retry`：认证后按 trace ID 介入，并携带 `If-Match: "attempt:<current_attempt>"`。
+- `GET /api/admin/proxy-requests`：认证后列出活动请求。
+- `GET /api/admin/proxy-requests/{trace_id}`：认证后读取一个活动请求。
+- `PUT /api/admin/proxy-requests/{trace_id}/retry`：认证后按 trace ID 介入，并携带 `If-Match: "attempt:<current_attempt>"`。
 
 重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 attempt 强制保留原值，但上游仍需正确实现幂等语义。
 
 带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由逻辑请求、重试 attempt 和异步 Capture 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；同步插件借用当前响应 buffer，异步 Capture 只复制固定大小 chunk，并受独立内存预算限制。
 
-活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Control API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
+活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Admin API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
 
 ```yaml
 proxy:
@@ -62,9 +62,9 @@ observability:
 
 完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
 
-Control API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/control/*` 必须通过当前模式认证；`/api/public/proxy-requests/*`、`/health` 和 Web UI 不要求 Control Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
+Admin API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/admin/*` 必须通过当前模式认证；`/api/public/proxy-requests/*`、`/health` 和 Web UI 不要求 Admin Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
-## Control API 登录
+## Admin API 登录
 
 `server.http.auth.methods` 是唯一的认证启用状态，可包含 `token`、`oidc` 或两者，默认只启用 `token`。列表顺序决定登录方式顺序；只有启用的配置会在启动时校验和初始化。
 
@@ -130,7 +130,7 @@ server:
 
 浏览器输入 token 后，服务只把 credential ID 和完整 secret revision 写入统一加密 Session，不保存原始 token。删除 credential 或轮换摘要会立即撤销对应登录，不需要 Session 数据库。
 
-自动化客户端无需调用登录端点，可直接访问 Control API：
+自动化客户端无需调用登录端点，可直接访问 Admin API：
 
 ```http
 Authorization: Bearer <access-token>
@@ -192,7 +192,7 @@ server:
 
 ## Directive 来源白名单
 
-`proxy.directive.source-access` 只保护携带 `Authorization: Bearer dproxy.*` 的 Directive 流量。Control API、OIDC、`/health` 和 Web UI 继续使用各自的访问策略。来源白名单默认禁用；启用后仅允许 `allowed-sources` 中配置的来源。
+`proxy.directive.source-access` 只保护携带 `Authorization: Bearer dproxy.*` 的 Directive 流量。Admin API、OIDC、`/health` 和 Web UI 继续使用各自的访问策略。来源白名单默认禁用；启用后仅允许 `allowed-sources` 中配置的来源。
 
 ```yaml
 proxy:
@@ -345,12 +345,12 @@ proxy:
         pool-size: 4
 ```
 
-已认证的 Control API 提供唯一的协议编解码与校验实现，Web 工作台也使用这些端点：
+已认证的 Admin API 提供唯一的协议编解码与校验实现，Web 工作台也使用这些端点：
 
 ```text
-POST /api/control/directives/encode
-POST /api/control/directives/decode
-POST /api/control/directives/validate
+POST /api/admin/directives/encode
+POST /api/admin/directives/decode
+POST /api/admin/directives/validate
 ```
 
 data-plane 错误使用 `{ "error": { "code": "...", "message": "..." } }`，客户端应依赖稳定 `code`，不要匹配文案。
@@ -374,10 +374,10 @@ HTTP (:23198)
   GET /auth/callback/github
   GET /health
   PUT /api/public/retry
-  GET /api/control/proxy-requests
-  PUT /api/control/proxy-requests/{trace_id}/retry
-  GET /api/control/openapi.json
-  GET /api/control/docs
+  GET /api/admin/proxy-requests
+  PUT /api/admin/proxy-requests/{trace_id}/retry
+  GET /api/admin/openapi.json
+  GET /api/admin/docs
   ANY /*  (需要 Authorization: Bearer dproxy.*)
 ```
 

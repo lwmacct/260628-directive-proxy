@@ -47,7 +47,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	if len(active) != 1 || active[0].Attempt != 1 || active[0].TargetURL != "https://upstream.example/v1/chat?token=%3Credacted%3E" {
 		t.Fatalf("unexpected active request: %#v", active)
 	}
-	result, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI)
+	result, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerAdminAPI)
 	if err != nil || result.NextAttempt != 2 || !canceled {
 		t.Fatalf("retry was not accepted: result=%#v canceled=%t err=%v", result, canceled, err)
 	}
@@ -203,15 +203,15 @@ func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
 	if active, ok := tracker.GetActive(session.TraceID()); !ok || active.State != proxyrequest.StateResolvingDirective {
 		t.Fatalf("unexpected resolving state: active=%#v ok=%t", active, ok)
 	}
-	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrRetryNotReady {
+	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerAdminAPI); err != proxyrequest.ErrRetryNotReady {
 		t.Fatalf("resolving attempt was retryable: %v", err)
 	}
 	session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)
 	session.BeginUpstream(attempt, nil)
-	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != nil {
+	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerAdminAPI); err != nil {
 		t.Fatalf("retry after upstream start failed: %v", err)
 	}
-	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt+1, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrAttemptChanged {
+	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt+1, proxyrequest.RetryTriggerAdminAPI); err != proxyrequest.ErrAttemptChanged {
 		t.Fatalf("unexpected stale attempt error: %v", err)
 	}
 	session.Complete()
@@ -227,7 +227,7 @@ func TestProxyRequestRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 			if !session.BeginUpstream(attempt, nil) {
 				t.Fatal("attempt did not enter upstream state")
 			}
-			if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrIdempotencyKeyRequired {
+			if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerAdminAPI); err != proxyrequest.ErrIdempotencyKeyRequired {
 				t.Fatalf("unexpected retry result: %v", err)
 			}
 			session.Complete()

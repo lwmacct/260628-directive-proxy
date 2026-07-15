@@ -15,7 +15,7 @@ server:
       key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥文件路径或 URI
       poll-interval: 0s # TLS 证书文件重载兜底轮询间隔，未配置时使用默认间隔
 
-    # Control API 认证配置
+    # Admin API 认证配置
     auth:
 
       # 允许浏览器访问应用的可信 origin
@@ -58,7 +58,7 @@ server:
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间
-    max-api-body-bytes: 1048576 # Control API 最大请求体字节数，0 表示不限制
+    max-api-body-bytes: 1048576 # Admin API 最大请求体字节数，0 表示不限制
     max-header-bytes: 131072 # HTTP 请求头最大字节数
 
 # 代理配置

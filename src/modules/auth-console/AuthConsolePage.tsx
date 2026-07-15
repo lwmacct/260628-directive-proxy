@@ -903,7 +903,7 @@ async function directiveCodecRequest(
   body: DirectiveDocument | { token: string },
   signal?: AbortSignal,
 ): Promise<DirectiveCodecResponse> {
-  const response = await apiFetch(`/api/control/directives/${action}`, {
+  const response = await apiFetch(`/api/admin/directives/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -929,7 +929,7 @@ function normalizeRequestPath(value: string, text: AppText["authConsole"]) {
     throw new Error(text.pathSameOrigin);
   }
   if (path.startsWith("/api/") || path === "/api" || path === "/health") {
-    throw new Error(text.pathControlPlane);
+    throw new Error(text.pathReservedAPI);
   }
   return path;
 }

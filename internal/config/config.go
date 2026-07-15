@@ -35,11 +35,11 @@ type Server struct {
 type ServerHTTP struct {
 	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
 	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
-	Auth            Auth             `json:"auth"              desc:"Control API 认证配置"`
+	Auth            Auth             `json:"auth"              desc:"Admin API 认证配置"`
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
-	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Control API 最大请求体字节数，0 表示不限制"`
+	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Admin API 最大请求体字节数，0 表示不限制"`
 	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
 }
 

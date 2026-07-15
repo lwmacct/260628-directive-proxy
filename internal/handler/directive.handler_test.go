@@ -10,10 +10,10 @@ import (
 )
 
 func TestDirectiveCodecEndpoints(t *testing.T) {
-	handler := NewControlEndpoint(Services{}).Handler()
+	handler := NewAdminEndpoint(Services{}).Handler()
 	encodeBody := []byte(`{"kind":"remote","remote":{"type":"http","url":"https://policy.example.com/v1/resolve","key":"team-a/service-a","headers":{"authorization":"Bearer secret"},"request_headers":["Content-Type","X-Tenant-*"]}}`)
 	encodeResponse := httptest.NewRecorder()
-	handler.ServeHTTP(encodeResponse, httptest.NewRequest(http.MethodPost, "/api/control/directives/encode", bytes.NewReader(encodeBody)))
+	handler.ServeHTTP(encodeResponse, httptest.NewRequest(http.MethodPost, "/api/admin/directives/encode", bytes.NewReader(encodeBody)))
 	if encodeResponse.Code != http.StatusOK {
 		t.Fatalf("unexpected encode response: status=%d body=%s", encodeResponse.Code, encodeResponse.Body.String())
 	}
@@ -28,7 +28,7 @@ func TestDirectiveCodecEndpoints(t *testing.T) {
 
 	decodeBody, _ := json.Marshal(DirectiveTokenRequestDTO{Token: encoded.Token})
 	decodeResponse := httptest.NewRecorder()
-	handler.ServeHTTP(decodeResponse, httptest.NewRequest(http.MethodPost, "/api/control/directives/decode", bytes.NewReader(decodeBody)))
+	handler.ServeHTTP(decodeResponse, httptest.NewRequest(http.MethodPost, "/api/admin/directives/decode", bytes.NewReader(decodeBody)))
 	if decodeResponse.Code != http.StatusOK {
 		t.Fatalf("unexpected decode response: status=%d body=%s", decodeResponse.Code, decodeResponse.Body.String())
 	}
@@ -39,9 +39,9 @@ func TestDirectiveCodecEndpoints(t *testing.T) {
 }
 
 func TestDirectiveCodecRejectsInvalidDocument(t *testing.T) {
-	handler := NewControlEndpoint(Services{}).Handler()
+	handler := NewAdminEndpoint(Services{}).Handler()
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/control/directives/validate", strings.NewReader(`{"kind":"inline","payload":{"target":{}}}`)))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/admin/directives/validate", strings.NewReader(`{"kind":"inline","payload":{"target":{}}}`)))
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unexpected validation response: status=%d body=%s", response.Code, response.Body.String())
 	}

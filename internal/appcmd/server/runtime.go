@@ -37,7 +37,7 @@ type runtime struct {
 	bodyMemory      *bodymemory.Controller
 	proxyTransport  http.RoundTripper
 	observability   *observability.Pipeline
-	controlAuth     *httpauth.Auth
+	adminAuth       *httpauth.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
 	tls             *tlsRuntime
@@ -58,7 +58,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 			return nil, fmt.Errorf("configure source access: %w", err)
 		}
 	}
-	controlAuth, err := newControlAuth(ctx, cfg.Server.HTTP)
+	adminAuth, err := newAdminAuth(ctx, cfg.Server.HTTP)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
@@ -112,7 +112,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		bodyMemory:      bodyMemory,
 		proxyTransport:  retryTransport,
 		observability:   observationPipeline,
-		controlAuth:     controlAuth,
+		adminAuth:       adminAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
 		tls:             tlsRuntime,
@@ -166,13 +166,13 @@ func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*o
 	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{Sink: output, Workers: cfg.Sink.Workers, QueueCapacity: cfg.Sink.Queue.Capacity, QueueMaxBytes: cfg.Sink.Queue.MaxBytes})
 }
 
-func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
+func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
 	methods := make([]httpauth.Method, 0, len(cfg.Auth.Methods))
 	var authorizers []httpauth.Authorizer
 	for _, configured := range cfg.Auth.Methods {
 		switch configured {
 		case config.AuthMethodToken:
-			tokenMethod, err := statictoken.New(types.ControlTokenNamespace, cfg.Auth.Token)
+			tokenMethod, err := statictoken.New(types.AdminTokenNamespace, cfg.Auth.Token)
 			if err != nil {
 				return nil, err
 			}

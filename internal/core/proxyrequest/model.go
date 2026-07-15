@@ -47,7 +47,7 @@ type RetryTrigger string
 
 const (
 	RetryTriggerRequesterAPI RetryTrigger = "requester_api"
-	RetryTriggerControlAPI   RetryTrigger = "control_api"
+	RetryTriggerAdminAPI     RetryTrigger = "admin_api"
 )
 
 type RetryResult struct {

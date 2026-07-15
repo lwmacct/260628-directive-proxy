@@ -269,7 +269,7 @@ func (s *proxyRequestSession) DirectiveResolved(attempt int, target *url.URL, du
 	var pluginSpecs map[string][]byte
 	s.invoke(func() {
 		if s.attempt == attempt {
-			s.targetURL = safeControlURL(target.String())
+			s.targetURL = redactURL(target.String())
 		}
 		metadata = requestmeta.Clone(s.attemptMeta)
 		pluginSpecs = clonePluginSpecs(s.pluginSpecs)
@@ -490,7 +490,7 @@ func requestURL(req *http.Request) string {
 	return value.String()
 }
 
-func safeControlURL(raw string) string {
+func redactURL(raw string) string {
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return raw

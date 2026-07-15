@@ -95,7 +95,7 @@ func TestRetryTransportDoesNotFallBackWhenRemoteRefreshFails(t *testing.T) {
 		result <- roundTripErr
 	}()
 	<-started
-	if _, err := tracker.RetryByTraceID(session.TraceID(), 1, proxyrequest.RetryTriggerControlAPI); err != nil {
+	if _, err := tracker.RetryByTraceID(session.TraceID(), 1, proxyrequest.RetryTriggerAdminAPI); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-result; !errors.Is(err, ErrDirectiveNotFound) {
@@ -168,7 +168,7 @@ func TestRetryTransportReplaysBodyAfterManualRetry(t *testing.T) {
 	if len(active) != 1 || active[0].Attempt != 1 {
 		t.Fatalf("unexpected active request: %#v", active)
 	}
-	if _, err = tracker.RetryByTraceID(session.TraceID(), 1, proxyrequest.RetryTriggerControlAPI); err != nil {
+	if _, err = tracker.RetryByTraceID(session.TraceID(), 1, proxyrequest.RetryTriggerAdminAPI); err != nil {
 		t.Fatalf("retry failed: %v", err)
 	}
 	completed := <-result
@@ -273,7 +273,7 @@ func TestRetryTransportRefreshesPlanAndRebuildsFromOriginalTemplate(t *testing.T
 	if len(active) != 1 || active[0].Metadata["X-Dproxy-Request-Id"][0] != "request-1" {
 		t.Fatalf("request metadata was not bound from the first plan: %#v", active)
 	}
-	if _, err := tracker.RetryByTraceID(session.TraceID(), 1, proxyrequest.RetryTriggerControlAPI); err != nil {
+	if _, err := tracker.RetryByTraceID(session.TraceID(), 1, proxyrequest.RetryTriggerAdminAPI); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-result; err != nil {

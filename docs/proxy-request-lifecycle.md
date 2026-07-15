@@ -33,7 +33,7 @@ Dproxy-Retry-ID: <uuidv7>
 If-Match: "attempt:<current_attempt>"
 ```
 
-Control API 使用 `PUT /api/control/proxy-requests/{trace_id}/retry` 和相同的 `If-Match`。服务端自动计算下一 attempt；每个逻辑请求由单一 coordinator event loop 串行处理响应到达和重试命令；重复 PUT 返回首次接受的结果。POST/PATCH 缺少初始 `Idempotency-Key` 时返回 422。
+Admin API 使用 `PUT /api/admin/proxy-requests/{trace_id}/retry` 和相同的 `If-Match`。服务端自动计算下一 attempt；每个逻辑请求由单一 coordinator event loop 串行处理响应到达和重试命令；重复 PUT 返回首次接受的结果。POST/PATCH 缺少初始 `Idempotency-Key` 时返回 422。
 
 Header 和 URL query 按插件配置的大小写不敏感 glob 脱敏。Body 默认不脱敏。SSE parser 支持 BOM、LF、CRLF、CR、多行 data、event、id、retry 和 comment；超过单事件上限时语义事件标记为 truncated，原始 downstream body 仍可重组。
 

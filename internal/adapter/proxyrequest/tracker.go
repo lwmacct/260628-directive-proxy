@@ -63,7 +63,7 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 		startedAt:      now,
 		method:         req.Method,
 		idempotencyKey: strings.TrimSpace(req.Header.Get("Idempotency-Key")),
-		requestURL:     safeControlURL(requestURL(req)),
+		requestURL:     redactURL(requestURL(req)),
 		state:          proxyrequest.StateWaitingBodyMemory,
 		retryResults:   make(map[int]proxyrequest.RetryResult),
 		events:         make(chan coordinatorEvent),

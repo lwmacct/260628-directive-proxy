@@ -18,19 +18,19 @@ func RegisterProxyRequest(api huma.API, tracker proxyrequest.Tracker) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-active-proxy-requests",
 		Method:      http.MethodGet,
-		Path:        "/api/control/proxy-requests",
+		Path:        "/api/admin/proxy-requests",
 		Summary:     "List active proxy requests across directive resolution and upstream wait states",
 	}, handler.list)
 	huma.Register(api, huma.Operation{
 		OperationID: "get-active-proxy-request",
 		Method:      http.MethodGet,
-		Path:        "/api/control/proxy-requests/{trace_id}",
+		Path:        "/api/admin/proxy-requests/{trace_id}",
 		Summary:     "Get one active proxy request",
 	}, handler.get)
 	huma.Register(api, huma.Operation{
 		OperationID: "retry-active-proxy-request",
 		Method:      http.MethodPut,
-		Path:        "/api/control/proxy-requests/{trace_id}/retry",
+		Path:        "/api/admin/proxy-requests/{trace_id}/retry",
 		Summary:     "Retry an active upstream request attempt by trace ID",
 	}, handler.retry)
 }
@@ -67,7 +67,7 @@ func (h *proxyRequestHandler) retry(_ context.Context, input *RetryActiveProxyRe
 	if err != nil {
 		return nil, utilNewAPIError(http.StatusBadRequest, "invalid_retry_precondition", "If-Match must identify the current attempt")
 	}
-	result, err := h.tracker.RetryByTraceID(input.TraceID, currentAttempt, proxyrequest.RetryTriggerControlAPI)
+	result, err := h.tracker.RetryByTraceID(input.TraceID, currentAttempt, proxyrequest.RetryTriggerAdminAPI)
 	if err != nil {
 		return nil, utilRetryAPIError(err)
 	}

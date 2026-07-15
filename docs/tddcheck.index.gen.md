@@ -8,16 +8,16 @@
 
 ## APIs
 
-| Method | Full Path                                      | Mount | Operation Path                                 | Operation                    | Tags | Handler    | Register               | File                                        |
-| ------ | ---------------------------------------------- | ----- | ---------------------------------------------- | ---------------------------- | ---- | ---------- | ---------------------- | ------------------------------------------- |
-| `POST` | `/api/control/directives/decode`               | `-`   | `/api/control/directives/decode`               | `decode-directive`           |      | `decode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
-| `POST` | `/api/control/directives/encode`               | `-`   | `/api/control/directives/encode`               | `encode-directive`           |      | `encode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
-| `POST` | `/api/control/directives/validate`             | `-`   | `/api/control/directives/validate`             | `validate-directive`         |      | `validate` | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
-| `GET`  | `/api/control/proxy-requests`                  | `-`   | `/api/control/proxy-requests`                  | `list-active-proxy-requests` |      | `list`     | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
-| `GET`  | `/api/control/proxy-requests/{trace_id}`       | `-`   | `/api/control/proxy-requests/{trace_id}`       | `get-active-proxy-request`   |      | `get`      | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
-| `PUT`  | `/api/control/proxy-requests/{trace_id}/retry` | `-`   | `/api/control/proxy-requests/{trace_id}/retry` | `retry-active-proxy-request` |      | `retry`    | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
-| `PUT`  | `/api/public/retry`                            | `-`   | `/api/public/retry`                            | `request-proxy-retry`        |      | `retry`    | `RegisterRequestRetry` | `internal/handler/request_retry.handler.go` |
-| `GET`  | `/health`                                      | `-`   | `/health`                                      | `get-health`                 |      | `get`      | `RegisterHealth`       | `internal/handler/health.handler.go`        |
+| Method | Full Path                                    | Mount | Operation Path                               | Operation                    | Tags | Handler    | Register               | File                                        |
+| ------ | -------------------------------------------- | ----- | -------------------------------------------- | ---------------------------- | ---- | ---------- | ---------------------- | ------------------------------------------- |
+| `POST` | `/api/admin/directives/decode`               | `-`   | `/api/admin/directives/decode`               | `decode-directive`           |      | `decode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `POST` | `/api/admin/directives/encode`               | `-`   | `/api/admin/directives/encode`               | `encode-directive`           |      | `encode`   | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `POST` | `/api/admin/directives/validate`             | `-`   | `/api/admin/directives/validate`             | `validate-directive`         |      | `validate` | `RegisterDirective`    | `internal/handler/directive.handler.go`     |
+| `GET`  | `/api/admin/proxy-requests`                  | `-`   | `/api/admin/proxy-requests`                  | `list-active-proxy-requests` |      | `list`     | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `GET`  | `/api/admin/proxy-requests/{trace_id}`       | `-`   | `/api/admin/proxy-requests/{trace_id}`       | `get-active-proxy-request`   |      | `get`      | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `PUT`  | `/api/admin/proxy-requests/{trace_id}/retry` | `-`   | `/api/admin/proxy-requests/{trace_id}/retry` | `retry-active-proxy-request` |      | `retry`    | `RegisterProxyRequest` | `internal/handler/proxy_request.handler.go` |
+| `PUT`  | `/api/public/retry`                          | `-`   | `/api/public/retry`                          | `request-proxy-retry`        |      | `retry`    | `RegisterRequestRetry` | `internal/handler/request_retry.handler.go` |
+| `GET`  | `/health`                                    | `-`   | `/health`                                    | `get-health`                 |      | `get`      | `RegisterHealth`       | `internal/handler/health.handler.go`        |
 
 ## Handlers
 
