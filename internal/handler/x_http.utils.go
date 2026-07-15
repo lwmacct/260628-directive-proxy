@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -46,4 +47,12 @@ func utilRetryAPIError(err error) error {
 	default:
 		return utilNewAPIError(http.StatusConflict, "request_state_changed", "proxy request state changed")
 	}
+}
+
+func utilParseAttemptETag(value string) (int, error) {
+	var attempt int
+	if _, err := fmt.Sscanf(value, `"attempt:%d"`, &attempt); err != nil || attempt < 1 {
+		return 0, fmt.Errorf("invalid attempt etag")
+	}
+	return attempt, nil
 }

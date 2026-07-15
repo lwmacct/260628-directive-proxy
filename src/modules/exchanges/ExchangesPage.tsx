@@ -86,7 +86,7 @@ export function ExchangesPage() {
     setError(null);
     try {
       const response = await apiFetch(
-        `/api/control/proxy-requests/${request.trace_id}/attempts/${request.attempt + 1}`,
+		`/api/control/proxy-requests/${request.trace_id}/retry`,
         {
           method: "PUT",
           headers: { "If-Match": `"attempt:${request.attempt}"` },

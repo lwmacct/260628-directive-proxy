@@ -75,7 +75,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	proxyReq.RemoteAddr = "127.0.0.1:1234"
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
 	proxyReq.Header.Set("Idempotency-Key", "request-3")
-	setTestRetryIdentity(proxyReq, 10)
+	setTestRetryID(proxyReq, 10)
 	proxyRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(proxyRecorder, proxyReq)
 	if proxyRecorder.Code != http.StatusAccepted {
@@ -101,7 +101,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	}
 }
 
-func TestHTTPServerAllowsRequesterRetryByCapabilityWithoutControlAuthentication(t *testing.T) {
+func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutControlAuthentication(t *testing.T) {
 	cfg := config.DefaultConfig()
 	controlToken := "dpctl.10.admin." + strings.Repeat("Z", 32)
 	digest, err := statictoken.Digest(types.ControlTokenNamespace, controlToken)
@@ -158,7 +158,7 @@ func TestHTTPServerAllowsRequesterRetryByCapabilityWithoutControlAuthentication(
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
 	proxyReq.Header.Set("Idempotency-Key", "request-3")
-	requestID, capability := setTestRetryIdentity(proxyReq, 3)
+	retryID := setTestRetryID(proxyReq, 3)
 	proxyRecorder := httptest.NewRecorder()
 	proxyDone := make(chan struct{})
 	go func() {
@@ -171,8 +171,8 @@ func TestHTTPServerAllowsRequesterRetryByCapabilityWithoutControlAuthentication(
 	case <-time.After(time.Second):
 		t.Fatal("first upstream attempt did not start")
 	}
-	retryReq := httptest.NewRequest(http.MethodPut, "http://control.local/api/public/proxy-requests/"+requestID+"/attempts/2", nil)
-	retryReq.Header.Set("Authorization", "DProxy-Retry "+requestID+"."+capability)
+	retryReq := httptest.NewRequest(http.MethodPut, "http://control.local/api/public/retry", nil)
+	retryReq.Header.Set("Dproxy-Retry-ID", retryID)
 	retryReq.Header.Set("If-Match", `"attempt:1"`)
 	retryRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(retryRecorder, retryReq)
@@ -225,7 +225,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 11)
+	setTestRetryID(req, 11)
 	recorder := httptest.NewRecorder()
 
 	newHTTPServer(&cfg, rt).Handler.ServeHTTP(recorder, req)
@@ -271,7 +271,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 12)
+	setTestRetryID(req, 12)
 	recorder := httptest.NewRecorder()
 	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveReader: reader})).Handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusNoContent {
@@ -294,7 +294,7 @@ func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer dproxy.11.payload")
-	setTestRetryIdentity(req, 13)
+	setTestRetryID(req, 13)
 	recorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusBadRequest {
@@ -331,7 +331,7 @@ func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/api/upload", strings.NewReader("payload"))
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 14)
+	setTestRetryID(req, 14)
 	recorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(recorder, req)
 
@@ -369,7 +369,7 @@ func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "198.51.100.7:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 15)
+	setTestRetryID(req, 15)
 	recorder := httptest.NewRecorder()
 
 	newHTTPServer(&cfg, &runtime{}).Handler.ServeHTTP(recorder, req)
@@ -412,7 +412,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 	req.RemoteAddr = "192.0.2.1:1234"
 	req.Header.Set("X-Forwarded-For", "198.51.100.7")
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 16)
+	setTestRetryID(req, 16)
 	recorder := httptest.NewRecorder()
 
 	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{})).Handler.ServeHTTP(recorder, req)

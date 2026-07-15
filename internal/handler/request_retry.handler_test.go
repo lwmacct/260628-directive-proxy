@@ -1,22 +1,20 @@
 package handler
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 )
 
 type requestRetryTrackerStub struct {
-	requestID string
-	digest    [32]byte
-	attempt   int
-	trigger   proxyrequest.RetryTrigger
-	err       error
+	retryID string
+	digest  [32]byte
+	attempt int
+	trigger proxyrequest.RetryTrigger
+	err     error
 }
 
 func (*requestRetryTrackerStub) Start(*http.Request, proxyrequest.Identity) proxyrequest.Session {
@@ -29,8 +27,7 @@ func (*requestRetryTrackerStub) GetActive(string) (proxyrequest.ActiveRequest, b
 func (*requestRetryTrackerStub) RetryByTraceID(string, int, proxyrequest.RetryTrigger) (proxyrequest.RetryResult, error) {
 	return proxyrequest.RetryResult{}, proxyrequest.ErrNotFound
 }
-func (s *requestRetryTrackerStub) RetryByCapability(requestID string, digest [32]byte, attempt int, trigger proxyrequest.RetryTrigger) (proxyrequest.RetryResult, error) {
-	s.requestID = requestID
+func (s *requestRetryTrackerStub) RetryByRetryID(digest [32]byte, attempt int, trigger proxyrequest.RetryTrigger) (proxyrequest.RetryResult, error) {
 	s.digest = digest
 	s.attempt = attempt
 	s.trigger = trigger
@@ -38,7 +35,7 @@ func (s *requestRetryTrackerStub) RetryByCapability(requestID string, digest [32
 		return proxyrequest.RetryResult{}, s.err
 	}
 	return proxyrequest.RetryResult{
-		Request:     proxyrequest.ActiveRequest{TraceID: "0123456789abcdef0123456789abcdef", RequestID: requestID, State: proxyrequest.StateRetryRequested},
+		Request:     proxyrequest.ActiveRequest{TraceID: "01982d4f-7c2a-7abc-9d43-1a2b3c4d5e6f", HasRetryID: true, State: proxyrequest.StateRetryRequested},
 		NextAttempt: attempt + 1,
 	}, nil
 }
@@ -46,29 +43,27 @@ func (s *requestRetryTrackerStub) RetryByCapability(requestID string, digest [32
 func TestPublicRequestRetryEndpointUsesCapabilityWithoutControlAuthentication(t *testing.T) {
 	tracker := &requestRetryTrackerStub{}
 	handler := NewPublicEndpoint(Services{Requests: tracker}).Handler()
-	requestID := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
-	capability := base64.RawURLEncoding.EncodeToString(bytesOfValue(1, 32))
+	retryID := "01982d4f-7c2a-7abc-9d43-1a2b3c4d5e6f"
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/public/proxy-requests/"+requestID+"/attempts/2", nil)
-	request.Header.Set("Authorization", "DProxy-Retry "+requestID+"."+capability)
+	request := httptest.NewRequest(http.MethodPut, "/api/public/retry", nil)
+	request.Header.Set("Dproxy-Retry-ID", retryID)
 	request.Header.Set("If-Match", `"attempt:1"`)
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("unexpected response: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	if tracker.requestID != requestID || tracker.digest == [32]byte{} || tracker.attempt != 1 || tracker.trigger != proxyrequest.RetryTriggerRequesterAPI {
-		t.Fatalf("unexpected retry command: request_id=%q attempt=%d trigger=%s", tracker.requestID, tracker.attempt, tracker.trigger)
+	if tracker.digest == [32]byte{} || tracker.attempt != 1 || tracker.trigger != proxyrequest.RetryTriggerRequesterAPI {
+		t.Fatalf("unexpected retry command: attempt=%d trigger=%s", tracker.attempt, tracker.trigger)
 	}
 }
 
 func TestPublicRequestRetryEndpointReturnsStableErrorEnvelope(t *testing.T) {
 	tracker := &requestRetryTrackerStub{err: proxyrequest.ErrAttemptChanged}
 	handler := NewPublicEndpoint(Services{Requests: tracker}).Handler()
-	requestID := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
-	capability := base64.RawURLEncoding.EncodeToString(bytesOfValue(1, 32))
+	retryID := "01982d4f-7c2a-7abc-9d43-1a2b3c4d5e6f"
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/public/proxy-requests/"+requestID+"/attempts/2", strings.NewReader(""))
-	request.Header.Set("Authorization", "DProxy-Retry "+requestID+"."+capability)
+	request := httptest.NewRequest(http.MethodPut, "/api/public/retry", nil)
+	request.Header.Set("Dproxy-Retry-ID", retryID)
 	request.Header.Set("If-Match", `"attempt:1"`)
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusConflict {
@@ -86,22 +81,21 @@ func TestPublicRequestRetryEndpointReturnsStableErrorEnvelope(t *testing.T) {
 }
 
 func TestPublicRequestRetryHidesInvalidProofAndUnknownRequest(t *testing.T) {
-	requestID := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
-	capability := base64.RawURLEncoding.EncodeToString(bytesOfValue(1, 32))
+	retryID := "01982d4f-7c2a-7abc-9d43-1a2b3c4d5e6f"
 	tests := []struct {
 		name          string
 		authorization string
 		tracker       *requestRetryTrackerStub
 	}{
-		{name: "invalid proof", authorization: "DProxy-Retry invalid", tracker: &requestRetryTrackerStub{}},
-		{name: "unknown request", authorization: "DProxy-Retry " + requestID + "." + capability, tracker: &requestRetryTrackerStub{err: proxyrequest.ErrNotFound}},
+		{name: "invalid proof", authorization: "", tracker: &requestRetryTrackerStub{}},
+		{name: "unknown request", authorization: retryID, tracker: &requestRetryTrackerStub{err: proxyrequest.ErrNotFound}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := NewPublicEndpoint(Services{Requests: tt.tracker}).Handler()
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPut, "/api/public/proxy-requests/"+requestID+"/attempts/2", nil)
-			request.Header.Set("Authorization", tt.authorization)
+			request := httptest.NewRequest(http.MethodPut, "/api/public/retry", nil)
+			request.Header.Set("Dproxy-Retry-ID", tt.authorization)
 			request.Header.Set("If-Match", `"attempt:1"`)
 			handler.ServeHTTP(recorder, request)
 			var body struct {

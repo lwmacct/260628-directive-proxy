@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -31,7 +30,7 @@ func RegisterProxyRequest(api huma.API, tracker proxyrequest.Tracker) {
 	huma.Register(api, huma.Operation{
 		OperationID: "retry-active-proxy-request",
 		Method:      http.MethodPut,
-		Path:        "/api/control/proxy-requests/{trace_id}/attempts/{next_attempt}",
+		Path:        "/api/control/proxy-requests/{trace_id}/retry",
 		Summary:     "Retry an active upstream request attempt by trace ID",
 	}, handler.retry)
 }
@@ -64,18 +63,18 @@ func (h *proxyRequestHandler) retry(_ context.Context, input *RetryActiveProxyRe
 	if h == nil || h.tracker == nil || input == nil {
 		return nil, huma.Error404NotFound("proxy request not found")
 	}
-	if input.NextAttempt < 2 || input.IfMatch != fmt.Sprintf("\"attempt:%d\"", input.NextAttempt-1) {
+	currentAttempt, err := utilParseAttemptETag(input.IfMatch)
+	if err != nil {
 		return nil, utilNewAPIError(http.StatusBadRequest, "invalid_retry_precondition", "If-Match must identify the current attempt")
 	}
-	result, err := h.tracker.RetryByTraceID(input.TraceID, input.NextAttempt-1, proxyrequest.RetryTriggerControlAPI)
+	result, err := h.tracker.RetryByTraceID(input.TraceID, currentAttempt, proxyrequest.RetryTriggerControlAPI)
 	if err != nil {
 		return nil, utilRetryAPIError(err)
 	}
 	return &RetryActiveProxyRequestOutputDTO{
 		Status: http.StatusAccepted,
 		Body: RetryActiveProxyRequestResponseDTO{
-			Request:     ToActiveProxyRequestDTO(result.Request, utilNowUTC()),
-			NextAttempt: result.NextAttempt,
+			Request: ToActiveProxyRequestDTO(result.Request, utilNowUTC()),
 		},
 	}, nil
 }

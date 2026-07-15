@@ -16,14 +16,14 @@
 
 ## 等待响应请求与外部介入重试
 
-代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并从同一份不可变内存正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
+代理为每个进入 data plane 的逻辑请求生成 canonical UUIDv7 `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并从同一份不可变内存正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
 
-Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retry identity 即可正常转发。需要通过 Public API 介入自己的请求时，调用方才携带 `Dproxy-Request-ID`（16 个随机字节的无填充 Base64URL）和 `Dproxy-Retry-Capability`（32 个随机字节的无填充 Base64URL）。代理在任何日志、插件或上游处理前移除这两个 header，只保留绑定两者的 SHA-256 verifier：
+Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retry identity 即可正常转发。需要通过 Public API 介入自己的请求时，调用方携带一个 canonical UUIDv7 `Dproxy-Retry-ID`。该 header 是 bearer retry credential，代理在任何日志、插件或上游处理前移除它，只保存 SHA-256 verifier：
 
-- `PUT /api/public/proxy-requests/{request_id}/attempts/{next_attempt}`：无需 Control Auth，但必须携带 `Authorization: DProxy-Retry <request_id>.<capability>` 和 `If-Match: "attempt:<current_attempt>"`。
+- `PUT /api/public/retry`：无需 Control Auth，但必须携带 `Dproxy-Retry-ID: <uuidv7>` 和 `If-Match: "attempt:<current_attempt>"`；服务端自动计算下一 attempt。
 - `GET /api/control/proxy-requests`：认证后列出活动请求。
 - `GET /api/control/proxy-requests/{trace_id}`：认证后读取一个活动请求。
-- `PUT /api/control/proxy-requests/{trace_id}/attempts/{next_attempt}`：认证后按 trace ID 介入，并携带相同的 `If-Match` 前置条件。
+- `PUT /api/control/proxy-requests/{trace_id}/retry`：认证后按 trace ID 介入，并携带 `If-Match: "attempt:<current_attempt>"`。
 
 重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 attempt 强制保留原值，但上游仍需正确实现幂等语义。
 
@@ -380,9 +380,9 @@ HTTP (:23198)
   GET /auth/login/github
   GET /auth/callback/github
   GET /health
-  PUT /api/public/proxy-requests/{request_id}/attempts/{next_attempt}
+  PUT /api/public/retry
   GET /api/control/proxy-requests
-  PUT /api/control/proxy-requests/{trace_id}/attempts/{next_attempt}
+  PUT /api/control/proxy-requests/{trace_id}/retry
   GET /api/control/openapi.json
   GET /api/control/docs
   ANY /*  (需要 Authorization: Bearer dproxy.*)

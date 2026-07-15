@@ -23,7 +23,7 @@ func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) Act
 	}
 	return ActiveProxyRequestDTO{
 		TraceID:           item.TraceID,
-		RequestID:         item.RequestID,
+		HasRetryID:        item.HasRetryID,
 		Metadata:          map[string][]string(item.Metadata),
 		State:             string(item.State),
 		Method:            item.Method,

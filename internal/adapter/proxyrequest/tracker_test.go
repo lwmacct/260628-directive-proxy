@@ -2,7 +2,7 @@ package proxyrequestadapter
 
 import (
 	"context"
-	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,7 +27,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
 	session := tracker.Start(req, proxyrequest.Identity{})
-	if len(session.TraceID()) != 32 {
+	if _, err := proxyrequest.ParseRetryID(session.TraceID()); err != nil {
 		t.Fatalf("unexpected trace ID: %q", session.TraceID())
 	}
 	target, _ := url.Parse("https://upstream.example/v1/chat?token=upstream-secret")
@@ -116,7 +116,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	}
 }
 
-func TestProxyRequestRetryByCapabilityUsesProofAndCAS(t *testing.T) {
+func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
 	pipeline, output := newCapturePipeline(t, captureplugin.Config{})
 	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, pipeline)
 	newActive := func(path string, seed byte, canceled *bool) (proxyrequest.Session, proxyrequest.Identity, [32]byte) {
@@ -134,20 +134,20 @@ func TestProxyRequestRetryByCapabilityUsesProofAndCAS(t *testing.T) {
 	}
 	var firstCanceled, secondCanceled bool
 	first, _, _ := newActive("one", 1, &firstCanceled)
-	second, secondIdentity, secondDigest := newActive("two", 2, &secondCanceled)
-	if _, err := tracker.RetryByCapability(secondIdentity.RequestID, [32]byte{}, 1, proxyrequest.RetryTriggerRequesterAPI); err != proxyrequest.ErrNotFound {
+	second, _, secondDigest := newActive("two", 2, &secondCanceled)
+	if _, err := tracker.RetryByRetryID([32]byte{}, 1, proxyrequest.RetryTriggerRequesterAPI); err != proxyrequest.ErrNotFound {
 		t.Fatalf("invalid proof was accepted: %v", err)
 	}
-	result, err := tracker.RetryByCapability(secondIdentity.RequestID, secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI)
+	result, err := tracker.RetryByRetryID(secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI)
 	if err != nil || result.Request.TraceID != second.TraceID() || !secondCanceled || firstCanceled {
-		t.Fatalf("unexpected capability retry: result=%#v err=%v first_canceled=%t second_canceled=%t", result, err, firstCanceled, secondCanceled)
+		t.Fatalf("unexpected retry ID retry: result=%#v err=%v first_canceled=%t second_canceled=%t", result, err, firstCanceled, secondCanceled)
 	}
-	if repeated, err := tracker.RetryByCapability(secondIdentity.RequestID, secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI); err != nil || repeated.NextAttempt != 2 {
+	if repeated, err := tracker.RetryByRetryID(secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI); err != nil || repeated.NextAttempt != 2 {
 		t.Fatalf("duplicate retry was not idempotent: result=%#v err=%v", repeated, err)
 	}
 	first.Complete()
 	second.Complete()
-	repeatedAfterCompletion, err := tracker.RetryByCapability(secondIdentity.RequestID, secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI)
+	repeatedAfterCompletion, err := tracker.RetryByRetryID(secondDigest, 1, proxyrequest.RetryTriggerRequesterAPI)
 	if err != nil || repeatedAfterCompletion.NextAttempt != 2 {
 		t.Fatalf("completed retry command tombstone was not idempotent: result=%#v err=%v", repeatedAfterCompletion, err)
 	}
@@ -235,18 +235,18 @@ func TestProxyRequestRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 	}
 }
 
-func TestProxyRequestTrackerRejectsDuplicateActiveRequestID(t *testing.T) {
+func TestProxyRequestTrackerRejectsDuplicateRetryID(t *testing.T) {
 	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, nil)
 	identity, _ := testIdentity(t, 9)
 	first := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/one", nil), identity)
 	second := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/two", nil), identity)
 	if first == nil || second != nil {
-		t.Fatalf("duplicate request ID was not rejected: first=%v second=%v", first, second)
+		t.Fatalf("duplicate retry ID was not rejected: first=%v second=%v", first, second)
 	}
 	first.Complete()
 	third := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/three", nil), identity)
 	if third != nil {
-		t.Fatal("recently terminal request ID was accepted")
+		t.Fatal("recently terminal retry ID was accepted")
 	}
 }
 
@@ -274,25 +274,12 @@ func mustURL(t *testing.T, raw string) *url.URL {
 func testIdentity(t *testing.T, seed byte) (proxyrequest.Identity, [32]byte) {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
-	requestID := base64.RawURLEncoding.EncodeToString(bytesOf(seed, 16))
-	capability := base64.RawURLEncoding.EncodeToString(bytesOf(seed+32, 32))
-	request.Header.Set(proxyrequest.RequestIDHeader, requestID)
-	request.Header.Set(proxyrequest.RetryCapabilityHeader, capability)
+	retryID := fmt.Sprintf("01982d4f-7c2a-7%03x-8%03x-%012x", seed, seed, uint64(seed))
+	request.Header.Set(proxyrequest.RetryIDHeader, retryID)
 	identity, err := proxyrequest.TakeIdentity(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, err := proxyrequest.DigestCapability(requestID, capability)
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := identity.Digest()
 	return identity, digest
-}
-
-func bytesOf(value byte, count int) []byte {
-	result := make([]byte, count)
-	for index := range result {
-		result[index] = value
-	}
-	return result
 }

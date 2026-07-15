@@ -1,6 +1,6 @@
 export type ActiveProxyRequest = {
   trace_id: string;
-	request_id?: string;
+	has_retry_id: boolean;
   metadata?: Record<string, string[]>;
   state: "waiting_body_memory" | "reading_body" | "resolving_directive" | "awaiting_response" | "retry_requested";
   method: string;

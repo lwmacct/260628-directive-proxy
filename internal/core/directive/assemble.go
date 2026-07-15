@@ -146,7 +146,7 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, map[string][]string, erro
 			return nil, nil, ErrInvalidPayload
 		}
 		selector := proxy.HeaderSelector{Kind: proxy.HeaderSelectorExact, Pattern: name}
-		if strings.EqualFold(name, proxyrequest.RequestIDHeader) || strings.EqualFold(name, proxyrequest.RetryCapabilityHeader) {
+		if strings.EqualFold(name, proxyrequest.RetryIDHeader) {
 			return nil, nil, ErrInvalidPayload
 		}
 		switch {

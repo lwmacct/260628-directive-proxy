@@ -1,7 +1,7 @@
 package server
 
 import (
-	"encoding/base64"
+	"fmt"
 	"net/http"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -18,18 +18,8 @@ func newTestBodyMemory(cfg config.ProxyBodyMemory) *bodymemory.Controller {
 	})
 }
 
-func setTestRetryIdentity(req *http.Request, seed byte) (string, string) {
-	requestID := base64.RawURLEncoding.EncodeToString(testBytes(seed, 16))
-	capability := base64.RawURLEncoding.EncodeToString(testBytes(seed+32, 32))
-	req.Header.Set(proxyrequest.RequestIDHeader, requestID)
-	req.Header.Set(proxyrequest.RetryCapabilityHeader, capability)
-	return requestID, capability
-}
-
-func testBytes(value byte, size int) []byte {
-	data := make([]byte, size)
-	for index := range data {
-		data[index] = value
-	}
-	return data
+func setTestRetryID(req *http.Request, seed byte) string {
+	retryID := fmt.Sprintf("01982d4f-7c2a-7%03x-8%03x-%012x", seed, seed, uint64(seed))
+	req.Header.Set(proxyrequest.RetryIDHeader, retryID)
+	return retryID
 }

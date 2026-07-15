@@ -2,9 +2,6 @@ package proxyrequestadapter
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
@@ -470,12 +469,11 @@ func (b *observedResponseBody) finish(err error) {
 }
 
 func newTraceID() string {
-	data := make([]byte, 16)
-	if _, err := rand.Read(data); err == nil {
-		return hex.EncodeToString(data)
+	id, err := uuid.NewV7()
+	if err != nil {
+		panic(fmt.Sprintf("generate trace UUIDv7: %v", err))
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
-	return hex.EncodeToString(sum[:16])
+	return id.String()
 }
 
 func requestURL(req *http.Request) string {

@@ -30,7 +30,7 @@ const (
 
 type ActiveRequest struct {
 	TraceID           string
-	RequestID         string
+	HasRetryID        bool
 	Metadata          requestmeta.Metadata
 	State             State
 	Method            string
@@ -67,7 +67,7 @@ type Tracker interface {
 	ListActive() []ActiveRequest
 	GetActive(string) (ActiveRequest, bool)
 	RetryByTraceID(string, int, RetryTrigger) (RetryResult, error)
-	RetryByCapability(string, [32]byte, int, RetryTrigger) (RetryResult, error)
+	RetryByRetryID([32]byte, int, RetryTrigger) (RetryResult, error)
 }
 
 type Session interface {

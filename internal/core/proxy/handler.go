@@ -123,14 +123,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	identity, identityErr := proxyrequest.TakeIdentity(r)
 	if identityErr != nil {
-		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_retry_identity", "proxy: valid request ID and retry capability are required")
+		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_retry_identity", "proxy: Dproxy-Retry-ID must be a canonical UUIDv7")
 		return
 	}
 	var session proxyrequest.Session
 	if h.trackBeforeResolve && h.tracker != nil {
 		session = h.tracker.Start(r, identity)
 		if session == nil && identity.Valid() {
-			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_request_id", "proxy: request ID is already active")
+			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_retry_id", "proxy: retry ID is already active")
 			return
 		}
 		if session != nil {
@@ -151,7 +151,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if session == nil && h.tracker != nil {
 		session = h.tracker.Start(r, identity)
 		if session == nil && identity.Valid() {
-			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_request_id", "proxy: request ID is already active")
+			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_retry_id", "proxy: retry ID is already active")
 			return
 		}
 		if session != nil {

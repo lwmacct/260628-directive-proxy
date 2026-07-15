@@ -16,9 +16,9 @@ import (
 type ProxyRequestService struct {
 	mu                sync.RWMutex
 	active            map[string]*proxyRequestSession
-	byRequestID       map[string]*proxyRequestSession
+	byRetryID         map[[32]byte]*proxyRequestSession
 	terminalByTrace   map[string]retryTombstone
-	terminalByRequest map[string]retryTombstone
+	terminalByRetryID map[[32]byte]retryTombstone
 	maxAttempts       int
 	commandRetention  time.Duration
 	pipeline          *observability.Pipeline
@@ -40,9 +40,9 @@ func NewProxyRequestService(opts ProxyRequestOptions, pipeline *observability.Pi
 	}
 	return &ProxyRequestService{
 		active:            make(map[string]*proxyRequestSession),
-		byRequestID:       make(map[string]*proxyRequestSession),
+		byRetryID:         make(map[[32]byte]*proxyRequestSession),
 		terminalByTrace:   make(map[string]retryTombstone),
-		terminalByRequest: make(map[string]retryTombstone),
+		terminalByRetryID: make(map[[32]byte]retryTombstone),
 		maxAttempts:       opts.MaxAttempts,
 		commandRetention:  opts.CommandRetention,
 		pipeline:          pipeline,
@@ -73,12 +73,12 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 	s.mu.Lock()
 	s.pruneTerminalLocked(now)
 	if identity.Valid() {
-		_, terminalExists := s.terminalByRequest[identity.RequestID]
-		if _, exists := s.byRequestID[identity.RequestID]; exists || terminalExists {
+		_, terminalExists := s.terminalByRetryID[identity.Digest()]
+		if _, exists := s.byRetryID[identity.Digest()]; exists || terminalExists {
 			s.mu.Unlock()
 			return nil
 		}
-		s.byRequestID[identity.RequestID] = session
+		s.byRetryID[identity.Digest()] = session
 	}
 	s.active[session.traceID] = session
 	s.mu.Unlock()
@@ -155,14 +155,14 @@ func (s *ProxyRequestService) RetryByTraceID(traceID string, expectedAttempt int
 	return session.requestRetry(expectedAttempt, trigger)
 }
 
-func (s *ProxyRequestService) RetryByCapability(requestID string, digest [32]byte, expectedAttempt int, trigger proxyrequest.RetryTrigger) (proxyrequest.RetryResult, error) {
+func (s *ProxyRequestService) RetryByRetryID(digest [32]byte, expectedAttempt int, trigger proxyrequest.RetryTrigger) (proxyrequest.RetryResult, error) {
 	if s == nil {
 		return proxyrequest.RetryResult{}, proxyrequest.ErrNotFound
 	}
 	s.mu.RLock()
-	session, ok := s.byRequestID[requestID]
+	session, ok := s.byRetryID[digest]
 	if !ok {
-		if tombstone, exists := s.terminalByRequest[requestID]; exists && time.Now().Before(tombstone.expires) && subtle.ConstantTimeCompare(tombstone.digest[:], digest[:]) == 1 {
+		if tombstone, exists := s.terminalByRetryID[digest]; exists && time.Now().Before(tombstone.expires) {
 			result, found := tombstone.results[expectedAttempt]
 			s.mu.RUnlock()
 			if found {
@@ -192,8 +192,8 @@ func (s *ProxyRequestService) remove(session *proxyRequestSession) {
 		delete(s.active, session.traceID)
 		removed = true
 	}
-	if session.identity.Valid() && s.byRequestID[session.identity.RequestID] == session {
-		delete(s.byRequestID, session.identity.RequestID)
+	if session.identity.Valid() && s.byRetryID[session.identity.Digest()] == session {
+		delete(s.byRetryID, session.identity.Digest())
 	}
 	if removed && (session.identity.Valid() || len(session.retryResults) > 0) {
 		results := make(map[int]proxyrequest.RetryResult, len(session.retryResults))
@@ -205,7 +205,7 @@ func (s *ProxyRequestService) remove(session *proxyRequestSession) {
 			s.terminalByTrace[session.traceID] = tombstone
 		}
 		if session.identity.Valid() {
-			s.terminalByRequest[session.identity.RequestID] = tombstone
+			s.terminalByRetryID[session.identity.Digest()] = tombstone
 		}
 	}
 	s.mu.Unlock()
@@ -217,9 +217,9 @@ func (s *ProxyRequestService) pruneTerminalLocked(now time.Time) {
 			delete(s.terminalByTrace, key)
 		}
 	}
-	for key, tombstone := range s.terminalByRequest {
+	for key, tombstone := range s.terminalByRetryID {
 		if !now.Before(tombstone.expires) {
-			delete(s.terminalByRequest, key)
+			delete(s.terminalByRetryID, key)
 		}
 	}
 }
@@ -283,7 +283,7 @@ func (s *proxyRequestSession) snapshot() (proxyrequest.ActiveRequest, bool) {
 func (s *proxyRequestSession) activeItem() proxyrequest.ActiveRequest {
 	return proxyrequest.ActiveRequest{
 		TraceID:           s.traceID,
-		RequestID:         s.identity.RequestID,
+		HasRetryID:        s.identity.Valid(),
 		Metadata:          requestmeta.Clone(s.metadata),
 		State:             s.state,
 		Method:            s.method,

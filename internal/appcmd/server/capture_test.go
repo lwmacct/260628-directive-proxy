@@ -28,7 +28,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 		if value := r.Header.Get("X-Dproxy-Request-ID"); value != "" {
 			t.Errorf("request metadata leaked upstream: %q", value)
 		}
-		if r.Header.Get("Dproxy-Request-ID") != "" || r.Header.Get("Dproxy-Retry-Capability") != "" {
+		if r.Header.Get("Dproxy-Retry-ID") != "" {
 			t.Errorf("retry identity leaked upstream: %#v", r.Header)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -72,7 +72,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	}
 	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL+"/events", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 1)
+	setTestRetryID(req, 1)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	}
 	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryIdentity(req, 2)
+	setTestRetryID(req, 2)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
