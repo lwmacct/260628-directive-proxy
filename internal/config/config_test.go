@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 )
@@ -40,6 +41,23 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	_, err = Manager.Load(t.Context(), cfgm.File(path))
 	if err == nil || !strings.Contains(err.Error(), "proxy") {
 		t.Fatalf("legacy root config must be rejected, got %v", err)
+	}
+}
+
+func TestConfigFileLoadsInlineTLSConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  http:\n    tls:\n      enabled: true\n      poll-interval: 15s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Manager.Load(t.Context(), cfgm.File(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.Server.HTTP.TLS.Enabled || loaded.Server.HTTP.TLS.PollInterval != 15*time.Second {
+		t.Fatalf("unexpected TLS config: %#v", loaded.Server.HTTP.TLS)
+	}
+	if loaded.Server.HTTP.TLS.DefaultCertificate != "default" || len(loaded.Server.HTTP.TLS.Certificates) != 1 {
+		t.Fatalf("inline TLS defaults were not preserved: %#v", loaded.Server.HTTP.TLS.Config)
 	}
 }
 

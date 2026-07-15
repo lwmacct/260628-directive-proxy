@@ -25,7 +25,7 @@ func Validate(cfg Server) (Server, error) {
 			source.Certificate = strings.TrimSpace(source.Certificate)
 			source.PrivateKey = strings.TrimSpace(source.PrivateKey)
 		}
-		if err := cfg.HTTP.TLS.ReloadConfig().Validate(); err != nil {
+		if err := cfg.HTTP.TLS.Validate(); err != nil {
 			return cfg, ErrInvalidHTTP
 		}
 	}

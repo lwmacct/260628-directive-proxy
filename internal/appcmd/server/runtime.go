@@ -253,7 +253,7 @@ func newTLSRuntime(ctx context.Context, cfg config.TLSConfig) (*tlsRuntime, erro
 		return &tlsRuntime{}, nil
 	}
 
-	store, err := tlsreload.New(ctx, cfg.ReloadConfig(), tlsreload.Options{
+	store, err := tlsreload.New(ctx, cfg.Config, tlsreload.Options{
 		Logger: slog.Default(),
 	})
 	if err != nil {

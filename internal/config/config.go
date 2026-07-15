@@ -45,20 +45,15 @@ type ServerHTTP struct {
 }
 
 type TLSConfig struct {
-	Enabled            bool                          `json:"enabled"             desc:"是否启用 HTTPS TLS"`
-	Certificates       []tlsreload.CertificateSource `json:"certificates"        desc:"TLS 证书来源列表"`
-	DefaultCertificate string                        `json:"default-certificate" desc:"未匹配 SNI 时使用的证书 ID"`
-	PollInterval       time.Duration                 `json:"poll-interval"        desc:"证书来源兜底轮询间隔"`
-	RetryInterval      time.Duration                 `json:"retry-interval"       desc:"证书重载失败后的重试间隔"`
+	tlsreload.Config `cfgm:",inline"`
+	Enabled          bool `json:"enabled" desc:"是否启用 HTTPS TLS"`
 }
 
-func (c TLSConfig) ReloadConfig() tlsreload.Config {
-	return tlsreload.Config{
-		Certificates:       c.Certificates,
-		DefaultCertificate: c.DefaultCertificate,
-		PollInterval:       c.PollInterval,
-		RetryInterval:      c.RetryInterval,
+func (c TLSConfig) Validate() error {
+	if !c.Enabled {
+		return nil
 	}
+	return c.Config.Validate()
 }
 
 type AuthMethod string
@@ -206,13 +201,15 @@ func DefaultConfig() Config {
 				MaxAPIBodyBytes: 1 << 20,
 				MaxHeaderBytes:  128 << 10,
 				TLS: TLSConfig{
-					Enabled:            false,
-					DefaultCertificate: "default",
-					Certificates: []tlsreload.CertificateSource{
-						{
-							ID:          "default",
-							Certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
-							PrivateKey:  "${APP_DATA:-.local/data}/ssl/privkey.pem",
+					Enabled: false,
+					Config: tlsreload.Config{
+						DefaultCertificate: "default",
+						Certificates: []tlsreload.CertificateSource{
+							{
+								ID:          "default",
+								Certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
+								PrivateKey:  "${APP_DATA:-.local/data}/ssl/privkey.pem",
+							},
 						},
 					},
 				},

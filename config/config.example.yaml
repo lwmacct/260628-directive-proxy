@@ -10,7 +10,6 @@ server:
 
     # HTTPS TLS 配置
     tls:
-      enabled: false # 是否启用 HTTPS TLS
 
       # TLS 证书来源列表
       certificates:
@@ -20,6 +19,7 @@ server:
       default-certificate: "default" # 未匹配 SNI 时使用的证书 ID
       poll-interval: 0s # 证书来源兜底轮询间隔
       retry-interval: 0s # 证书重载失败后的重试间隔
+      enabled: false # 是否启用 HTTPS TLS
 
     # Admin API 认证配置
     auth:
