@@ -10,7 +10,7 @@ import (
 )
 
 var files = cfgm.ConfigFiles[Config]{
-	Definition:  Definition,
+	Manager:     Manager,
 	ExampleFile: "config/config.example.yaml",
 	RuntimeFile: "config/config.yaml",
 }
@@ -23,7 +23,7 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	if err := os.WriteFile(path, []byte("server:\n  proxy:\n    retry:\n      max-attempts: 7\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := Definition.Load(t.Context(), cfgm.File(path))
+	loaded, err := Manager.Load(t.Context(), cfgm.File(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	if err := os.WriteFile(path, []byte("proxy:\n  retry:\n    max-attempts: 9\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Definition.Load(t.Context(), cfgm.File(path))
+	_, err = Manager.Load(t.Context(), cfgm.File(path))
 	if err == nil || !strings.Contains(err.Error(), "proxy") {
 		t.Fatalf("legacy root config must be rejected, got %v", err)
 	}

@@ -281,4 +281,11 @@ func (c Auth) HasMethod(method AuthMethod) bool {
 	return slices.Contains(c.Methods, method)
 }
 
-var Definition = cfgm.New(DefaultConfig(), cfgm.AppName("app"))
+var Manager = cfgm.New(
+	DefaultConfig(),
+	cfgm.AppName("app"),
+	cfgm.HideCLI(
+		"server.http.auth.session.keys",
+		"server.http.auth.token",
+	),
+)
