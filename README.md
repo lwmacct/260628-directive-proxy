@@ -370,7 +370,7 @@ data-plane 错误使用 `{ "error": { "code": "...", "message": "..." } }`，客
 go run . server
 ```
 
-默认 HTTP 监听地址是 `:23198`，可通过 `--http.listen` 修改。
+默认 HTTP 监听地址是 `:23198`，可通过 `--server.http.listen` 修改。
 
 常用端点：
 
