@@ -55,6 +55,7 @@ observability:
 
 - `builtin.capture`：请求/响应 header、Metadata、body chunk/hash、attempt、SSE 语义事件和完成状态。
 - `builtin.llmusage`：从上游 JSON/SSE 响应增量提取 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Google GenerateContent token usage。
+- `builtin.llmperf`：从上游响应时间线计算 TTFB、TTFT、TTFC、生成完成和端到端延迟等性能指标。
 - `fluent` output：按 topic 路由 Record，经有界队列异步发送到 Fluent Forward endpoint。
 
 Capture 解析成功写给下游的响应字节；LLM Usage 解析代理从上游实际读取的响应字节。请求 Capture 通过 lease 引用 canonical body，响应插件同步借用流式 buffer；需要异步保留的响应 Capture chunk 只复制一次。Record 再按 `trace_id` 分片进入异步输出队列，并在最后一个 output 完成后自然释放资源。输出故障和解析失败均 fail-open，不改变代理响应；队列溢出与输出故障会在 `/health` 的 `observability` 字段报告 degraded。
@@ -267,6 +268,12 @@ payload schema：
       "labels": {
         "provider": "openai",
         "account": "primary"
+      }
+    },
+    "llmperf": {
+      "protocol": "openai.responses",
+      "labels": {
+        "provider": "openai"
       }
     }
   }

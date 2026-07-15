@@ -13,8 +13,9 @@ import (
 // only valid for Trace.Observe. RequestBodyAvailable exposes an immutable body
 // whose lifetime must be extended with a lease before it is retained.
 type Signal struct {
-	Attempt int
-	Value   any
+	Attempt    int
+	ObservedAt time.Time
+	Value      any
 }
 
 type RequestStarted struct {

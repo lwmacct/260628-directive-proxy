@@ -126,7 +126,7 @@ func validateObservability(cfg Observability) (Observability, error) {
 		pluginTypes[plugin.Type] = struct{}{}
 		switch plugin.Type {
 		case ObservationPluginCapture:
-			if plugin.Capture == nil || plugin.LLMUsage != nil {
+			if plugin.Capture == nil || plugin.LLMUsage != nil || plugin.LLMPerf != nil {
 				return cfg, ErrInvalidObservability
 			}
 			validated, err := validateCapturePlugin(*plugin.Capture)
@@ -135,7 +135,11 @@ func validateObservability(cfg Observability) (Observability, error) {
 			}
 			plugin.Capture = &validated
 		case ObservationPluginLLMUsage:
-			if plugin.LLMUsage == nil || plugin.Capture != nil || plugin.LLMUsage.MaxSSEMetadataBytes < 0 || plugin.LLMUsage.MaxResultBytes < 0 || plugin.LLMUsage.MaxNestingDepth < 0 {
+			if plugin.LLMUsage == nil || plugin.Capture != nil || plugin.LLMPerf != nil || plugin.LLMUsage.MaxSSEMetadataBytes < 0 || plugin.LLMUsage.MaxResultBytes < 0 || plugin.LLMUsage.MaxNestingDepth < 0 {
+				return cfg, ErrInvalidObservability
+			}
+		case ObservationPluginLLMPerf:
+			if plugin.LLMPerf == nil || plugin.Capture != nil || plugin.LLMUsage != nil || plugin.LLMPerf.MaxSSEMetadataBytes < 0 || plugin.LLMPerf.MaxRetainedBytes < 0 || plugin.LLMPerf.MaxNestingDepth < 0 {
 				return cfg, ErrInvalidObservability
 			}
 		default:

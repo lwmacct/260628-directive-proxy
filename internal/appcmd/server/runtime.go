@@ -25,6 +25,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	fluentoutput "github.com/lwmacct/260628-directive-proxy/internal/output/fluent"
 	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
+	llmperfplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmperf"
 	llmusageplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmusage"
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
 )
@@ -139,6 +140,14 @@ func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*o
 			plugins = append(plugins, llmusageplugin.New(llmusageplugin.Config{
 				Name: configured.Name, MaxSSEMetadataBytes: configured.LLMUsage.MaxSSEMetadataBytes,
 				MaxResultBytes: configured.LLMUsage.MaxResultBytes, MaxNestingDepth: configured.LLMUsage.MaxNestingDepth,
+			}))
+		case config.ObservationPluginLLMPerf:
+			if configured.LLMPerf == nil {
+				return nil, fmt.Errorf("llm perf plugin config is missing")
+			}
+			plugins = append(plugins, llmperfplugin.New(llmperfplugin.Config{
+				Name: configured.Name, MaxSSEMetadataBytes: configured.LLMPerf.MaxSSEMetadataBytes,
+				MaxRetainedBytes: configured.LLMPerf.MaxRetainedBytes, MaxNestingDepth: configured.LLMPerf.MaxNestingDepth,
 			}))
 		default:
 			return nil, fmt.Errorf("unsupported observation plugin %q", configured.Type)

@@ -132,7 +132,7 @@ func (s *proxyRequestSession) WrapResponseWriter(w http.ResponseWriter) http.Res
 
 func (s *proxyRequestSession) observe(attempt int, value any) {
 	if s != nil && s.trace != nil {
-		s.trace.Observe(observability.Signal{Attempt: attempt, Value: value})
+		s.trace.Observe(observability.Signal{Attempt: attempt, ObservedAt: time.Now(), Value: value})
 	}
 }
 
@@ -243,10 +243,10 @@ func (s *proxyRequestSession) ConfigureAttempt(attempt int, specs map[string][]b
 			return err
 		}
 		if attempt == 1 && !s.requestStartedEmitted {
-			s.trace.Observe(observability.Signal{Attempt: 0, Value: s.requestStarted})
+			s.trace.Observe(observability.Signal{Attempt: 0, ObservedAt: s.startedAt, Value: s.requestStarted})
 			s.requestStartedEmitted = true
 		}
-		s.trace.Observe(observability.Signal{Attempt: attempt, Value: s.attemptStarted})
+		s.trace.Observe(observability.Signal{Attempt: attempt, ObservedAt: s.attemptAt, Value: s.attemptStarted})
 	}
 	configured := false
 	s.invoke(func() {

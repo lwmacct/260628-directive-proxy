@@ -152,6 +152,9 @@ func (t *Trace) Observe(signal Signal) {
 	if t.closed {
 		return
 	}
+	if signal.ObservedAt.IsZero() {
+		signal.ObservedAt = time.Now()
+	}
 	for _, plugin := range t.plugins {
 		if t.pluginDown[plugin.name] {
 			continue

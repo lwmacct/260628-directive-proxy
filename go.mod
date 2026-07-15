@@ -14,6 +14,7 @@ require (
 	github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714
 	github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713
 	github.com/lwmacct/260714-go-pkg-fluent v0.2.260714
+	github.com/lwmacct/260714-go-pkg-llmperf v0.2.260715
 	github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/tinylib/msgp v1.6.4

@@ -104,9 +104,10 @@ type ResponseCaptureMemory struct {
 
 type ObservationPlugin struct {
 	Name     string                `json:"name"      desc:"插件实例名称"`
-	Type     string                `json:"type"      desc:"插件类型：builtin.capture 或 builtin.llmusage"`
+	Type     string                `json:"type"      desc:"插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf"`
 	Capture  *CapturePluginConfig  `json:"capture,omitempty"   desc:"builtin.capture 配置"`
 	LLMUsage *LLMUsagePluginConfig `json:"llmusage,omitempty" desc:"builtin.llmusage 配置"`
+	LLMPerf  *LLMPerfPluginConfig  `json:"llmperf,omitempty"  desc:"builtin.llmperf 配置"`
 }
 
 type CapturePluginConfig struct {
@@ -120,6 +121,12 @@ type LLMUsagePluginConfig struct {
 	MaxSSEMetadataBytes int `json:"max-sse-metadata-bytes" desc:"单个 SSE event metadata 保留上限，0 使用库默认值"`
 	MaxResultBytes      int `json:"max-result-bytes"       desc:"协议识别字段和 raw usage 保留上限，0 使用库默认值"`
 	MaxNestingDepth     int `json:"max-nesting-depth"      desc:"JSON 最大嵌套深度，0 使用库默认值"`
+}
+
+type LLMPerfPluginConfig struct {
+	MaxSSEMetadataBytes int `json:"max-sse-metadata-bytes" desc:"SSE metadata retention limit"`
+	MaxRetainedBytes    int `json:"max-retained-bytes" desc:"response event retention limit"`
+	MaxNestingDepth     int `json:"max-nesting-depth" desc:"JSON nesting limit"`
 }
 
 type ObservabilityOutput struct {
@@ -156,6 +163,7 @@ type FluentOutput struct {
 const (
 	ObservationPluginCapture  = "builtin.capture"
 	ObservationPluginLLMUsage = "builtin.llmusage"
+	ObservationPluginLLMPerf  = "builtin.llmperf"
 	ObservabilityOutputFluent = "fluent"
 )
 
@@ -294,11 +302,12 @@ func DefaultConfig() Config {
 					},
 				},
 				{Name: "llmusage", Type: ObservationPluginLLMUsage, LLMUsage: &LLMUsagePluginConfig{}},
+				{Name: "llmperf", Type: ObservationPluginLLMPerf, LLMPerf: &LLMPerfPluginConfig{}},
 			},
 			Outputs: []ObservabilityOutput{
 				{
 					Name: "fluent-primary", Type: ObservabilityOutputFluent, Enabled: false,
-					Routes: []string{"capture.**", "llm.usage.**"}, Workers: 4,
+					Routes: []string{"capture.**", "llm.usage.**", "llm.perf.**"}, Workers: 4,
 					Queue: OutputQueue{Capacity: 8192, MaxBytes: 256 << 20},
 					Fluent: &FluentOutput{
 						Endpoint: "unix:///run/fluent/fluent.sock", Connections: 4, ClientQueueCapacity: 1024,

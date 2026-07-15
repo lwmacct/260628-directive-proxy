@@ -7,6 +7,7 @@ proxy/retry/response writer
   -> core/observability Signal + Pipeline
        -> plugin/capture
        -> plugin/llmusage
+       -> plugin/llmperf
        -> output/fluent
 ```
 

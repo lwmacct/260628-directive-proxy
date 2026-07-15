@@ -138,7 +138,7 @@ observability:
   # 内置观测插件列表
   plugins:
     - name: "capture" # 插件实例名称
-      type: "builtin.capture" # 插件类型：builtin.capture 或 builtin.llmusage
+      type: "builtin.capture" # 插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf
 
       # builtin.capture 配置
       capture:
@@ -164,8 +164,11 @@ observability:
 
       # builtin.llmusage 配置
       llmusage: null
+
+      # builtin.llmperf 配置
+      llmperf: null
     - name: "llmusage" # 插件实例名称
-      type: "builtin.llmusage" # 插件类型：builtin.capture 或 builtin.llmusage
+      type: "builtin.llmusage" # 插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf
 
       # builtin.capture 配置
       capture: null
@@ -175,6 +178,23 @@ observability:
         max-sse-metadata-bytes: 0 # 单个 SSE event metadata 保留上限，0 使用库默认值
         max-result-bytes: 0 # 协议识别字段和 raw usage 保留上限，0 使用库默认值
         max-nesting-depth: 0 # JSON 最大嵌套深度，0 使用库默认值
+
+      # builtin.llmperf 配置
+      llmperf: null
+    - name: "llmperf" # 插件实例名称
+      type: "builtin.llmperf" # 插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf
+
+      # builtin.capture 配置
+      capture: null
+
+      # builtin.llmusage 配置
+      llmusage: null
+
+      # builtin.llmperf 配置
+      llmperf:
+        max-sse-metadata-bytes: 0 # SSE metadata retention limit
+        max-retained-bytes: 0 # response event retention limit
+        max-nesting-depth: 0 # JSON nesting limit
 
   # 观测记录输出插件列表
   outputs:
@@ -186,6 +206,7 @@ observability:
       routes:
         - capture.**
         - llm.usage.**
+        - llm.perf.**
       workers: 4 # 按 trace ID 分片的输出 worker 数
 
       # Pipeline 输出队列配置
