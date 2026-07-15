@@ -51,16 +51,14 @@ observability:
 
 ## 可观测插件与输出
 
-代理只产生进程内生命周期 Signal；内置观测插件把 Signal 转换为统一的 `dproxy.event.v1` Record，输出插件负责外部投递。当前提供：
+内置插件由 directive token 按 attempt 选择，部署配置只提供注册信息和资源上限：
 
-- `builtin.capture`：请求/响应 header、Metadata、body chunk/hash、attempt、SSE 语义事件和完成状态。
-- `builtin.llmusage`：从上游 JSON/SSE 响应增量提取 OpenAI Responses、OpenAI Chat Completions、Anthropic Messages 和 Google GenerateContent token usage。
-- `builtin.llmperf`：从上游响应时间线计算 TTFB、TTFT、TTFC、生成完成和端到端延迟等性能指标。
-- `fluent` output：按 topic 路由 Record，经有界队列异步发送到 Fluent Forward endpoint。
+- [`builtin.capture`](docs/plugin-capture.md)：请求、响应和生命周期审计；
+- [`builtin.llmusage`](docs/plugin-llmusage.md)：LLM token usage 提取；
+- [`builtin.llmperf`](docs/plugin-llmperf.md)：LLM 响应性能测量；
+- `fluent` output：按 topic 异步投递统一 `dproxy.event.v1` Record。
 
-Capture 解析成功写给下游的响应字节；LLM Usage 解析代理从上游实际读取的响应字节。请求 Capture 通过 lease 引用 canonical body，响应插件同步借用流式 buffer；需要异步保留的响应 Capture chunk 只复制一次。Record 再按 `trace_id` 分片进入异步输出队列，并在最后一个 output 完成后自然释放资源。输出故障和解析失败均 fail-open，不改变代理响应；队列溢出与输出故障会在 `/health` 的 `observability` 字段报告 degraded。
-
-插件和输出必须成对启用；完整配置见 [`config/config.example.yaml`](config/config.example.yaml)，架构和扩展约束见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
+完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，扩展架构见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
 
 完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
 
@@ -262,23 +260,11 @@ payload schema：
       { "op": "=", "name": "X-Upstream-Tenant", "values": ["tenant-a"] }
     ]
   },
-  "plugins": {
-    "llmusage": {
-      "protocol": "openai.responses",
-      "labels": {
-        "provider": "openai",
-        "account": "primary"
-      }
-    },
-    "llmperf": {
-      "protocol": "openai.responses",
-      "labels": {
-        "provider": "openai"
-      }
-    }
-  }
+  "plugins": {}
 }
 ```
+
+插件 directive 配置示例见 [`docs/plugin-capture.md`](docs/plugin-capture.md)、[`docs/plugin-llmusage.md`](docs/plugin-llmusage.md) 和 [`docs/plugin-llmperf.md`](docs/plugin-llmperf.md)。
 
 使用 `directive.Encode` 生成 inline token，使用 `directive.EncodeRemote` 生成 remote token。
 
@@ -291,7 +277,7 @@ payload schema：
 - Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
 - ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
 
-HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并可由 Capture 插件输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 的 `plugins` 是按 attempt 生效的插件配置；引用未启用插件或提交非法插件配置会在发起上游请求前失败。携带 dproxy token 的入站 `Authorization` 会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
+HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并可由 Capture 插件输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 的 `plugins` 按 attempt 生效，具体配置见各 [`plugin-*.md`](docs/plugin-capture.md)。携带 dproxy token 的入站 `Authorization` 会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
 HTTP RemoteSpec：
 
