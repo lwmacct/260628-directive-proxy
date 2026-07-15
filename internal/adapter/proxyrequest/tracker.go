@@ -22,7 +22,6 @@ type ProxyRequestService struct {
 	maxAttempts       int
 	commandRetention  time.Duration
 	pipeline          *observability.Pipeline
-	instanceID        string
 }
 
 type retryTombstone struct {
@@ -46,7 +45,6 @@ func NewProxyRequestService(opts ProxyRequestOptions, pipeline *observability.Pi
 		maxAttempts:       opts.MaxAttempts,
 		commandRetention:  opts.CommandRetention,
 		pipeline:          pipeline,
-		instanceID:        strings.TrimSpace(opts.InstanceID),
 	}
 }
 
@@ -84,7 +82,7 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 	s.mu.Unlock()
 	go session.run()
 	if s.pipeline != nil {
-		session.trace = s.pipeline.StartRequestTrace(observability.TraceContext{TraceID: session.traceID, InstanceID: s.instanceID})
+		session.trace = s.pipeline.StartRequestTrace(observability.TraceContext{TraceID: session.traceID})
 	}
 	return session
 }

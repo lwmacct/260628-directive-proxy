@@ -6,8 +6,7 @@ import (
 )
 
 type TraceContext struct {
-	TraceID    string
-	InstanceID string
+	TraceID string
 }
 
 type Emitter interface {

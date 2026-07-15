@@ -21,7 +21,6 @@ import (
 type ProxyRequestOptions struct {
 	MaxAttempts      int
 	CommandRetention time.Duration
-	InstanceID       string
 }
 
 type proxyRequestSession struct {

@@ -76,7 +76,7 @@ func TestOutputSendsAcknowledgedForwardRecord(t *testing.T) {
 	now := time.Now().UTC()
 	err = output.Write(context.Background(), 0, observability.Record{
 		SchemaVersion: observability.SchemaVersion, Plugin: "builtin.capture", Topic: "capture.request.started",
-		RecordID: "trace:00000001", TraceID: "trace", InstanceID: "instance", Sequence: 1,
+		RecordID: "trace:00000001", TraceID: "trace", Sequence: 1,
 		OccurredAt: now.Format(time.RFC3339Nano), Data: map[string]any{"method": "POST"}, Time: now,
 	})
 	if err != nil {

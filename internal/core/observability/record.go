@@ -15,7 +15,6 @@ type Record struct {
 	RecordID      string         `msg:"record_id"`
 	TraceID       string         `msg:"trace_id"`
 	Attempt       int            `msg:"attempt,omitempty"`
-	InstanceID    string         `msg:"instance_id,omitempty"`
 	Sequence      uint64         `msg:"sequence"`
 	OccurredAt    string         `msg:"occurred_at"`
 	Data          map[string]any `msg:"data"`
@@ -64,9 +63,6 @@ func (r Record) Map() map[string]any {
 	}
 	if r.Attempt > 0 {
 		record["attempt"] = r.Attempt
-	}
-	if r.InstanceID != "" {
-		record["instance_id"] = r.InstanceID
 	}
 	return record
 }

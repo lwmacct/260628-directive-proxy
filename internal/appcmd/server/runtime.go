@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
@@ -66,7 +65,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
-	observationPipeline, err := newObservabilityPipeline(ctx, cfg.Observability)
+	observationPipeline, err := newObservabilityPipeline(ctx, cfg.Fluent)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
@@ -74,14 +73,9 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure observability: %w", err)
 	}
-	instanceID := cfg.Observability.InstanceID
-	if instanceID == "" {
-		instanceID, _ = os.Hostname()
-	}
 	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
 		CommandRetention: cfg.Proxy.Retry.CommandRetention,
-		InstanceID:       instanceID,
 	}, observationPipeline)
 	bodyMemory := bodymemory.New(bodymemory.Config{
 		MaxActiveBytes: cfg.Proxy.BodyMemory.MaxActiveBytes,
@@ -120,12 +114,11 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}, nil
 }
 
-func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*observability.Pipeline, error) {
-	if !cfg.Fluent.Enabled {
+func newObservabilityPipeline(ctx context.Context, fluentConfig config.FluentOutput) (*observability.Pipeline, error) {
+	if !fluentConfig.Enabled {
 		return observability.NewDisabledPipeline(), nil
 	}
 	plugins := []observability.Plugin{captureplugin.New(), llmusageplugin.New(), llmperfplugin.New()}
-	fluentConfig := cfg.Fluent
 	output := fluentoutput.New(fluentoutput.Config{
 		Endpoint: fluentConfig.Endpoint, Connections: fluentConfig.Connections,
 		ConnectTimeout:   fluentConfig.ConnectTimeout,

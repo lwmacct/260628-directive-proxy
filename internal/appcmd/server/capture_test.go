@@ -184,8 +184,8 @@ func TestDisabledFluentIgnoresDirectivePluginsAndProxiesNormally(t *testing.T) {
 }
 
 func TestDisabledFluentPipelineDoesNotConnect(t *testing.T) {
-	cfg := config.DefaultConfig().Server.Observability
-	cfg.Fluent.Endpoint = "tcp://127.0.0.1:1"
+	cfg := config.DefaultConfig().Server.Fluent
+	cfg.Endpoint = "tcp://127.0.0.1:1"
 	pipeline, err := newObservabilityPipeline(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("disabled Fluent attempted startup: %v", err)

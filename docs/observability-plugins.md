@@ -13,7 +13,7 @@ proxy/retry/response writer
 
 观测插件和 Fluent sink 使用不同接口：前者按 trace 保存解析状态并消费 Signal，后者按 Pipeline 分配的 shard 同步消费不可变 Record。Record 的 `plugin` 字段和健康检查使用固定内置名称（例如 `builtin.capture`）；topic 表示稳定的事件类型。Pipeline 统一负责 Record identity、单 trace sequence、唯一队列资源限制、panic containment、sink 分片和健康聚合。
 
-`server.observability.fluent.enabled` 是整个子系统的总开关。关闭时不实例化插件、Trace、Queue、worker 或 Fluent client；directive 中的 `plugins` 保留 JSON 与大小边界检查，但不做注册或 spec 校验，也不影响代理数据面。健康状态报告为 `disabled`，服务整体仍为 `ok`。
+`server.fluent.enabled` 是整个子系统的总开关。关闭时不实例化插件、Trace、Queue、worker 或 Fluent client；directive 中的 `plugins` 保留 JSON 与大小边界检查，但不做注册或 spec 校验，也不影响代理数据面。健康状态报告为 `disabled`，服务整体仍为 `ok`。
 
 新增观测插件时：
 

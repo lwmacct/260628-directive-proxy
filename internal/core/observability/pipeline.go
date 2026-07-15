@@ -241,7 +241,6 @@ func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any, rel
 		RecordID:      fmt.Sprintf("%s:%08d", t.context.TraceID, t.sequence),
 		TraceID:       t.context.TraceID,
 		Attempt:       attempt,
-		InstanceID:    t.context.InstanceID,
 		Sequence:      t.sequence,
 		OccurredAt:    now.Format(time.RFC3339Nano),
 		Data:          data,
@@ -481,7 +480,7 @@ func shard(traceID string, count int) int {
 }
 
 func estimateRecordBytes(record Record) int64 {
-	size := int64(len(record.SchemaVersion) + len(record.Plugin) + len(record.Topic) + len(record.RecordID) + len(record.TraceID) + len(record.InstanceID) + len(record.OccurredAt) + 64)
+	size := int64(len(record.SchemaVersion) + len(record.Plugin) + len(record.Topic) + len(record.RecordID) + len(record.TraceID) + len(record.OccurredAt) + 64)
 	return size + estimateValueBytes(record.Data)
 }
 

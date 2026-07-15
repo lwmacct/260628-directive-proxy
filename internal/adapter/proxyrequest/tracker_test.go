@@ -20,7 +20,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	pipeline, output := newCapturePipeline(t)
 	captureSpec := []byte(`{"body-chunk-bytes":4,"max-sse-event-bytes":1024,"redact-headers":["authorization"],"redact-query":["token"]}`)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
-		MaxAttempts: 3, InstanceID: "test-instance",
+		MaxAttempts: 3,
 	}, pipeline)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")

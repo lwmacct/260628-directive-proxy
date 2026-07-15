@@ -132,27 +132,23 @@ server:
           client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
           pool-size: 4 # 每个动态 Redis client 的连接池容量
 
-  # 可观测输出配置
-  observability:
-    instance-id: "" # 写入观测记录的代理实例标识，留空使用主机名
+  # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
+  fluent:
+    enabled: false # 是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求
+    endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
+    connections: 4 # 按 trace ID 分片的 Fluent 连接与发送并行度
 
-    # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
-    fluent:
-      enabled: false # 是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求
-      endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
-      connections: 4 # 按 trace ID 分片的 Fluent 连接与发送并行度
-
-      # Fluent 异步输出队列配置
-      queue:
-        max-records: 8192 # 所有 Fluent 连接合计的排队记录上限
-        max-bytes: 268435456 # 所有 Fluent 连接合计的排队字节上限
-      connect-timeout: 500ms # Fluent 建连超时
-      handshake-timeout: 500ms # Fluent Forward 握手超时
-      write-timeout: 500ms # Fluent 单条记录写入超时
-      ack-timeout: 500ms # Fluent ACK 读取超时
-      retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
-      retry-min-backoff: 100ms # Fluent 重试最短退避时间
-      retry-max-backoff: 500ms # Fluent 重试最长退避时间
-      tag-prefix: "dproxy" # Fluent tag 前缀
-      delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
-      tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发
+    # Fluent 异步输出队列配置
+    queue:
+      max-records: 8192 # 所有 Fluent 连接合计的排队记录上限
+      max-bytes: 268435456 # 所有 Fluent 连接合计的排队字节上限
+    connect-timeout: 500ms # Fluent 建连超时
+    handshake-timeout: 500ms # Fluent Forward 握手超时
+    write-timeout: 500ms # Fluent 单条记录写入超时
+    ack-timeout: 500ms # Fluent ACK 读取超时
+    retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
+    retry-min-backoff: 100ms # Fluent 重试最短退避时间
+    retry-max-backoff: 500ms # Fluent 重试最长退避时间
+    tag-prefix: "dproxy" # Fluent tag 前缀
+    delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
+    tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发

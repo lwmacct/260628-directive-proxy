@@ -20,7 +20,7 @@ func TestRuntimeConfigKeysValid(t *testing.T) { files.ValidateRuntimeConfig(t) }
 
 func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  proxy:\n    retry:\n      max-attempts: 7\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  proxy:\n    retry:\n      max-attempts: 7\n  fluent:\n    connections: 6\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := Manager.Load(t.Context(), cfgm.File(path))
@@ -30,6 +30,9 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	if loaded.Server.Proxy.Retry.MaxAttempts != 7 {
 		t.Fatalf("unexpected retry max attempts: %d", loaded.Server.Proxy.Retry.MaxAttempts)
 	}
+	if loaded.Server.Fluent.Connections != 6 {
+		t.Fatalf("unexpected Fluent connections: %d", loaded.Server.Fluent.Connections)
+	}
 
 	if err := os.WriteFile(path, []byte("proxy:\n  retry:\n    max-attempts: 9\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -37,5 +40,16 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	_, err = Manager.Load(t.Context(), cfgm.File(path))
 	if err == nil || !strings.Contains(err.Error(), "proxy") {
 		t.Fatalf("legacy root config must be rejected, got %v", err)
+	}
+}
+
+func TestConfigFileRejectsRemovedObservabilityHierarchy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  observability:\n    fluent:\n      enabled: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Manager.Load(t.Context(), cfgm.File(path))
+	if err == nil || !strings.Contains(err.Error(), "observability") {
+		t.Fatalf("removed observability hierarchy must be rejected, got %v", err)
 	}
 }

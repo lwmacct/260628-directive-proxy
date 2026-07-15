@@ -297,43 +297,43 @@ func TestValidateRetryConfiguration(t *testing.T) {
 	}
 }
 
-func TestValidateObservabilityConfiguration(t *testing.T) {
+func TestValidateFluentConfiguration(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Observability.Fluent.Enabled = true
-	cfg.Observability.Fluent.Endpoint = "unix:///run/fluent/fluent.sock"
+	cfg.Fluent.Enabled = true
+	cfg.Fluent.Endpoint = "unix:///run/fluent/fluent.sock"
 	validated, err := Validate(cfg)
-	if err != nil || validated.Observability.Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
-		t.Fatalf("valid observability config was rejected: cfg=%#v err=%v", validated.Observability, err)
+	if err != nil || validated.Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
+		t.Fatalf("valid Fluent config was rejected: cfg=%#v err=%v", validated.Fluent, err)
 	}
-	for _, mutate := range []func(*Observability){
-		func(cfg *Observability) { cfg.Fluent.Endpoint = "udp://127.0.0.1:24224" },
-		func(cfg *Observability) { cfg.Fluent.Connections = 0 },
-		func(cfg *Observability) { cfg.Fluent.ACKTimeout = 0 },
-		func(cfg *Observability) { cfg.Fluent.Delivery = "exactly-once" },
-		func(cfg *Observability) { cfg.Fluent.Queue.MaxRecords = 0 },
-		func(cfg *Observability) { cfg.Fluent.Queue.MaxBytes = 0 },
+	for _, mutate := range []func(*FluentOutput){
+		func(cfg *FluentOutput) { cfg.Endpoint = "udp://127.0.0.1:24224" },
+		func(cfg *FluentOutput) { cfg.Connections = 0 },
+		func(cfg *FluentOutput) { cfg.ACKTimeout = 0 },
+		func(cfg *FluentOutput) { cfg.Delivery = "exactly-once" },
+		func(cfg *FluentOutput) { cfg.Queue.MaxRecords = 0 },
+		func(cfg *FluentOutput) { cfg.Queue.MaxBytes = 0 },
 	} {
 		cfg := validDefaultConfig()
-		cfg.Observability.Fluent.Enabled = true
-		cfg.Observability.Fluent.Endpoint = "unix:///run/fluent/fluent.sock"
-		mutate(&cfg.Observability)
-		if _, err := Validate(cfg); err != ErrInvalidObservability {
-			t.Fatalf("expected invalid observability config, got %v", err)
+		cfg.Fluent.Enabled = true
+		cfg.Fluent.Endpoint = "unix:///run/fluent/fluent.sock"
+		mutate(&cfg.Fluent)
+		if _, err := Validate(cfg); err != ErrInvalidFluent {
+			t.Fatalf("expected invalid Fluent config, got %v", err)
 		}
 	}
 }
 
-func TestValidateSkipsObservabilityConfigurationWhenFluentDisabled(t *testing.T) {
+func TestValidateSkipsFluentConfigurationWhenDisabled(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Observability.Fluent.Endpoint = "not-an-endpoint"
-	cfg.Observability.Fluent.Connections = 0
-	cfg.Observability.Fluent.Queue.MaxRecords = 0
+	cfg.Fluent.Endpoint = "not-an-endpoint"
+	cfg.Fluent.Connections = 0
+	cfg.Fluent.Queue.MaxRecords = 0
 
 	validated, err := Validate(cfg)
 	if err != nil {
-		t.Fatalf("disabled observability must not affect proxy configuration: %v", err)
+		t.Fatalf("disabled Fluent must not affect proxy configuration: %v", err)
 	}
-	if validated.Observability.Fluent.Enabled {
+	if validated.Fluent.Enabled {
 		t.Fatal("disabled Fluent was unexpectedly enabled")
 	}
 }

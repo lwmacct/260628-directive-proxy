@@ -144,7 +144,7 @@ func TestPipelineWritesRecordsAndPreservesTraceSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trace := pipeline.StartTrace(observability.TraceContext{TraceID: "trace", InstanceID: "instance"})
+	trace := pipeline.StartTrace(observability.TraceContext{TraceID: "trace"})
 	trace.Observe(observability.Signal{Attempt: 1, Value: "one"})
 	trace.Observe(observability.Signal{Attempt: 1, Value: "two"})
 	trace.Close()

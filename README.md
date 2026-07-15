@@ -43,13 +43,12 @@ server:
       queue-max-requests: 512
       queue-max-wait: 15s
       body-read-timeout: 30s
-  observability:
-    fluent:
-      enabled: false
-      connections: 4
-      queue:
-        max-records: 8192
-        max-bytes: 268435456
+  fluent:
+    enabled: false
+    connections: 4
+    queue:
+      max-records: 8192
+      max-bytes: 268435456
 ```
 
 ## 可观测插件与输出

@@ -91,11 +91,11 @@ func Validate(cfg Server) (Server, error) {
 		bodyMemory.QueueWait <= 0 || bodyMemory.ReadTimeout <= 0 {
 		return cfg, ErrInvalidRetry
 	}
-	validatedObservability, err := validateObservability(cfg.Observability)
+	validatedFluent, err := validateFluentOutput(cfg.Fluent)
 	if err != nil {
-		return cfg, ErrInvalidObservability
+		return cfg, ErrInvalidFluent
 	}
-	cfg.Observability = validatedObservability
+	cfg.Fluent = validatedFluent
 	remote := cfg.Proxy.Directive.Remote
 	if cfg.Proxy.Directive.MaxTokenBytes <= 0 || cfg.Proxy.Directive.MaxInlineBytes <= 0 ||
 		cfg.Proxy.Directive.MaxInlineBytes > cfg.Proxy.Directive.MaxTokenBytes ||
@@ -106,22 +106,13 @@ func Validate(cfg Server) (Server, error) {
 	return cfg, nil
 }
 
-func validateObservability(cfg Observability) (Observability, error) {
-	if !cfg.Fluent.Enabled {
+func validateFluentOutput(cfg FluentOutput) (FluentOutput, error) {
+	if !cfg.Enabled {
 		return cfg, nil
 	}
-	if cfg.Fluent.Connections <= 0 || cfg.Fluent.Queue.MaxRecords <= 0 || cfg.Fluent.Queue.MaxBytes <= 0 {
-		return cfg, ErrInvalidObservability
+	if cfg.Connections <= 0 || cfg.Queue.MaxRecords <= 0 || cfg.Queue.MaxBytes <= 0 {
+		return cfg, ErrInvalidFluent
 	}
-	validatedFluent, err := validateFluentOutput(cfg.Fluent)
-	if err != nil {
-		return cfg, err
-	}
-	cfg.Fluent = validatedFluent
-	return cfg, nil
-}
-
-func validateFluentOutput(cfg FluentOutput) (FluentOutput, error) {
 	fluent := &cfg
 	fluent.Endpoint = strings.TrimSpace(fluent.Endpoint)
 	fluent.Delivery = strings.ToLower(strings.TrimSpace(fluent.Delivery))
@@ -130,26 +121,26 @@ func validateFluentOutput(cfg FluentOutput) (FluentOutput, error) {
 		fluent.HandshakeTimeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ACKTimeout <= 0 ||
 		fluent.RetryMaxAttempts <= 0 || fluent.RetryMinBackoff <= 0 ||
 		fluent.RetryMaxBackoff < fluent.RetryMinBackoff || fluent.TagPrefix == "" {
-		return cfg, ErrInvalidObservability
+		return cfg, ErrInvalidFluent
 	}
 	endpoint, err := url.Parse(fluent.Endpoint)
 	if err != nil || endpoint.Scheme == "" {
-		return cfg, ErrInvalidObservability
+		return cfg, ErrInvalidFluent
 	}
 	switch strings.ToLower(endpoint.Scheme) {
 	case "tcp", "tls", "ws", "wss":
 		if endpoint.Host == "" {
-			return cfg, ErrInvalidObservability
+			return cfg, ErrInvalidFluent
 		}
 	case "unix":
 		if endpoint.Path == "" {
-			return cfg, ErrInvalidObservability
+			return cfg, ErrInvalidFluent
 		}
 	default:
-		return cfg, ErrInvalidObservability
+		return cfg, ErrInvalidFluent
 	}
 	if fluent.Delivery != FluentDeliveryUnconfirmed && fluent.Delivery != FluentDeliveryAtLeastOnce {
-		return cfg, ErrInvalidObservability
+		return cfg, ErrInvalidFluent
 	}
 	return cfg, nil
 }

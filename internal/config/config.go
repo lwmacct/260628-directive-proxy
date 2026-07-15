@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	ErrInvalidHTTP          = errors.New("invalid http config")
-	ErrInvalidAuth          = errors.New("invalid auth config")
-	ErrInvalidTransport     = errors.New("invalid transport config")
-	ErrInvalidRetry         = errors.New("invalid retry config")
-	ErrInvalidObservability = errors.New("invalid observability config")
-	ErrInvalidDirective     = errors.New("invalid directive config")
-	ErrInvalidAccess        = errors.New("invalid source access config")
+	ErrInvalidHTTP      = errors.New("invalid http config")
+	ErrInvalidAuth      = errors.New("invalid auth config")
+	ErrInvalidTransport = errors.New("invalid transport config")
+	ErrInvalidRetry     = errors.New("invalid retry config")
+	ErrInvalidFluent    = errors.New("invalid fluent config")
+	ErrInvalidDirective = errors.New("invalid directive config")
+	ErrInvalidAccess    = errors.New("invalid source access config")
 )
 
 type Config struct {
@@ -28,9 +28,9 @@ type Config struct {
 }
 
 type Server struct {
-	HTTP          ServerHTTP    `json:"http"          desc:"HTTP 服务配置"`
-	Proxy         Proxy         `json:"proxy"         desc:"代理配置"`
-	Observability Observability `json:"observability" desc:"可观测输出配置"`
+	HTTP   ServerHTTP   `json:"http"   desc:"HTTP 服务配置"`
+	Proxy  Proxy        `json:"proxy"  desc:"代理配置"`
+	Fluent FluentOutput `json:"fluent" desc:"Fluent Forward 观测输出配置；关闭时禁用所有观测插件"`
 }
 
 type ServerHTTP struct {
@@ -106,11 +106,6 @@ type ProxyBodyMemory struct {
 	QueueMax       int           `json:"queue-max-requests" desc:"等待正文内存的最大请求数"`
 	QueueWait      time.Duration `json:"queue-max-wait" desc:"请求等待正文内存的最长时间"`
 	ReadTimeout    time.Duration `json:"body-read-timeout" desc:"获得内存后读取完整请求正文的最长时间"`
-}
-
-type Observability struct {
-	InstanceID string       `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
-	Fluent     FluentOutput `json:"fluent"      desc:"Fluent Forward 观测输出配置；关闭时禁用所有观测插件"`
 }
 
 type SinkQueue struct {
@@ -263,15 +258,13 @@ func DefaultConfig() Config {
 					DisableKeepAlives:   false,
 				},
 			},
-			Observability: Observability{
-				Fluent: FluentOutput{
-					Enabled: false, Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4,
-					Queue:          SinkQueue{MaxRecords: 8192, MaxBytes: 256 << 20},
-					ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
-					WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
-					RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
-					TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
-				},
+			Fluent: FluentOutput{
+				Enabled: false, Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4,
+				Queue:          SinkQueue{MaxRecords: 8192, MaxBytes: 256 << 20},
+				ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
+				WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
+				RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
+				TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
 			},
 		},
 	}

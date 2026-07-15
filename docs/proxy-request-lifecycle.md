@@ -8,7 +8,7 @@
 - `sequence`：单个 trace 内从 1 开始严格递增；所有观测插件共享同一序列。
 - `attempt`：产生该 Record 的上游尝试序号；请求级 Record 可以省略。
 
-每条外部 Record 包含 `schema_version=dproxy.event.v1`、`plugin`、`topic`、`record_id`、`trace_id`、可选 `attempt`、`instance_id`、`sequence`、RFC3339Nano `occurred_at` 和 `data`。
+每条外部 Record 包含 `schema_version=dproxy.event.v1`、`plugin`、`topic`、`record_id`、`trace_id`、可选 `attempt`、`sequence`、RFC3339Nano `occurred_at` 和 `data`。
 
 ## Signal pipeline
 
@@ -41,7 +41,7 @@ Header 和 URL query 按插件配置的大小写不敏感 glob 脱敏。Body 默
 
 ## Fluent sink and delivery
 
-`server.observability.fluent.enabled` 是整个观测子系统的总开关，默认关闭。关闭时不创建插件、Queue、worker 或 Fluent 连接；directive 中的插件配置被忽略，代理、重试和 trace ID 功能保持正常。`/health` 将 Observability 报告为 `disabled`，不会降低服务整体健康状态。
+`server.fluent.enabled` 是整个观测子系统的总开关，默认关闭。关闭时不创建插件、Queue、worker 或 Fluent 连接；directive 中的插件配置被忽略，代理、重试和 trace ID 功能保持正常。`/health` 将 Observability 报告为 `disabled`，不会降低服务整体健康状态。
 
 开启后，唯一 Fluent sink 接收所有 Record，`connections` 个内部 worker 按 `trace_id` 分片并分别绑定一个 Fluent client，以保持单 trace 顺序并允许跨 trace 并行。唯一 Queue 同时限制所有连接合计的记录数和总字节数。队列满时非阻塞丢弃新 Record 并将 sink health 标记为 degraded，代理请求继续执行；不存在观测 backpressure 模式。
 
