@@ -11,10 +11,14 @@ import (
 )
 
 var (
-	binding = config.Definition.Bind(cfgm.NoCLI(
-		"server.http.auth.session.keys",
-		"server.http.auth.token",
-	))
+	binding = config.Definition.Bind(
+		cfgm.Scope("server"),
+		cfgm.Include("proxy", "observability"),
+		cfgm.NoCLI(
+			"server.http.auth.session.keys",
+			"server.http.auth.token",
+		),
+	)
 )
 
 var Command = &cli.Command{
