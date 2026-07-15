@@ -54,7 +54,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
 		sourceAccess, sourceEngine, err = newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
 		if err != nil {
-			tlsRuntime.Close()
+			_ = tlsRuntime.Close()
 			return nil, fmt.Errorf("configure source access: %w", err)
 		}
 	}
@@ -63,7 +63,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
-		tlsRuntime.Close()
+		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	observationPipeline, err := newObservabilityPipeline(ctx, cfg.Observability)
@@ -71,7 +71,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
-		tlsRuntime.Close()
+		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure observability: %w", err)
 	}
 	instanceID := cfg.Observability.InstanceID
@@ -102,7 +102,7 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
-		tlsRuntime.Close()
+		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure retry transport: %w", err)
 	}
 	remoteConfig := cfg.Proxy.Directive.Remote
@@ -230,7 +230,9 @@ func (rt *runtime) Close(ctx context.Context) error {
 		rt.sourceAccess = nil
 	}
 	if rt.tls != nil {
-		rt.tls.Close()
+		if err := rt.tls.Close(); err != nil {
+			errs = append(errs, err)
+		}
 		rt.tls = nil
 	}
 	if rt.directiveReader != nil {
@@ -249,33 +251,36 @@ func (rt *runtime) Close(ctx context.Context) error {
 }
 
 type tlsRuntime struct {
-	config  *tls.Config
-	manager *tlsreload.Manager
+	config *tls.Config
+	store  *tlsreload.Store
 }
 
-func newTLSRuntime(ctx context.Context, cfg tlsreload.Config) (*tlsRuntime, error) {
+func newTLSRuntime(ctx context.Context, cfg config.TLSConfig) (*tlsRuntime, error) {
 	if !cfg.Enabled {
 		return &tlsRuntime{}, nil
 	}
 
-	manager, err := tlsreload.New(ctx, cfg, tlsreload.Options{
-		MinVersion: httpTLSMinVersion,
-		Logger:     slog.Default(),
+	store, err := tlsreload.New(ctx, cfg.ReloadConfig(), tlsreload.Options{
+		Logger: slog.Default(),
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &tlsRuntime{
-		config:  manager.TLSConfig(),
-		manager: manager,
+		config: &tls.Config{
+			MinVersion:     httpTLSMinVersion,
+			GetCertificate: store.GetCertificate,
+		},
+		store: store,
 	}, nil
 }
 
-func (rt *tlsRuntime) Close() {
-	if rt == nil || rt.manager == nil {
-		return
+func (rt *tlsRuntime) Close() error {
+	if rt == nil || rt.store == nil {
+		return nil
 	}
-	rt.manager.Close()
-	rt.manager = nil
+	err := rt.store.Close()
+	rt.store = nil
+	return err
 }

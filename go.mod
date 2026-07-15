@@ -9,7 +9,7 @@ require (
 	github.com/lwmacct/251207-go-pkg-cfgm v0.30.260715
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
-	github.com/lwmacct/260614-go-pkg-tlsreload v0.13.260630
+	github.com/lwmacct/260614-go-pkg-tlsreload v0.14.260715
 	github.com/lwmacct/260622-go-pkg-tddcheck v0.22.260711
 	github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714
 	github.com/lwmacct/260713-go-pkg-sourceaccess v0.3.260713

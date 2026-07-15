@@ -33,14 +33,31 @@ type Server struct {
 }
 
 type ServerHTTP struct {
-	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
-	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
-	Auth            Auth             `json:"auth"              desc:"Admin API 认证配置"`
-	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
-	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
-	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
-	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Admin API 最大请求体字节数，0 表示不限制"`
-	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
+	Listen          string        `json:"listen"            desc:"HTTP 服务监听地址"`
+	TLS             TLSConfig     `json:"tls"               desc:"HTTPS TLS 配置"`
+	Auth            Auth          `json:"auth"              desc:"Admin API 认证配置"`
+	ReadTimeout     time.Duration `json:"read-timeout"       desc:"HTTP 读取超时时间"`
+	WriteTimeout    time.Duration `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
+	IdleTimeout     time.Duration `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
+	MaxAPIBodyBytes int64         `json:"max-api-body-bytes" desc:"Admin API 最大请求体字节数，0 表示不限制"`
+	MaxHeaderBytes  int           `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
+}
+
+type TLSConfig struct {
+	Enabled            bool                          `json:"enabled"             desc:"是否启用 HTTPS TLS"`
+	Certificates       []tlsreload.CertificateSource `json:"certificates"        desc:"TLS 证书来源列表"`
+	DefaultCertificate string                        `json:"default-certificate" desc:"未匹配 SNI 时使用的证书 ID"`
+	PollInterval       time.Duration                 `json:"poll-interval"        desc:"证书来源兜底轮询间隔"`
+	RetryInterval      time.Duration                 `json:"retry-interval"       desc:"证书重载失败后的重试间隔"`
+}
+
+func (c TLSConfig) ReloadConfig() tlsreload.Config {
+	return tlsreload.Config{
+		Certificates:       c.Certificates,
+		DefaultCertificate: c.DefaultCertificate,
+		PollInterval:       c.PollInterval,
+		RetryInterval:      c.RetryInterval,
+	}
 }
 
 type AuthMethod string
@@ -192,10 +209,16 @@ func DefaultConfig() Config {
 				IdleTimeout:     120 * time.Second,
 				MaxAPIBodyBytes: 1 << 20,
 				MaxHeaderBytes:  128 << 10,
-				TLS: tlsreload.Config{
-					Enabled:  false,
-					CertFile: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
-					KeyFile:  "${APP_DATA:-.local/data}/ssl/privkey.pem",
+				TLS: TLSConfig{
+					Enabled:            false,
+					DefaultCertificate: "default",
+					Certificates: []tlsreload.CertificateSource{
+						{
+							ID:          "default",
+							Certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
+							PrivateKey:  "${APP_DATA:-.local/data}/ssl/privkey.pem",
+						},
+					},
 				},
 			},
 		},

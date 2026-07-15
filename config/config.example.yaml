@@ -11,9 +11,15 @@ server:
     # HTTPS TLS 配置
     tls:
       enabled: false # 是否启用 HTTPS TLS
-      cert-file: "${APP_DATA:-.local/data}/ssl/fullchain.pem" # TLS 证书文件路径或 URI
-      key-file: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥文件路径或 URI
-      poll-interval: 0s # TLS 证书文件重载兜底轮询间隔，未配置时使用默认间隔
+
+      # TLS 证书来源列表
+      certificates:
+        - id: "default" # 证书的稳定标识
+          certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem" # TLS 证书路径或 URI
+          private-key: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥路径或 URI
+      default-certificate: "default" # 未匹配 SNI 时使用的证书 ID
+      poll-interval: 0s # 证书来源兜底轮询间隔
+      retry-interval: 0s # 证书重载失败后的重试间隔
 
     # Admin API 认证配置
     auth:

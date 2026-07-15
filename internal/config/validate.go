@@ -18,9 +18,14 @@ func Validate(cfg Config) (Config, error) {
 		return cfg, ErrInvalidHTTP
 	}
 	if cfg.Server.HTTP.TLS.Enabled {
-		cfg.Server.HTTP.TLS.CertFile = strings.TrimSpace(cfg.Server.HTTP.TLS.CertFile)
-		cfg.Server.HTTP.TLS.KeyFile = strings.TrimSpace(cfg.Server.HTTP.TLS.KeyFile)
-		if err := cfg.Server.HTTP.TLS.Validate(); err != nil {
+		cfg.Server.HTTP.TLS.DefaultCertificate = strings.TrimSpace(cfg.Server.HTTP.TLS.DefaultCertificate)
+		for index := range cfg.Server.HTTP.TLS.Certificates {
+			source := &cfg.Server.HTTP.TLS.Certificates[index]
+			source.ID = strings.TrimSpace(source.ID)
+			source.Certificate = strings.TrimSpace(source.Certificate)
+			source.PrivateKey = strings.TrimSpace(source.PrivateKey)
+		}
+		if err := cfg.Server.HTTP.TLS.ReloadConfig().Validate(); err != nil {
 			return cfg, ErrInvalidHTTP
 		}
 	}

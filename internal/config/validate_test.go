@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
 )
 
@@ -56,6 +57,61 @@ func TestValidateRejectsInvalidHTTPHeaderLimit(t *testing.T) {
 	cfg.Server.HTTP.MaxHeaderBytes = 0
 	if _, err := Validate(cfg); err != ErrInvalidHTTP {
 		t.Fatalf("expected invalid HTTP config, got %v", err)
+	}
+}
+
+func TestValidateTLSConfiguration(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*TLSConfig)
+	}{
+		{name: "missing certificates", mutate: func(cfg *TLSConfig) { cfg.Certificates = nil }},
+		{name: "missing default", mutate: func(cfg *TLSConfig) { cfg.DefaultCertificate = "" }},
+		{name: "unknown default", mutate: func(cfg *TLSConfig) { cfg.DefaultCertificate = "unknown" }},
+		{name: "duplicate id", mutate: func(cfg *TLSConfig) { cfg.Certificates = append(cfg.Certificates, cfg.Certificates[0]) }},
+		{name: "missing certificate", mutate: func(cfg *TLSConfig) { cfg.Certificates[0].Certificate = "" }},
+		{name: "missing private key", mutate: func(cfg *TLSConfig) { cfg.Certificates[0].PrivateKey = "" }},
+		{name: "negative poll interval", mutate: func(cfg *TLSConfig) { cfg.PollInterval = -time.Second }},
+		{name: "negative retry interval", mutate: func(cfg *TLSConfig) { cfg.RetryInterval = -time.Second }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validDefaultConfig()
+			cfg.Server.HTTP.TLS.Enabled = true
+			test.mutate(&cfg.Server.HTTP.TLS)
+			if _, err := Validate(cfg); err != ErrInvalidHTTP {
+				t.Fatalf("expected invalid HTTP config, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateNormalizesTLSConfiguration(t *testing.T) {
+	cfg := validDefaultConfig()
+	cfg.Server.HTTP.TLS.Enabled = true
+	cfg.Server.HTTP.TLS.DefaultCertificate = " default "
+	cfg.Server.HTTP.TLS.Certificates = []tlsreload.CertificateSource{
+		{ID: " default ", Certificate: " cert.pem ", PrivateKey: " key.pem "},
+	}
+
+	validated, err := Validate(cfg)
+	if err != nil {
+		t.Fatalf("validate config: %v", err)
+	}
+	tlsConfig := validated.Server.HTTP.TLS
+	if tlsConfig.DefaultCertificate != "default" || tlsConfig.Certificates[0].ID != "default" ||
+		tlsConfig.Certificates[0].Certificate != "cert.pem" || tlsConfig.Certificates[0].PrivateKey != "key.pem" {
+		t.Fatalf("unexpected normalized TLS config: %#v", tlsConfig)
+	}
+}
+
+func TestValidateSkipsTLSConfigurationWhenDisabled(t *testing.T) {
+	cfg := validDefaultConfig()
+	cfg.Server.HTTP.TLS.Certificates = nil
+	cfg.Server.HTTP.TLS.DefaultCertificate = ""
+
+	if _, err := Validate(cfg); err != nil {
+		t.Fatalf("disabled TLS must not be validated: %v", err)
 	}
 }
 
