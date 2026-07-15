@@ -8,19 +8,13 @@ import (
 )
 
 type Output struct {
-	name    string
 	mu      sync.Mutex
 	records []observability.Record
 }
 
 func New(name string) *Output {
-	if name == "" {
-		name = "memory"
-	}
-	return &Output{name: name}
+	return &Output{}
 }
-
-func (o *Output) Name() string { return o.name }
 
 func (*Output) Start(context.Context) error { return nil }
 

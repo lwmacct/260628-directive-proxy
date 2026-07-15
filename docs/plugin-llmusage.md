@@ -7,7 +7,7 @@
   "plugins": {
     "llmusage": {
       "protocol": "openai.responses",
-      "labels": {"provider": "openai", "account": "primary"}
+      "labels": { "provider": "openai", "account": "primary" }
     }
   }
 }

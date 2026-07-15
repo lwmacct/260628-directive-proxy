@@ -253,9 +253,7 @@ func TestProxyRequestTrackerRejectsDuplicateRetryID(t *testing.T) {
 func newCapturePipeline(t *testing.T, config captureplugin.Config) (*observability.Pipeline, *recordoutput.Output) {
 	t.Helper()
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(config)}, []observability.OutputBinding{{
-		Output: output, Routes: []string{"**"}, QueueCapacity: 1024, QueueMaxBytes: 8 << 20,
-	}})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(config)}, observability.SinkConfig{Sink: output, QueueCapacity: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

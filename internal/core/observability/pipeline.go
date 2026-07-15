@@ -14,7 +14,7 @@ import (
 type Pipeline struct {
 	plugins      []Plugin
 	pluginHealth map[string]*pluginHealthState
-	outputs      []*outputRunner
+	sink         *sinkRunner
 	closed       atomic.Bool
 }
 
@@ -48,9 +48,8 @@ type queuedRecord struct {
 	size   int64
 }
 
-type outputRunner struct {
-	output       Output
-	routes       []string
+type sinkRunner struct {
+	sink         Sink
 	queues       []chan queuedRecord
 	maxBytes     int64
 	queuedBytes  atomic.Int64
@@ -62,20 +61,19 @@ type outputRunner struct {
 	wg           sync.WaitGroup
 }
 
-func NewPipeline(ctx context.Context, plugins []Plugin, bindings []OutputBinding) (*Pipeline, error) {
+func NewPipeline(ctx context.Context, plugins []Plugin, config SinkConfig) (*Pipeline, error) {
 	pipeline := &Pipeline{plugins: append([]Plugin(nil), plugins...), pluginHealth: make(map[string]*pluginHealthState)}
 	for _, plugin := range pipeline.plugins {
 		if plugin != nil && strings.TrimSpace(plugin.Name()) != "" {
 			pipeline.pluginHealth[plugin.Name()] = &pluginHealthState{}
 		}
 	}
-	for _, binding := range bindings {
-		runner, err := newOutputRunner(ctx, binding)
+	if config.Sink != nil {
+		runner, err := newSinkRunner(ctx, config)
 		if err != nil {
-			_ = pipeline.Close(context.Background())
 			return nil, err
 		}
-		pipeline.outputs = append(pipeline.outputs, runner)
+		pipeline.sink = runner
 	}
 	return pipeline, nil
 }
@@ -243,17 +241,17 @@ func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any, rel
 		Time:          now,
 		resource:      newRecordResource(release),
 	}
-	for _, output := range t.pipeline.outputs {
-		output.enqueue(record)
+	if t.pipeline.sink != nil {
+		t.pipeline.sink.enqueue(record)
 	}
 	record.release()
 }
 
 func (p *Pipeline) ObservabilityHealth() HealthSnapshot {
 	if p == nil {
-		return HealthSnapshot{Status: "unavailable", Plugins: map[string]HealthStatus{}, Outputs: map[string]HealthStatus{}}
+		return HealthSnapshot{Status: "unavailable", Plugins: map[string]HealthStatus{}}
 	}
-	result := HealthSnapshot{Status: "ok", Plugins: make(map[string]HealthStatus, len(p.pluginHealth)), Outputs: make(map[string]HealthStatus, len(p.outputs))}
+	result := HealthSnapshot{Status: "ok", Plugins: make(map[string]HealthStatus, len(p.pluginHealth))}
 	for name, state := range p.pluginHealth {
 		status := HealthStatus{Status: "ok"}
 		if state.failed.Load() {
@@ -265,10 +263,9 @@ func (p *Pipeline) ObservabilityHealth() HealthSnapshot {
 		}
 		result.Plugins[name] = status
 	}
-	for _, output := range p.outputs {
-		status := output.health()
-		result.Outputs[output.output.Name()] = status
-		if status.Status != "ok" {
+	if p.sink != nil {
+		result.Sink = p.sink.health()
+		if result.Sink.Status != "ok" {
 			result.Status = "degraded"
 		}
 	}
@@ -292,17 +289,17 @@ func (p *Pipeline) Close(ctx context.Context) error {
 		return nil
 	}
 	var first error
-	for _, output := range p.outputs {
-		if err := output.close(ctx); err != nil && first == nil {
+	if p.sink != nil {
+		if err := p.sink.close(ctx); err != nil && first == nil {
 			first = err
 		}
 	}
 	return first
 }
 
-func newOutputRunner(ctx context.Context, binding OutputBinding) (*outputRunner, error) {
-	if binding.Output == nil {
-		return nil, fmt.Errorf("observability output is nil")
+func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error) {
+	if binding.Sink == nil {
+		return nil, fmt.Errorf("observability sink is nil")
 	}
 	if binding.Workers <= 0 {
 		binding.Workers = 1
@@ -313,15 +310,11 @@ func newOutputRunner(ctx context.Context, binding OutputBinding) (*outputRunner,
 	if binding.QueueMaxBytes <= 0 {
 		binding.QueueMaxBytes = 64 << 20
 	}
-	if len(binding.Routes) == 0 {
-		binding.Routes = []string{"**"}
+	if err := binding.Sink.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start observability sink: %w", err)
 	}
-	if err := binding.Output.Start(ctx); err != nil {
-		return nil, fmt.Errorf("start observability output %q: %w", binding.Output.Name(), err)
-	}
-	runner := &outputRunner{
-		output:   binding.Output,
-		routes:   append([]string(nil), binding.Routes...),
+	runner := &sinkRunner{
+		sink:     binding.Sink,
 		maxBytes: binding.QueueMaxBytes,
 		queues:   make([]chan queuedRecord, binding.Workers),
 	}
@@ -333,8 +326,8 @@ func newOutputRunner(ctx context.Context, binding OutputBinding) (*outputRunner,
 	return runner, nil
 }
 
-func (r *outputRunner) enqueue(record Record) {
-	if r == nil || r.closed.Load() || !matchesAny(record.Topic, r.routes) {
+func (r *sinkRunner) enqueue(record Record) {
+	if r == nil || r.closed.Load() {
 		return
 	}
 	size := estimateRecordBytes(record)
@@ -354,7 +347,7 @@ func (r *outputRunner) enqueue(record Record) {
 	}
 }
 
-func (r *outputRunner) reserve(size int64) bool {
+func (r *sinkRunner) reserve(size int64) bool {
 	for {
 		current := r.queuedBytes.Load()
 		if current+size > r.maxBytes {
@@ -366,25 +359,25 @@ func (r *outputRunner) reserve(size int64) bool {
 	}
 }
 
-func (r *outputRunner) run(queue <-chan queuedRecord) {
+func (r *sinkRunner) run(queue <-chan queuedRecord) {
 	defer r.wg.Done()
 	for item := range queue {
-		err := r.output.Write(context.Background(), item.record)
+		err := r.sink.Write(context.Background(), item.record)
 		item.record.release()
 		r.queuedBytes.Add(-item.size)
 		r.queuedCount.Add(-1)
 		if err != nil {
 			r.failed.Store(true)
 			r.lastFailNano.Store(time.Now().UTC().UnixNano())
-			slog.Error("observability output failed", "output", r.output.Name(), "error", err)
+			slog.Error("observability sink failed", "error", err)
 		} else {
 			r.failed.Store(false)
 		}
 	}
 }
 
-func (r *outputRunner) health() HealthStatus {
-	status := r.output.Health()
+func (r *sinkRunner) health() HealthStatus {
+	status := r.sink.Health()
 	if status.Status == "" {
 		status.Status = "ok"
 	}
@@ -403,7 +396,7 @@ func (r *outputRunner) health() HealthStatus {
 	return status
 }
 
-func (r *outputRunner) close(ctx context.Context) error {
+func (r *sinkRunner) close(ctx context.Context) error {
 	if r == nil || !r.closed.CompareAndSwap(false, true) {
 		return nil
 	}
@@ -418,25 +411,10 @@ func (r *outputRunner) close(ctx context.Context) error {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		_ = r.output.Close(ctx)
+		_ = r.sink.Close(ctx)
 		return ctx.Err()
 	}
-	return r.output.Close(ctx)
-}
-
-func matchesAny(topic string, routes []string) bool {
-	for _, route := range routes {
-		route = strings.TrimSpace(route)
-		switch {
-		case route == "*" || route == "**":
-			return true
-		case strings.HasSuffix(route, "**") && strings.HasPrefix(topic, strings.TrimSuffix(route, "**")):
-			return true
-		case topic == route:
-			return true
-		}
-	}
-	return false
+	return r.sink.Close(ctx)
 }
 
 func shard(traceID string, count int) int {

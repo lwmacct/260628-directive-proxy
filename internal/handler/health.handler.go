@@ -26,7 +26,7 @@ func RegisterHealth(api huma.API, health observability.HealthProvider) {
 
 func (h *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, error) {
 	response := HealthResponseDTO{Status: "ok", Timestamp: time.Now().UTC(), Observability: ObservabilityHealthDTO{
-		Status: "ok", Plugins: map[string]PluginHealthDTO{}, Outputs: map[string]OutputHealthDTO{},
+		Status: "ok", Plugins: map[string]PluginHealthDTO{}, Sink: OutputHealthDTO{Type: "fluent", Status: "unavailable"},
 	}}
 	if h != nil && h.observability != nil {
 		health := h.observability.ObservabilityHealth()
@@ -41,12 +41,10 @@ func (h *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, e
 			}
 			response.Observability.Plugins[name] = item
 		}
-		for name, status := range health.Outputs {
-			item := OutputHealthDTO{Status: status.Status, QueuedRecords: status.QueuedRecords, QueuedBytes: status.QueuedBytes, DroppedRecords: status.DroppedRecords}
-			if !status.LastFailureAt.IsZero() {
-				item.LastFailureAt = &status.LastFailureAt
-			}
-			response.Observability.Outputs[name] = item
+		status := health.Sink
+		response.Observability.Sink = OutputHealthDTO{Type: "fluent", Status: status.Status, QueuedRecords: status.QueuedRecords, QueuedBytes: status.QueuedBytes, DroppedRecords: status.DroppedRecords}
+		if !status.LastFailureAt.IsZero() {
+			response.Observability.Sink.LastFailureAt = &status.LastFailureAt
 		}
 	}
 	return &HealthOutputDTO{Body: response}, nil

@@ -94,7 +94,7 @@ type Observability struct {
 	InstanceID            string                `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
 	ResponseCaptureMemory ResponseCaptureMemory `json:"response-capture-memory" desc:"异步响应原文 Capture 的有界内存配置"`
 	Plugins               []ObservationPlugin   `json:"plugins"     desc:"内置观测插件列表"`
-	Outputs               []ObservabilityOutput `json:"outputs"     desc:"观测记录输出插件列表"`
+	Sink                  ObservabilitySink     `json:"sink"        desc:"唯一 Fluent 观测记录输出渠道"`
 }
 
 type ResponseCaptureMemory struct {
@@ -129,17 +129,13 @@ type LLMPerfPluginConfig struct {
 	MaxNestingDepth     int `json:"max-nesting-depth" desc:"JSON nesting limit"`
 }
 
-type ObservabilityOutput struct {
-	Name    string        `json:"name"    desc:"输出实例名称"`
-	Type    string        `json:"type"    desc:"输出类型：fluent"`
-	Enabled bool          `json:"enabled" desc:"是否启用输出"`
-	Routes  []string      `json:"routes"  desc:"接收的 record topic 路由"`
-	Workers int           `json:"workers" desc:"按 trace ID 分片的输出 worker 数"`
-	Queue   OutputQueue   `json:"queue"   desc:"Pipeline 输出队列配置"`
-	Fluent  *FluentOutput `json:"fluent,omitempty"  desc:"Fluent Forward 输出配置"`
+type ObservabilitySink struct {
+	Workers int          `json:"workers" desc:"按 trace ID 分片的 sink worker 数"`
+	Queue   SinkQueue    `json:"queue"   desc:"Pipeline sink 队列配置"`
+	Fluent  FluentOutput `json:"fluent"  desc:"Fluent Forward 输出配置"`
 }
 
-type OutputQueue struct {
+type SinkQueue struct {
 	Capacity int   `json:"capacity"  desc:"每个 worker 的记录队列容量"`
 	MaxBytes int64 `json:"max-bytes" desc:"输出所有 worker 合计的排队字节上限"`
 }
@@ -164,7 +160,6 @@ const (
 	ObservationPluginCapture  = "builtin.capture"
 	ObservationPluginLLMUsage = "builtin.llmusage"
 	ObservationPluginLLMPerf  = "builtin.llmperf"
-	ObservabilityOutputFluent = "fluent"
 )
 
 const (
@@ -304,18 +299,15 @@ func DefaultConfig() Config {
 				{Name: "llmusage", Type: ObservationPluginLLMUsage, LLMUsage: &LLMUsagePluginConfig{}},
 				{Name: "llmperf", Type: ObservationPluginLLMPerf, LLMPerf: &LLMPerfPluginConfig{}},
 			},
-			Outputs: []ObservabilityOutput{
-				{
-					Name: "fluent-primary", Type: ObservabilityOutputFluent, Enabled: false,
-					Routes: []string{"capture.**", "llm.usage.**", "llm.perf.**"}, Workers: 4,
-					Queue: OutputQueue{Capacity: 8192, MaxBytes: 256 << 20},
-					Fluent: &FluentOutput{
-						Endpoint: "unix:///run/fluent/fluent.sock", Connections: 4, ClientQueueCapacity: 1024,
-						ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
-						WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
-						RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
-						TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
-					},
+			Sink: ObservabilitySink{
+				Workers: 4,
+				Queue:   SinkQueue{Capacity: 8192, MaxBytes: 256 << 20},
+				Fluent: FluentOutput{
+					Endpoint: "unix:///run/fluent/fluent.sock", Connections: 4, ClientQueueCapacity: 1024,
+					ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
+					WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
+					RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
+					TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
 				},
 			},
 		},

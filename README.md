@@ -56,7 +56,7 @@ observability:
 - [`builtin.capture`](docs/plugin-capture.md)：请求、响应和生命周期审计；
 - [`builtin.llmusage`](docs/plugin-llmusage.md)：LLM token usage 提取；
 - [`builtin.llmperf`](docs/plugin-llmperf.md)：LLM 响应性能测量；
-- `fluent` output：按 topic 异步投递统一 `dproxy.event.v1` Record。
+- 唯一 Fluent sink：按 trace 分片、通过有界队列异步投递统一 `dproxy.event.v1` Record。
 
 完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，扩展架构见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
 

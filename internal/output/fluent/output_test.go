@@ -60,7 +60,7 @@ func TestOutputSendsAcknowledgedForwardRecord(t *testing.T) {
 	host, portValue, _ := net.SplitHostPort(listener.Addr().String())
 	port, _ := strconv.Atoi(portValue)
 	output := New(Config{
-		Name: "fluent-test", Endpoint: "tcp://" + net.JoinHostPort(host, strconv.Itoa(port)),
+		Endpoint:    "tcp://" + net.JoinHostPort(host, strconv.Itoa(port)),
 		Connections: 1, ClientQueueCapacity: 16, ConnectTimeout: time.Second, HandshakeTimeout: time.Second,
 		WriteTimeout: time.Second, ACKTimeout: time.Second, RetryMaxAttempts: 1,
 		RetryMinBackoff: time.Millisecond, RetryMaxBackoff: time.Millisecond, TagPrefix: "dproxy", DeliveryAtLeastOnce: true,

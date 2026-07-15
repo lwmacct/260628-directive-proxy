@@ -13,8 +13,7 @@ type HealthStatus struct {
 	DroppedRecords uint64    `json:"dropped_records,omitempty"`
 }
 
-type Output interface {
-	Name() string
+type Sink interface {
 	Start(context.Context) error
 	// Write must consume Record synchronously and must not retain it after return.
 	Write(context.Context, Record) error
@@ -22,9 +21,8 @@ type Output interface {
 	Close(context.Context) error
 }
 
-type OutputBinding struct {
-	Output        Output
-	Routes        []string
+type SinkConfig struct {
+	Sink          Sink
 	Workers       int
 	QueueCapacity int
 	QueueMaxBytes int64
@@ -37,5 +35,5 @@ type HealthProvider interface {
 type HealthSnapshot struct {
 	Status  string                  `json:"status"`
 	Plugins map[string]HealthStatus `json:"plugins"`
-	Outputs map[string]HealthStatus `json:"outputs"`
+	Sink    HealthStatus            `json:"sink"`
 }

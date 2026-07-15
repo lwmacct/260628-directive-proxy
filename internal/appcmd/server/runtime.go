@@ -153,35 +153,17 @@ func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*o
 			return nil, fmt.Errorf("unsupported observation plugin %q", configured.Type)
 		}
 	}
-	bindings := make([]observability.OutputBinding, 0, len(cfg.Outputs))
-	for _, configured := range cfg.Outputs {
-		if !configured.Enabled {
-			continue
-		}
-		switch configured.Type {
-		case config.ObservabilityOutputFluent:
-			if configured.Fluent == nil {
-				return nil, fmt.Errorf("fluent output config is missing")
-			}
-			fluentConfig := *configured.Fluent
-			output := fluentoutput.New(fluentoutput.Config{
-				Name: configured.Name, Endpoint: fluentConfig.Endpoint, Connections: fluentConfig.Connections,
-				ClientQueueCapacity: fluentConfig.ClientQueueCapacity, ConnectTimeout: fluentConfig.ConnectTimeout,
-				HandshakeTimeout: fluentConfig.HandshakeTimeout, WriteTimeout: fluentConfig.WriteTimeout,
-				ACKTimeout: fluentConfig.ACKTimeout, RetryMaxAttempts: fluentConfig.RetryMaxAttempts,
-				RetryMinBackoff: fluentConfig.RetryMinBackoff, RetryMaxBackoff: fluentConfig.RetryMaxBackoff,
-				TagPrefix: fluentConfig.TagPrefix, DeliveryAtLeastOnce: fluentConfig.Delivery == config.FluentDeliveryAtLeastOnce,
-				TLSInsecureSkipVerify: fluentConfig.TLSInsecureSkipVerify,
-			})
-			bindings = append(bindings, observability.OutputBinding{
-				Output: output, Routes: configured.Routes, Workers: configured.Workers,
-				QueueCapacity: configured.Queue.Capacity, QueueMaxBytes: configured.Queue.MaxBytes,
-			})
-		default:
-			return nil, fmt.Errorf("unsupported observability output %q", configured.Type)
-		}
-	}
-	return observability.NewPipeline(ctx, plugins, bindings)
+	fluentConfig := cfg.Sink.Fluent
+	output := fluentoutput.New(fluentoutput.Config{
+		Endpoint: fluentConfig.Endpoint, Connections: fluentConfig.Connections,
+		ClientQueueCapacity: fluentConfig.ClientQueueCapacity, ConnectTimeout: fluentConfig.ConnectTimeout,
+		HandshakeTimeout: fluentConfig.HandshakeTimeout, WriteTimeout: fluentConfig.WriteTimeout,
+		ACKTimeout: fluentConfig.ACKTimeout, RetryMaxAttempts: fluentConfig.RetryMaxAttempts,
+		RetryMinBackoff: fluentConfig.RetryMinBackoff, RetryMaxBackoff: fluentConfig.RetryMaxBackoff,
+		TagPrefix: fluentConfig.TagPrefix, DeliveryAtLeastOnce: fluentConfig.Delivery == config.FluentDeliveryAtLeastOnce,
+		TLSInsecureSkipVerify: fluentConfig.TLSInsecureSkipVerify,
+	})
+	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{Sink: output, Workers: cfg.Sink.Workers, QueueCapacity: cfg.Sink.Queue.Capacity, QueueMaxBytes: cfg.Sink.Queue.MaxBytes})
 }
 
 func newControlAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {

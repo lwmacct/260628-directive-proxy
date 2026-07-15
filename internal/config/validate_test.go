@@ -253,23 +253,21 @@ func TestValidateObservabilityConfiguration(t *testing.T) {
 		}
 	}
 	cfg := validDefaultConfig()
-	cfg.Observability.Outputs[0].Enabled = true
 	validated, err := Validate(cfg)
-	if err != nil || validated.Observability.Outputs[0].Fluent == nil || validated.Observability.Outputs[0].Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
+	if err != nil || validated.Observability.Sink.Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
 		t.Fatalf("valid observability config was rejected: cfg=%#v err=%v", validated.Observability, err)
 	}
 	for _, mutate := range []func(*Observability){
 		func(cfg *Observability) { cfg.Plugins[0].Capture.BodyChunkBytes = 0 },
 		func(cfg *Observability) { cfg.Plugins[0].Capture.MaxSSEEventBytes = 0 },
 		func(cfg *Observability) { cfg.Plugins[0].Capture.RedactHeaders = []string{"[invalid"} },
-		func(cfg *Observability) { cfg.Outputs[0].Fluent.Endpoint = "udp://127.0.0.1:24224" },
-		func(cfg *Observability) { cfg.Outputs[0].Fluent.Connections = 0 },
-		func(cfg *Observability) { cfg.Outputs[0].Fluent.ACKTimeout = 0 },
-		func(cfg *Observability) { cfg.Outputs[0].Fluent.Delivery = "exactly-once" },
-		func(cfg *Observability) { cfg.Outputs[0].Queue.MaxBytes = 0 },
+		func(cfg *Observability) { cfg.Sink.Fluent.Endpoint = "udp://127.0.0.1:24224" },
+		func(cfg *Observability) { cfg.Sink.Fluent.Connections = 0 },
+		func(cfg *Observability) { cfg.Sink.Fluent.ACKTimeout = 0 },
+		func(cfg *Observability) { cfg.Sink.Fluent.Delivery = "exactly-once" },
+		func(cfg *Observability) { cfg.Sink.Queue.MaxBytes = 0 },
 	} {
 		cfg := validDefaultConfig()
-		cfg.Observability.Outputs[0].Enabled = true
 		mutate(&cfg.Observability)
 		if _, err := Validate(cfg); err != ErrInvalidObservability {
 			t.Fatalf("expected invalid observability config, got %v", err)

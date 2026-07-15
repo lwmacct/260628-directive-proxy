@@ -44,7 +44,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	output := recordoutput.New("memory")
 	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(captureplugin.Config{
 		BodyChunkBytes: 8, MaxSSEEventBytes: 1024,
-	})}, []observability.OutputBinding{{Output: output, Routes: []string{"**"}, QueueCapacity: 1024, QueueMaxBytes: 8 << 20}})
+	})}, observability.SinkConfig{Sink: output, QueueCapacity: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +140,7 @@ func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	defer upstream.Close()
 
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{llmusageplugin.New(llmusageplugin.Config{})}, []observability.OutputBinding{{
-		Output: output, Routes: []string{"llm.usage.**"}, QueueCapacity: 128, QueueMaxBytes: 1 << 20,
-	}})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{llmusageplugin.New(llmusageplugin.Config{})}, observability.SinkConfig{Sink: output, QueueCapacity: 128, QueueMaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

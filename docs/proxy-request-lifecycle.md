@@ -12,7 +12,7 @@
 
 ## Signal pipeline
 
-Proxy、RetryTransport 和 downstream ResponseWriter 只产生进程内 Signal。流式响应 Signal 中的 body slice 是 borrowed memory，只在插件回调期间有效；插件必须同步解析或复制。请求正文例外：`RequestBodyAvailable` 暴露连续、不可变的 canonical body，异步 Record 必须取得 lease，最后一个 lease 释放时正文内存才归还。Pipeline 对每条 Record 建立共享资源引用，多个 output 共用同一 payload，最后一个 output 完成或丢弃后执行 release。
+Proxy、RetryTransport 和 downstream ResponseWriter 只产生进程内 Signal。流式响应 Signal 中的 body slice 是 borrowed memory，只在插件回调期间有效；插件必须同步解析或复制。请求正文例外：`RequestBodyAvailable` 暴露连续、不可变的 canonical body，异步 Record 必须取得 lease，sink 完成或丢弃后执行 release。
 
 请求正文准入流程为：验证 `Content-Length` -> 进入严格 FIFO 字节预算队列 -> 获得 reservation -> 设置 body read deadline -> 一次性读取准确长度 -> 发布不可变 body。排队阶段不会调用 `Body.Read`。未知长度返回 411，单体超限返回 413，队列满或等待超时返回 503。正文只驻留内存，不写临时文件，也不做分段存储。
 
@@ -39,10 +39,10 @@ Header 和 URL query 按插件配置的大小写不敏感 glob 脱敏。Body 默
 
 各内置插件的 directive spec、部署配置和 topic 见 [`docs/plugin-capture.md`](plugin-capture.md)、[`docs/plugin-llmusage.md`](plugin-llmusage.md) 和 [`docs/plugin-llmperf.md`](plugin-llmperf.md)。
 
-## Outputs and delivery
+## Fluent sink and delivery
 
-Output 按 topic route 接收 Record。每个 output 按 `trace_id` 分片到固定 worker，以保持单 trace 顺序；队列同时限制记录数和总字节数。队列满时丢弃新 Record 并将 output health 标记为 degraded，代理请求继续执行。
+唯一 Fluent sink 接收所有 Record，按 `trace_id` 分片到固定 worker，以保持单 trace 顺序；队列同时限制记录数和总字节数。队列满时丢弃新 Record 并将 sink health 标记为 degraded，代理请求继续执行。
 
-Fluent output 将 Record topic 作为 tag suffix，支持 MessagePack、亚秒时间戳和 `unconfirmed`/`at-least-once`。推荐本机 Fluentd Unix socket 配合文件 buffer。Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。
+Fluent sink 将 Record topic 作为 tag suffix，支持 MessagePack、亚秒时间戳和 `unconfirmed`/`at-least-once`。推荐本机 Fluentd Unix socket 配合文件 buffer。Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。
 
-启动阶段启用的 required output 无法连接会导致服务启动失败。运行阶段输出失败、队列溢出、插件 panic 会反映在 `/health.observability`；单个 LLM payload 的解析失败属于数据事件，不会把插件全局健康状态标成 degraded。
+启动阶段 Fluent sink 无法连接会导致服务启动失败。运行阶段 sink 失败、队列溢出、插件 panic 会反映在 `/health.observability`；单个 LLM payload 的解析失败属于数据事件，不会把插件全局健康状态标成 degraded。

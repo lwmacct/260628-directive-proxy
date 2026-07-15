@@ -24,7 +24,7 @@ type rotatingPrepared struct {
 }
 
 func TestRetryTransportRejectsDirectiveSpecForDisabledPluginBeforeUpstream(t *testing.T) {
-	pipeline, err := observability.NewPipeline(context.Background(), nil, nil)
+	pipeline, err := observability.NewPipeline(context.Background(), nil, observability.SinkConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

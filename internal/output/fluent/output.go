@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"hash/fnv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +15,6 @@ import (
 )
 
 type Config struct {
-	Name                  string
 	Endpoint              string
 	Connections           int
 	ClientQueueCapacity   int
@@ -43,10 +41,6 @@ type Output struct {
 }
 
 func New(config Config) *Output {
-	config.Name = strings.TrimSpace(config.Name)
-	if config.Name == "" {
-		config.Name = "fluent"
-	}
 	if config.Connections <= 0 {
 		config.Connections = 1
 	}
@@ -54,13 +48,6 @@ func New(config Config) *Output {
 		config.ClientQueueCapacity = 1024
 	}
 	return &Output{config: config}
-}
-
-func (o *Output) Name() string {
-	if o == nil {
-		return "fluent"
-	}
-	return o.config.Name
 }
 
 func (o *Output) Start(ctx context.Context) error {

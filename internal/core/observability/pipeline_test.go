@@ -52,9 +52,7 @@ func (*blockingOutput) Close(context.Context) error { return nil }
 func TestPipelineReleasesOwnedRecordAfterOutputReturns(t *testing.T) {
 	released := &atomic.Bool{}
 	output := &blockingOutput{started: make(chan struct{}), allow: make(chan struct{})}
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{ownedPlugin{released: released}}, []observability.OutputBinding{{
-		Output: output, Routes: []string{"owned.**"}, QueueCapacity: 1, QueueMaxBytes: 1024,
-	}})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{ownedPlugin{released: released}}, observability.SinkConfig{Sink: output, QueueCapacity: 1, QueueMaxBytes: 1024})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +78,9 @@ func (emittingTrace) Observe(signal observability.Signal, emitter observability.
 	emitter.Emit("test.record", signal.Attempt, map[string]any{"value": signal.Value})
 }
 
-func TestPipelineRoutesRecordsAndPreservesTraceSequence(t *testing.T) {
+func TestPipelineWritesRecordsAndPreservesTraceSequence(t *testing.T) {
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{emittingPlugin{}}, []observability.OutputBinding{{
-		Output: output, Routes: []string{"test.**"}, Workers: 2, QueueCapacity: 16, QueueMaxBytes: 1 << 20,
-	}})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{emittingPlugin{}}, observability.SinkConfig{Sink: output, Workers: 2, QueueCapacity: 16, QueueMaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +112,7 @@ type panicTrace struct{ observability.NopTraceObserver }
 func (panicTrace) Observe(observability.Signal, observability.Emitter) { panic("boom") }
 
 func TestPipelineContainsPluginPanics(t *testing.T) {
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{panicPlugin{}}, nil)
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{panicPlugin{}}, observability.SinkConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

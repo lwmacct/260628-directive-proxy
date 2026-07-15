@@ -11,7 +11,7 @@ type HealthResponseDTO struct {
 type ObservabilityHealthDTO struct {
 	Status  string                     `json:"status"`
 	Plugins map[string]PluginHealthDTO `json:"plugins"`
-	Outputs map[string]OutputHealthDTO `json:"outputs"`
+	Sink    OutputHealthDTO            `json:"sink"`
 }
 
 type PluginHealthDTO struct {
@@ -20,6 +20,7 @@ type PluginHealthDTO struct {
 }
 
 type OutputHealthDTO struct {
+	Type           string     `json:"type"`
 	Status         string     `json:"status"`
 	LastFailureAt  *time.Time `json:"last_failure_at,omitempty"`
 	QueuedRecords  int64      `json:"queued_records,omitempty"`

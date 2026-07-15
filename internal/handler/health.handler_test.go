@@ -14,16 +14,14 @@ func (s observabilityHealthStub) ObservabilityHealth() observability.HealthSnaps
 	return s.snapshot
 }
 
-func TestHealthReportsPluginAndOutputDegradation(t *testing.T) {
+func TestHealthReportsPluginAndSinkDegradation(t *testing.T) {
 	failureAt := time.Now().UTC().Add(-time.Second)
 	handler := &healthHandler{observability: observabilityHealthStub{snapshot: observability.HealthSnapshot{
 		Status: "degraded",
 		Plugins: map[string]observability.HealthStatus{
 			"llmusage": {Status: "ok"},
 		},
-		Outputs: map[string]observability.HealthStatus{
-			"fluent-primary": {Status: "degraded", LastFailureAt: failureAt, QueuedRecords: 3, QueuedBytes: 1024, DroppedRecords: 2},
-		},
+		Sink: observability.HealthStatus{Status: "degraded", LastFailureAt: failureAt, QueuedRecords: 3, QueuedBytes: 1024, DroppedRecords: 2},
 	}}}
 	response, err := handler.get(context.Background(), &struct{}{})
 	if err != nil {
@@ -32,7 +30,7 @@ func TestHealthReportsPluginAndOutputDegradation(t *testing.T) {
 	if response.Body.Status != "degraded" || response.Body.Observability.Plugins["llmusage"].Status != "ok" {
 		t.Fatalf("unexpected health response: %#v", response.Body)
 	}
-	output := response.Body.Observability.Outputs["fluent-primary"]
+	output := response.Body.Observability.Sink
 	if output.Status != "degraded" || output.DroppedRecords != 2 || output.LastFailureAt == nil || !output.LastFailureAt.Equal(failureAt) {
 		t.Fatalf("unexpected output health: %#v", output)
 	}

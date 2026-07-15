@@ -146,48 +146,14 @@ func validateObservability(cfg Observability) (Observability, error) {
 			return cfg, ErrInvalidObservability
 		}
 	}
-	outputNames := make(map[string]struct{}, len(cfg.Outputs))
-	enabledOutputs := 0
-	for index := range cfg.Outputs {
-		output := &cfg.Outputs[index]
-		output.Name = strings.TrimSpace(output.Name)
-		output.Type = strings.TrimSpace(output.Type)
-		if !validComponentName(output.Name) || output.Type == "" {
-			return cfg, ErrInvalidObservability
-		}
-		if _, exists := outputNames[output.Name]; exists {
-			return cfg, ErrInvalidObservability
-		}
-		outputNames[output.Name] = struct{}{}
-		if !output.Enabled {
-			continue
-		}
-		enabledOutputs++
-		if output.Workers <= 0 || output.Queue.Capacity <= 0 || output.Queue.MaxBytes <= 0 || len(output.Routes) == 0 {
-			return cfg, ErrInvalidObservability
-		}
-		for routeIndex, route := range output.Routes {
-			route = strings.TrimSpace(route)
-			if route == "" || strings.ContainsAny(route, "\x00\r\n") {
-				return cfg, ErrInvalidObservability
-			}
-			output.Routes[routeIndex] = route
-		}
-		switch output.Type {
-		case ObservabilityOutputFluent:
-			if output.Fluent == nil {
-				return cfg, ErrInvalidObservability
-			}
-			validated, err := validateFluentOutput(*output.Fluent)
-			if err != nil {
-				return cfg, err
-			}
-			output.Fluent = &validated
-		default:
-			return cfg, ErrInvalidObservability
-		}
+	if cfg.Sink.Workers <= 0 || cfg.Sink.Queue.Capacity <= 0 || cfg.Sink.Queue.MaxBytes <= 0 {
+		return cfg, ErrInvalidObservability
 	}
-	_ = enabledOutputs
+	validatedFluent, err := validateFluentOutput(cfg.Sink.Fluent)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Sink.Fluent = validatedFluent
 	return cfg, nil
 }
 
