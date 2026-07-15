@@ -18,7 +18,7 @@ func New(name string) *Output {
 
 func (*Output) Start(context.Context) error { return nil }
 
-func (o *Output) Write(_ context.Context, record observability.Record) error {
+func (o *Output) Write(_ context.Context, _ int, record observability.Record) error {
 	o.mu.Lock()
 	o.records = append(o.records, record)
 	o.mu.Unlock()

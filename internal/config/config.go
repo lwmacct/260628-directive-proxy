@@ -25,7 +25,7 @@ var (
 type Config struct {
 	Server        Server        `json:"server"        desc:"服务运行配置"`
 	Proxy         Proxy         `json:"proxy"         desc:"代理配置"`
-	Observability Observability `json:"observability" desc:"可观测插件与输出配置"`
+	Observability Observability `json:"observability" desc:"可观测输出配置"`
 }
 
 type Server struct {
@@ -91,59 +91,20 @@ type ProxyBodyMemory struct {
 }
 
 type Observability struct {
-	InstanceID            string                `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
-	ResponseCaptureMemory ResponseCaptureMemory `json:"response-capture-memory" desc:"异步响应原文 Capture 的有界内存配置"`
-	Plugins               []ObservationPlugin   `json:"plugins"     desc:"内置观测插件列表"`
-	Sink                  ObservabilitySink     `json:"sink"        desc:"唯一 Fluent 观测记录输出渠道"`
-}
-
-type ResponseCaptureMemory struct {
-	MaxRetainedBytes int64  `json:"max-retained-bytes" desc:"等待输出完成的响应原文最大字节数"`
-	Overflow         string `json:"overflow" desc:"达到响应 Capture 内存上限后的行为：drop 或 backpressure"`
-}
-
-type ObservationPlugin struct {
-	Name     string                `json:"name"      desc:"插件实例名称"`
-	Type     string                `json:"type"      desc:"插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf"`
-	Capture  *CapturePluginConfig  `json:"capture,omitempty"   desc:"builtin.capture 配置"`
-	LLMUsage *LLMUsagePluginConfig `json:"llmusage,omitempty" desc:"builtin.llmusage 配置"`
-	LLMPerf  *LLMPerfPluginConfig  `json:"llmperf,omitempty"  desc:"builtin.llmperf 配置"`
-}
-
-type CapturePluginConfig struct {
-	BodyChunkBytes   int      `json:"body-chunk-bytes"    desc:"请求和响应正文单条记录的最大字节数"`
-	MaxSSEEventBytes int      `json:"max-sse-event-bytes" desc:"单条 SSE 语义事件解析缓冲上限"`
-	RedactHeaders    []string `json:"redact-headers"      desc:"需要脱敏的 HTTP header 名称或 glob"`
-	RedactQuery      []string `json:"redact-query"        desc:"需要脱敏的 URL query 参数名称或 glob"`
-}
-
-type LLMUsagePluginConfig struct {
-	MaxSSEMetadataBytes int `json:"max-sse-metadata-bytes" desc:"单个 SSE event metadata 保留上限，0 使用库默认值"`
-	MaxResultBytes      int `json:"max-result-bytes"       desc:"协议识别字段和 raw usage 保留上限，0 使用库默认值"`
-	MaxNestingDepth     int `json:"max-nesting-depth"      desc:"JSON 最大嵌套深度，0 使用库默认值"`
-}
-
-type LLMPerfPluginConfig struct {
-	MaxSSEMetadataBytes int `json:"max-sse-metadata-bytes" desc:"SSE metadata retention limit"`
-	MaxRetainedBytes    int `json:"max-retained-bytes" desc:"response event retention limit"`
-	MaxNestingDepth     int `json:"max-nesting-depth" desc:"JSON nesting limit"`
-}
-
-type ObservabilitySink struct {
-	Workers int          `json:"workers" desc:"按 trace ID 分片的 sink worker 数"`
-	Queue   SinkQueue    `json:"queue"   desc:"Pipeline sink 队列配置"`
-	Fluent  FluentOutput `json:"fluent"  desc:"Fluent Forward 输出配置"`
+	InstanceID string       `json:"instance-id" desc:"写入观测记录的代理实例标识，留空使用主机名"`
+	Fluent     FluentOutput `json:"fluent"      desc:"Fluent Forward 观测输出配置；关闭时禁用所有观测插件"`
 }
 
 type SinkQueue struct {
-	Capacity int   `json:"capacity"  desc:"每个 worker 的记录队列容量"`
-	MaxBytes int64 `json:"max-bytes" desc:"输出所有 worker 合计的排队字节上限"`
+	MaxRecords int   `json:"max-records" desc:"所有 Fluent 连接合计的排队记录上限"`
+	MaxBytes   int64 `json:"max-bytes"   desc:"所有 Fluent 连接合计的排队字节上限"`
 }
 
 type FluentOutput struct {
+	Enabled               bool          `json:"enabled"                  desc:"是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求"`
 	Endpoint              string        `json:"endpoint"                 desc:"Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss"`
-	Connections           int           `json:"connections"              desc:"按 trace ID 分片的 Fluent 客户端数"`
-	ClientQueueCapacity   int           `json:"client-queue-capacity"    desc:"每个 Fluent client 的内部发送队列容量"`
+	Connections           int           `json:"connections"              desc:"按 trace ID 分片的 Fluent 连接与发送并行度"`
+	Queue                 SinkQueue     `json:"queue"                    desc:"Fluent 异步输出队列配置"`
 	ConnectTimeout        time.Duration `json:"connect-timeout"          desc:"Fluent 建连超时"`
 	HandshakeTimeout      time.Duration `json:"handshake-timeout"        desc:"Fluent Forward 握手超时"`
 	WriteTimeout          time.Duration `json:"write-timeout"            desc:"Fluent 单条记录写入超时"`
@@ -155,12 +116,6 @@ type FluentOutput struct {
 	Delivery              string        `json:"delivery"                 desc:"Fluent 投递模式：unconfirmed 或 at-least-once"`
 	TLSInsecureSkipVerify bool          `json:"tls-insecure-skip-verify" desc:"是否跳过 Fluent TLS 证书验证，仅用于开发"`
 }
-
-const (
-	ObservationPluginCapture  = "builtin.capture"
-	ObservationPluginLLMUsage = "builtin.llmusage"
-	ObservationPluginLLMPerf  = "builtin.llmperf"
-)
 
 const (
 	FluentDeliveryUnconfirmed = "unconfirmed"
@@ -286,29 +241,13 @@ func DefaultConfig() Config {
 			},
 		},
 		Observability: Observability{
-			ResponseCaptureMemory: ResponseCaptureMemory{MaxRetainedBytes: 256 << 20, Overflow: "drop"},
-			Plugins: []ObservationPlugin{
-				{
-					Name: "capture", Type: ObservationPluginCapture,
-					Capture: &CapturePluginConfig{
-						BodyChunkBytes: 32 << 10, MaxSSEEventBytes: 1 << 20,
-						RedactHeaders: []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"},
-						RedactQuery:   []string{"access_token", "api_key", "apikey", "key", "token"},
-					},
-				},
-				{Name: "llmusage", Type: ObservationPluginLLMUsage, LLMUsage: &LLMUsagePluginConfig{}},
-				{Name: "llmperf", Type: ObservationPluginLLMPerf, LLMPerf: &LLMPerfPluginConfig{}},
-			},
-			Sink: ObservabilitySink{
-				Workers: 4,
-				Queue:   SinkQueue{Capacity: 8192, MaxBytes: 256 << 20},
-				Fluent: FluentOutput{
-					Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4, ClientQueueCapacity: 1024,
-					ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
-					WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
-					RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
-					TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
-				},
+			Fluent: FluentOutput{
+				Enabled: false, Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4,
+				Queue:          SinkQueue{MaxRecords: 8192, MaxBytes: 256 << 20},
+				ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
+				WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
+				RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,
+				TagPrefix: "dproxy", Delivery: FluentDeliveryAtLeastOnce,
 			},
 		},
 	}

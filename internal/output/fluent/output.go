@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +16,6 @@ import (
 type Config struct {
 	Endpoint              string
 	Connections           int
-	ClientQueueCapacity   int
 	ConnectTimeout        time.Duration
 	HandshakeTimeout      time.Duration
 	WriteTimeout          time.Duration
@@ -44,9 +42,6 @@ func New(config Config) *Output {
 	if config.Connections <= 0 {
 		config.Connections = 1
 	}
-	if config.ClientQueueCapacity <= 0 {
-		config.ClientQueueCapacity = 1024
-	}
 	return &Output{config: config}
 }
 
@@ -66,7 +61,7 @@ func (o *Output) Start(ctx context.Context) error {
 	for range o.config.Connections {
 		clientConfig := fluent.DefaultConfig(o.config.Endpoint)
 		clientConfig.TagPrefix = o.config.TagPrefix
-		clientConfig.Queue.Capacity = o.config.ClientQueueCapacity
+		clientConfig.Queue.Capacity = 1
 		clientConfig.Retry.MaxAttempts = o.config.RetryMaxAttempts
 		clientConfig.Retry.MinBackoff = o.config.RetryMinBackoff
 		clientConfig.Retry.MaxBackoff = o.config.RetryMaxBackoff
@@ -98,7 +93,7 @@ func (o *Output) Start(ctx context.Context) error {
 	return nil
 }
 
-func (o *Output) Write(ctx context.Context, record observability.Record) error {
+func (o *Output) Write(ctx context.Context, shard int, record observability.Record) error {
 	if o == nil {
 		return fmt.Errorf("fluent output is nil")
 	}
@@ -107,7 +102,10 @@ func (o *Output) Write(ctx context.Context, record observability.Record) error {
 	if !o.started || o.closed || len(o.clients) == 0 {
 		return fmt.Errorf("fluent output is unavailable")
 	}
-	client := o.clients[clientIndex(record.TraceID, len(o.clients))]
+	if shard < 0 {
+		shard = 0
+	}
+	client := o.clients[shard%len(o.clients)]
 	err := client.Send(ctx, fluent.Event{Tag: record.Topic, Time: record.Time, Record: record.Map()})
 	if err != nil {
 		o.healthy.Store(false)
@@ -162,13 +160,4 @@ func closeClients(clients []*fluent.Client) {
 	for _, client := range clients {
 		_ = client.Close()
 	}
-}
-
-func clientIndex(traceID string, count int) int {
-	if count <= 1 {
-		return 0
-	}
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(traceID))
-	return int(hasher.Sum32() % uint32(count))
 }

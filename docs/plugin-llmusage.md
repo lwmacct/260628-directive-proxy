@@ -7,7 +7,10 @@
   "plugins": {
     "llmusage": {
       "protocol": "openai.responses",
-      "labels": { "provider": "openai", "account": "primary" }
+      "labels": { "provider": "openai", "account": "primary" },
+      "max-sse-metadata-bytes": 0,
+      "max-result-bytes": 0,
+      "max-nesting-depth": 0
     }
   }
 }
@@ -27,18 +30,7 @@
 
 响应 `Content-Type` 决定使用 JSON 或 SSE decoder。非 identity 的 `Content-Encoding` 不会被解析。
 
-## 部署配置
-
-```yaml
-- name: llmusage
-  type: builtin.llmusage
-  llmusage:
-    max-sse-metadata-bytes: 0
-    max-result-bytes: 0
-    max-nesting-depth: 0
-```
-
-`0` 表示使用底层库默认值。这些字段只限制 decoder 状态、结果大小和 JSON 嵌套深度，不会自动为请求启用插件。
+`max-sse-metadata-bytes`、`max-result-bytes` 和 `max-nesting-depth` 都是 directive 参数；`0` 表示使用底层库默认值。代理分别限制其最大值为 1 MiB、16 MiB 和 256。不存在部署级 LLM Usage 插件配置。
 
 ## 输出事件
 

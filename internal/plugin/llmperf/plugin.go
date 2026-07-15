@@ -1,6 +1,7 @@
 package llmperfplugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,25 +20,19 @@ const (
 	DirectiveName = "llmperf"
 )
 
-type Config struct {
-	Name                string
-	MaxSSEMetadataBytes int
-	MaxRetainedBytes    int
-	MaxNestingDepth     int
-}
-
 type Spec struct {
-	Protocol llmperf.Protocol  `json:"protocol"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	Protocol            llmperf.Protocol  `json:"protocol"`
+	Labels              map[string]string `json:"labels,omitempty"`
+	MaxSSEMetadataBytes int               `json:"max-sse-metadata-bytes,omitempty"`
+	MaxRetainedBytes    int               `json:"max-retained-bytes,omitempty"`
+	MaxNestingDepth     int               `json:"max-nesting-depth,omitempty"`
 }
 
 type Plugin struct {
-	name   string
-	config Config
+	spec Spec
 }
 
 type traceObserver struct {
-	config    Config
 	requestAt time.Time
 	lastAt    time.Time
 	decoder   *llmperf.Decoder
@@ -47,25 +42,24 @@ type traceObserver struct {
 	attempt   int
 }
 
-func New(config Config) *Plugin {
-	name := strings.TrimSpace(config.Name)
-	if name == "" {
-		name = Name
-	}
-	return &Plugin{name: name, config: config}
-}
+func New() *Plugin { return &Plugin{} }
 
 func (p *Plugin) Name() string {
-	if p == nil || p.name == "" {
-		return Name
-	}
-	return p.name
+	return Name
 }
 
 func (*Plugin) DirectiveName() string { return DirectiveName }
 
-func (*Plugin) ValidateSpec(raw []byte) error {
-	_, err := decodeSpec(raw)
+func (*Plugin) ConfigureSpec(raw []byte) (observability.Plugin, error) {
+	spec, err := decodeSpec(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &Plugin{spec: spec}, nil
+}
+
+func (p *Plugin) ValidateSpec(raw []byte) error {
+	_, err := p.ConfigureSpec(raw)
 	return err
 }
 
@@ -73,7 +67,7 @@ func (p *Plugin) NewTrace(observability.TraceContext) observability.TraceObserve
 	if p == nil {
 		return nil
 	}
-	return &traceObserver{config: p.config}
+	return &traceObserver{spec: p.spec}
 }
 
 func (t *traceObserver) Observe(signal observability.Signal, emitter observability.Emitter) {
@@ -100,26 +94,20 @@ func (t *traceObserver) start(attempt int, at time.Time, response observability.
 	if t.started || t.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
-	raw, enabled := response.PluginSpecs[DirectiveName]
-	if !enabled {
-		return
-	}
-	spec, err := decodeSpec(raw)
-	if err != nil {
-		t.emitFailure(attempt, "spec", err, emitter)
-		return
-	}
 	format, ok := responseFormat(response.Header.Get("Content-Type"))
 	if !ok {
 		t.emitFailure(attempt, "content_type", fmt.Errorf("unsupported content type"), emitter)
 		return
 	}
-	protocol := spec.Protocol
+	protocol := t.spec.Protocol
 	if protocol == llmperf.ProtocolAuto && format != llmperf.FormatSSE {
 		t.emitFailure(attempt, "options", errors.New("auto protocol requires SSE"), emitter)
 		return
 	}
-	decoder, err := llmperf.NewDecoder(llmperf.Options{Protocol: protocol, Format: format, RequestStartedAt: t.requestAt, MaxSSEMetadataBytes: t.config.MaxSSEMetadataBytes, MaxRetainedBytes: t.config.MaxRetainedBytes, MaxNestingDepth: t.config.MaxNestingDepth})
+	decoder, err := llmperf.NewDecoder(llmperf.Options{
+		Protocol: protocol, Format: format, RequestStartedAt: t.requestAt,
+		MaxSSEMetadataBytes: t.spec.MaxSSEMetadataBytes, MaxRetainedBytes: t.spec.MaxRetainedBytes, MaxNestingDepth: t.spec.MaxNestingDepth,
+	})
 	if err != nil {
 		t.emitFailure(attempt, "decoder", err, emitter)
 		return
@@ -128,7 +116,7 @@ func (t *traceObserver) start(attempt int, at time.Time, response observability.
 		t.emitFailure(attempt, "headers", err, emitter)
 		return
 	}
-	t.spec, t.decoder, t.attempt, t.started = spec, decoder, attempt, true
+	t.decoder, t.attempt, t.started = decoder, attempt, true
 }
 
 func (t *traceObserver) feed(at time.Time, data []byte, emitter observability.Emitter) {
@@ -169,11 +157,14 @@ func (t *traceObserver) emitFailure(attempt int, stage string, err error, emitte
 }
 
 func decodeSpec(raw []byte) (Spec, error) {
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var spec Spec
 	if err := decoder.Decode(&spec); err != nil {
 		return Spec{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return Spec{}, errors.New("multiple JSON values")
 	}
 	if spec.Protocol == "" {
 		return Spec{}, errors.New("protocol is required")
@@ -185,6 +176,20 @@ func decodeSpec(raw []byte) (Spec, error) {
 	}
 	if len(spec.Labels) > 16 {
 		return Spec{}, errors.New("too many labels")
+	}
+	for name, value := range spec.Labels {
+		if name == "" || name != strings.TrimSpace(name) || len(name) > 64 || value == "" || value != strings.TrimSpace(value) || len(value) > 256 || strings.ContainsAny(name+value, "\r\n\x00") {
+			return Spec{}, errors.New("invalid label")
+		}
+	}
+	if spec.MaxSSEMetadataBytes < 0 || spec.MaxSSEMetadataBytes > 1<<20 {
+		return Spec{}, fmt.Errorf("max-sse-metadata-bytes must be between 0 and %d", 1<<20)
+	}
+	if spec.MaxRetainedBytes < 0 || spec.MaxRetainedBytes > 16<<20 {
+		return Spec{}, fmt.Errorf("max-retained-bytes must be between 0 and %d", 16<<20)
+	}
+	if spec.MaxNestingDepth < 0 || spec.MaxNestingDepth > 256 {
+		return Spec{}, errors.New("max-nesting-depth must be between 0 and 256")
 	}
 	return spec, nil
 }

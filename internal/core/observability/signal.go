@@ -49,7 +49,6 @@ type DirectiveResolved struct {
 	TargetChanged bool
 	PlanChanged   bool
 	Metadata      requestmeta.Metadata
-	PluginSpecs   map[string][]byte
 }
 
 type DirectiveFailed struct {
@@ -81,7 +80,6 @@ type UpstreamResponseStarted struct {
 	StatusCode      int
 	Header          http.Header
 	AttemptMetadata requestmeta.Metadata
-	PluginSpecs     map[string][]byte
 }
 
 type DownstreamResponseStarted struct {

@@ -17,9 +17,8 @@ import (
 )
 
 func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
-	pipeline, output := newCapturePipeline(t, captureplugin.Config{
-		BodyChunkBytes: 4, MaxSSEEventBytes: 1024, RedactHeaders: []string{"authorization"}, RedactQuery: []string{"token"},
-	})
+	pipeline, output := newCapturePipeline(t)
+	captureSpec := []byte(`{"body-chunk-bytes":4,"max-sse-event-bytes":1024,"redact-headers":["authorization"],"redact-query":["token"]}`)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 3, InstanceID: "test-instance",
 	}, pipeline)
@@ -35,7 +34,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 
 	canceled := false
 	attempt := session.BeginAttempt(func() { canceled = true }, "inline", "", "", "")
-	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": captureSpec}); err != nil {
 		t.Fatal(err)
 	}
 	session.BindMetadata(attempt, requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}})
@@ -55,7 +54,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 		t.Fatalf("unexpected attempt action: %v", action)
 	}
 	attempt = session.BeginAttempt(func() {}, "inline", "", "", "")
-	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": captureSpec}); err != nil {
 		t.Fatal(err)
 	}
 	if attempt != 2 {
@@ -117,7 +116,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 }
 
 func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
-	pipeline, output := newCapturePipeline(t, captureplugin.Config{})
+	pipeline, output := newCapturePipeline(t)
 	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, pipeline)
 	newActive := func(path string, seed byte, canceled *bool) (proxyrequest.Session, proxyrequest.Identity, [32]byte) {
 		identity, digest := testIdentity(t, seed)
@@ -166,13 +165,13 @@ func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
 }
 
 func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
-	pipeline, output := newCapturePipeline(t, captureplugin.Config{RedactHeaders: []string{"x-dproxy-secret-*"}})
+	pipeline, output := newCapturePipeline(t)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 2,
 	}, pipeline)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
-	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}); err != nil {
 		t.Fatal(err)
 	}
 	session.BindMetadata(attempt, requestmeta.Metadata{
@@ -194,6 +193,25 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 		return
 	}
 	t.Fatal("metadata capture event was not emitted")
+}
+
+func TestEnabledObservabilityRejectsUnknownOrInvalidDirectivePlugins(t *testing.T) {
+	pipeline, _ := newCapturePipeline(t)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, pipeline)
+	for _, specs := range []map[string][]byte{
+		{"missing-plugin": []byte(`{}`)},
+		{"capture": []byte(`{"body-chunk-bytes":-1}`)},
+	} {
+		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
+		attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
+		if err := session.ConfigureAttempt(attempt, specs); err == nil {
+			t.Fatalf("invalid directive plugin was accepted: %#v", specs)
+		}
+		session.Complete()
+	}
+	if err := pipeline.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
@@ -250,10 +268,10 @@ func TestProxyRequestTrackerRejectsDuplicateRetryID(t *testing.T) {
 	}
 }
 
-func newCapturePipeline(t *testing.T, config captureplugin.Config) (*observability.Pipeline, *recordoutput.Output) {
+func newCapturePipeline(t *testing.T) (*observability.Pipeline, *recordoutput.Output) {
 	t.Helper()
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(config)}, observability.SinkConfig{Sink: output, QueueCapacity: 1024, QueueMaxBytes: 8 << 20})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

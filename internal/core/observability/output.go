@@ -16,16 +16,17 @@ type HealthStatus struct {
 type Sink interface {
 	Start(context.Context) error
 	// Write must consume Record synchronously and must not retain it after return.
-	Write(context.Context, Record) error
+	// shard identifies the worker and lets a partitioned sink bind it to one connection.
+	Write(context.Context, int, Record) error
 	Health() HealthStatus
 	Close(context.Context) error
 }
 
 type SinkConfig struct {
-	Sink          Sink
-	Workers       int
-	QueueCapacity int
-	QueueMaxBytes int64
+	Sink            Sink
+	Workers         int
+	QueueMaxRecords int
+	QueueMaxBytes   int64
 }
 
 type HealthProvider interface {
@@ -33,6 +34,7 @@ type HealthProvider interface {
 }
 
 type HealthSnapshot struct {
+	Enabled bool                    `json:"enabled"`
 	Status  string                  `json:"status"`
 	Plugins map[string]HealthStatus `json:"plugins"`
 	Sink    HealthStatus            `json:"sink"`

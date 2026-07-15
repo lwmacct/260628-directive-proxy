@@ -19,25 +19,19 @@ const (
 	DirectiveName = "llmusage"
 )
 
-type Config struct {
-	Name                string
-	MaxSSEMetadataBytes int
-	MaxResultBytes      int
-	MaxNestingDepth     int
-}
-
 type Spec struct {
-	Protocol llmusage.Protocol `json:"protocol"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	Protocol            llmusage.Protocol `json:"protocol"`
+	Labels              map[string]string `json:"labels,omitempty"`
+	MaxSSEMetadataBytes int               `json:"max-sse-metadata-bytes,omitempty"`
+	MaxResultBytes      int               `json:"max-result-bytes,omitempty"`
+	MaxNestingDepth     int               `json:"max-nesting-depth,omitempty"`
 }
 
 type Plugin struct {
-	name   string
-	config Config
+	spec Spec
 }
 
 type traceObserver struct {
-	config   Config
 	decoder  *llmusage.Decoder
 	spec     Spec
 	format   llmusage.Format
@@ -47,24 +41,23 @@ type traceObserver struct {
 	finished bool
 }
 
-func New(config Config) *Plugin {
-	name := strings.TrimSpace(config.Name)
-	if name == "" {
-		name = Name
-	}
-	return &Plugin{name: name, config: config}
-}
+func New() *Plugin { return &Plugin{} }
 
 func (p *Plugin) Name() string {
-	if p == nil || p.name == "" {
-		return Name
-	}
-	return p.name
+	return Name
 }
 func (*Plugin) DirectiveName() string { return DirectiveName }
 
-func (*Plugin) ValidateSpec(raw []byte) error {
-	_, err := decodeSpec(raw)
+func (*Plugin) ConfigureSpec(raw []byte) (observability.Plugin, error) {
+	spec, err := decodeSpec(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &Plugin{spec: spec}, nil
+}
+
+func (p *Plugin) ValidateSpec(raw []byte) error {
+	_, err := p.ConfigureSpec(raw)
 	return err
 }
 
@@ -72,7 +65,7 @@ func (p *Plugin) NewTrace(observability.TraceContext) observability.TraceObserve
 	if p == nil {
 		return nil
 	}
-	return &traceObserver{config: p.config}
+	return &traceObserver{spec: p.spec}
 }
 
 func (t *traceObserver) Observe(signal observability.Signal, emitter observability.Emitter) {
@@ -94,16 +87,6 @@ func (t *traceObserver) start(attempt int, response observability.UpstreamRespon
 	if t.decoder != nil || t.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
-	raw, enabled := response.PluginSpecs[DirectiveName]
-	if !enabled {
-		return
-	}
-	spec, err := decodeSpec(raw)
-	if err != nil {
-		t.emitFailure(attempt, "spec", err, emitter)
-		return
-	}
-	t.spec = spec
 	t.attempt = attempt
 	contentEncoding := strings.TrimSpace(response.Header.Get("Content-Encoding"))
 	if contentEncoding != "" && !strings.EqualFold(contentEncoding, "identity") {
@@ -116,11 +99,11 @@ func (t *traceObserver) start(attempt int, response observability.UpstreamRespon
 		return
 	}
 	decoder, err := llmusage.NewDecoder(llmusage.Options{
-		Protocol:            spec.Protocol,
+		Protocol:            t.spec.Protocol,
 		Format:              format,
-		MaxSSEMetadataBytes: t.config.MaxSSEMetadataBytes,
-		MaxResultBytes:      t.config.MaxResultBytes,
-		MaxNestingDepth:     t.config.MaxNestingDepth,
+		MaxSSEMetadataBytes: t.spec.MaxSSEMetadataBytes,
+		MaxResultBytes:      t.spec.MaxResultBytes,
+		MaxNestingDepth:     t.spec.MaxNestingDepth,
 	})
 	if err != nil {
 		t.emitFailure(attempt, "decoder", err, emitter)
@@ -228,6 +211,15 @@ func decodeSpec(raw []byte) (Spec, error) {
 		if name == "" || name != strings.TrimSpace(name) || len(name) > 64 || value == "" || value != strings.TrimSpace(value) || len(value) > 256 || strings.ContainsAny(name+value, "\r\n\x00") {
 			return Spec{}, fmt.Errorf("invalid label")
 		}
+	}
+	if spec.MaxSSEMetadataBytes < 0 || spec.MaxSSEMetadataBytes > 1<<20 {
+		return Spec{}, fmt.Errorf("max-sse-metadata-bytes must be between 0 and %d", 1<<20)
+	}
+	if spec.MaxResultBytes < 0 || spec.MaxResultBytes > 16<<20 {
+		return Spec{}, fmt.Errorf("max-result-bytes must be between 0 and %d", 16<<20)
+	}
+	if spec.MaxNestingDepth < 0 || spec.MaxNestingDepth > 256 {
+		return Spec{}, fmt.Errorf("max-nesting-depth must be between 0 and 256")
 	}
 	return spec, nil
 }

@@ -41,7 +41,6 @@ type proxyRequestSession struct {
 	metadata              requestmeta.Metadata
 	metadataBound         bool
 	attemptMeta           requestmeta.Metadata
-	pluginSpecs           map[string][]byte
 	retryResults          map[int]proxyrequest.RetryResult
 	state                 proxyrequest.State
 	attempt               int
@@ -180,7 +179,6 @@ func (s *proxyRequestSession) BeginAttempt(cancel func(), mode, backend, endpoin
 		s.upstreamAt = time.Time{}
 		s.cancelAttempt = cancel
 		s.attemptMeta = nil
-		s.pluginSpecs = nil
 		s.attemptStarted = observability.AttemptStarted{Mode: mode, Backend: backend, Endpoint: endpoint, Key: key}
 		s.state = proxyrequest.StateResolvingDirective
 		attempt = s.attempt
@@ -231,12 +229,10 @@ func (s *proxyRequestSession) ConfigureAttempt(attempt int, specs map[string][]b
 	if s == nil {
 		return nil
 	}
-	if s.service.pipeline == nil {
-		if len(specs) > 0 {
-			return fmt.Errorf("observability pipeline is unavailable")
-		}
-	} else if err := s.service.pipeline.ValidatePluginSpecs(specs); err != nil {
-		return err
+	current := false
+	s.invoke(func() { current = s.attempt == attempt })
+	if !current {
+		return context.Canceled
 	}
 	if s.trace != nil {
 		if err := s.trace.ReplacePlugins(specs); err != nil {
@@ -248,16 +244,6 @@ func (s *proxyRequestSession) ConfigureAttempt(attempt int, specs map[string][]b
 		}
 		s.trace.Observe(observability.Signal{Attempt: attempt, ObservedAt: s.attemptAt, Value: s.attemptStarted})
 	}
-	configured := false
-	s.invoke(func() {
-		if s.attempt == attempt {
-			s.pluginSpecs = clonePluginSpecs(specs)
-			configured = true
-		}
-	})
-	if !configured {
-		return context.Canceled
-	}
 	return nil
 }
 
@@ -266,17 +252,15 @@ func (s *proxyRequestSession) DirectiveResolved(attempt int, target *url.URL, du
 		return
 	}
 	var metadata requestmeta.Metadata
-	var pluginSpecs map[string][]byte
 	s.invoke(func() {
 		if s.attempt == attempt {
 			s.targetURL = redactURL(target.String())
 		}
 		metadata = requestmeta.Clone(s.attemptMeta)
-		pluginSpecs = clonePluginSpecs(s.pluginSpecs)
 	})
 	s.observe(attempt, observability.DirectiveResolved{
 		Duration: duration, PayloadSHA256: payloadSHA256, Target: cloneURL(target), TargetChanged: targetChanged,
-		PlanChanged: planChanged, Metadata: metadata, PluginSpecs: pluginSpecs,
+		PlanChanged: planChanged, Metadata: metadata,
 	})
 }
 
@@ -345,13 +329,11 @@ func (s *proxyRequestSession) ObserveUpstreamResponse(attempt int, response *htt
 		return
 	}
 	var metadata requestmeta.Metadata
-	var pluginSpecs map[string][]byte
 	s.invoke(func() {
 		metadata = requestmeta.Clone(s.attemptMeta)
-		pluginSpecs = clonePluginSpecs(s.pluginSpecs)
 	})
 	s.observe(attempt, observability.UpstreamResponseStarted{
-		StatusCode: response.StatusCode, Header: response.Header, AttemptMetadata: metadata, PluginSpecs: pluginSpecs,
+		StatusCode: response.StatusCode, Header: response.Header, AttemptMetadata: metadata,
 	})
 	response.Body = &observedResponseBody{ReadCloser: response.Body, session: s, attempt: attempt}
 }
@@ -501,17 +483,6 @@ func redactURL(raw string) string {
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.Redacted()
-}
-
-func clonePluginSpecs(in map[string][]byte) map[string][]byte {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string][]byte, len(in))
-	for name, raw := range in {
-		out[name] = append([]byte(nil), raw...)
-	}
-	return out
 }
 
 func cloneURL(in *url.URL) *url.URL {

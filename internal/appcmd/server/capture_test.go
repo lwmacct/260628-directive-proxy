@@ -42,9 +42,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	defer upstream.Close()
 
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New(captureplugin.Config{
-		BodyChunkBytes: 8, MaxSSEEventBytes: 1024,
-	})}, observability.SinkConfig{Sink: output, QueueCapacity: 1024, QueueMaxBytes: 8 << 20})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +60,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
 		Target:  directive.TargetSection{URL: upstream.URL},
-		Plugins: map[string]json.RawMessage{"capture": json.RawMessage(`{}`)},
+		Plugins: map[string]json.RawMessage{"capture": json.RawMessage(`{"body-chunk-bytes":8,"max-sse-event-bytes":1024}`)},
 		Headers: &directive.HeaderSection{Ops: []directive.HeaderOp{{
 			Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"},
 		}}},
@@ -132,6 +130,56 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	}
 }
 
+func TestDisabledFluentIgnoresDirectivePluginsAndProxiesNormally(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	pipeline := observability.NewDisabledPipeline()
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, pipeline)
+	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultConfig()
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: pipeline}
+	token, err := directive.Encode(directive.Payload{
+		Target: directive.TargetSection{URL: upstream.URL},
+		Plugins: map[string]json.RawMessage{
+			"missing-plugin": json.RawMessage(`{"enabled":true}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/resource", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+
+	newHTTPServer(&cfg, rt).Handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("disabled observability affected proxying: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	health := pipeline.ObservabilityHealth()
+	if health.Enabled || health.Status != "disabled" || len(health.Plugins) != 0 {
+		t.Fatalf("unexpected disabled observability health: %#v", health)
+	}
+}
+
+func TestDisabledFluentPipelineDoesNotConnect(t *testing.T) {
+	cfg := config.DefaultConfig().Observability
+	cfg.Fluent.Endpoint = "tcp://127.0.0.1:1"
+	pipeline, err := newObservabilityPipeline(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("disabled Fluent attempted startup: %v", err)
+	}
+	if pipeline.Enabled() {
+		t.Fatal("disabled Fluent created an enabled pipeline")
+	}
+}
+
 func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -140,7 +188,7 @@ func TestProxyLLMUsagePluginEmitsNormalizedUsageFromUpstreamBody(t *testing.T) {
 	defer upstream.Close()
 
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{llmusageplugin.New(llmusageplugin.Config{})}, observability.SinkConfig{Sink: output, QueueCapacity: 128, QueueMaxBytes: 1 << 20})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{llmusageplugin.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 128, QueueMaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

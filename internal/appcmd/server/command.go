@@ -62,6 +62,7 @@ func commandFlags() []cli.Flag {
 		&cli.DurationFlag{Name: "proxy.body-memory.queue-max-wait", Usage: flagHelp.MustUsage("proxy.body-memory.queue-max-wait"), Value: defaults.Proxy.BodyMemory.QueueWait},
 		&cli.DurationFlag{Name: "proxy.body-memory.body-read-timeout", Usage: flagHelp.MustUsage("proxy.body-memory.body-read-timeout"), Value: defaults.Proxy.BodyMemory.ReadTimeout},
 		&cli.StringFlag{Name: "observability.instance-id", Usage: flagHelp.MustUsage("observability.instance-id"), Value: defaults.Observability.InstanceID},
+		&cli.BoolFlag{Name: "observability.fluent.enabled", Usage: flagHelp.MustUsage("observability.fluent.enabled"), Value: defaults.Observability.Fluent.Enabled},
 		&cli.Int64Flag{Name: "proxy.directive.max-token-bytes", Usage: flagHelp.MustUsage("proxy.directive.max-token-bytes"), Value: defaults.Proxy.Directive.MaxTokenBytes},
 		&cli.Int64Flag{Name: "proxy.directive.max-inline-bytes", Usage: flagHelp.MustUsage("proxy.directive.max-inline-bytes"), Value: defaults.Proxy.Directive.MaxInlineBytes},
 		&cli.BoolFlag{Name: "proxy.directive.source-access.enabled", Usage: flagHelp.MustUsage("proxy.directive.source-access.enabled"), Value: defaults.Proxy.Directive.SourceAccess.Enabled},

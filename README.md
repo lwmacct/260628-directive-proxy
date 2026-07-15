@@ -44,19 +44,23 @@ proxy:
     queue-max-wait: 15s
     body-read-timeout: 30s
 observability:
-  response-capture-memory:
-    max-retained-bytes: 268435456
-    overflow: drop
+  fluent:
+    enabled: false
+    connections: 4
+    queue:
+      max-records: 8192
+      max-bytes: 268435456
 ```
 
 ## 可观测插件与输出
 
-内置插件由 directive token 按 attempt 选择，部署配置只提供注册信息和资源上限：
+内置插件固定随程序注册，由 directive token 按 attempt 选择并提供全部插件参数；部署配置只控制 Fluent 输出：
 
 - [`builtin.capture`](docs/plugin-capture.md)：请求、响应和生命周期审计；
 - [`builtin.llmusage`](docs/plugin-llmusage.md)：LLM token usage 提取；
 - [`builtin.llmperf`](docs/plugin-llmperf.md)：LLM 响应性能测量；
-- 唯一 Fluent sink：按 trace 分片、通过有界队列异步投递统一 `dproxy.event.v1` Record。
+- Fluent 是整个 Observability 子系统的总开关；关闭时不创建插件、队列或连接，directive 中的插件配置被忽略且不影响正常代理。
+- 开启后按 trace 分片、通过唯一有界队列异步投递统一 `dproxy.event.v1` Record。
 
 完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，扩展架构见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
 

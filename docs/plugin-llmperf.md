@@ -7,7 +7,10 @@
   "plugins": {
     "llmperf": {
       "protocol": "openai.responses",
-      "labels": {"provider": "openai"}
+      "labels": {"provider": "openai"},
+      "max-sse-metadata-bytes": 0,
+      "max-retained-bytes": 0,
+      "max-nesting-depth": 0
     }
   }
 }
@@ -29,18 +32,7 @@
 
 当前插件没有从其他插件共享 token count，因此依赖 token 数量的 TPOT/TPS 指标会按底层库语义标记为不可用，不会伪造为 `0`。
 
-## 部署配置
-
-```yaml
-- name: llmperf
-  type: builtin.llmperf
-  llmperf:
-    max-sse-metadata-bytes: 0
-    max-retained-bytes: 0
-    max-nesting-depth: 0
-```
-
-`0` 表示使用底层库默认值。这些字段只限制 decoder 内存和 JSON 嵌套深度，不会自动为请求启用插件。
+`max-sse-metadata-bytes`、`max-retained-bytes` 和 `max-nesting-depth` 都是 directive 参数；`0` 表示使用底层库默认值。代理分别限制其最大值为 1 MiB、16 MiB 和 256。不存在部署级 LLM Performance 插件配置。
 
 ## 输出事件
 

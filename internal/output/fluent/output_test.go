@@ -61,7 +61,7 @@ func TestOutputSendsAcknowledgedForwardRecord(t *testing.T) {
 	port, _ := strconv.Atoi(portValue)
 	output := New(Config{
 		Endpoint:    "tcp://" + net.JoinHostPort(host, strconv.Itoa(port)),
-		Connections: 1, ClientQueueCapacity: 16, ConnectTimeout: time.Second, HandshakeTimeout: time.Second,
+		Connections: 1, ConnectTimeout: time.Second, HandshakeTimeout: time.Second,
 		WriteTimeout: time.Second, ACKTimeout: time.Second, RetryMaxAttempts: 1,
 		RetryMinBackoff: time.Millisecond, RetryMaxBackoff: time.Millisecond, TagPrefix: "dproxy", DeliveryAtLeastOnce: true,
 	})
@@ -74,7 +74,7 @@ func TestOutputSendsAcknowledgedForwardRecord(t *testing.T) {
 		}
 	})
 	now := time.Now().UTC()
-	err = output.Write(context.Background(), observability.Record{
+	err = output.Write(context.Background(), 0, observability.Record{
 		SchemaVersion: observability.SchemaVersion, Plugin: "builtin.capture", Topic: "capture.request.started",
 		RecordID: "trace:00000001", TraceID: "trace", InstanceID: "instance", Sequence: 1,
 		OccurredAt: now.Format(time.RFC3339Nano), Data: map[string]any{"method": "POST"}, Time: now,

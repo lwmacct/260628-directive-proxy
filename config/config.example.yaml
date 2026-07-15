@@ -126,97 +126,27 @@ proxy:
         client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
         pool-size: 4 # 每个动态 Redis client 的连接池容量
 
-# 可观测插件与输出配置
+# 可观测输出配置
 observability:
   instance-id: "" # 写入观测记录的代理实例标识，留空使用主机名
 
-  # 异步响应原文 Capture 的有界内存配置
-  response-capture-memory:
-    max-retained-bytes: 268435456 # 等待输出完成的响应原文最大字节数
-    overflow: "drop" # 达到响应 Capture 内存上限后的行为：drop 或 backpressure
+  # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
+  fluent:
+    enabled: false # 是否启用 Fluent；关闭时禁用全部观测插件且不影响代理请求
+    endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
+    connections: 4 # 按 trace ID 分片的 Fluent 连接与发送并行度
 
-  # 内置观测插件列表
-  plugins:
-    - name: "capture" # 插件实例名称
-      type: "builtin.capture" # 插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf
-
-      # builtin.capture 配置
-      capture:
-        body-chunk-bytes: 32768 # 请求和响应正文单条记录的最大字节数
-        max-sse-event-bytes: 1048576 # 单条 SSE 语义事件解析缓冲上限
-
-        # 需要脱敏的 HTTP header 名称或 glob
-        redact-headers:
-          - authorization
-          - proxy-authorization
-          - cookie
-          - set-cookie
-          - x-api-key
-          - api-key
-
-        # 需要脱敏的 URL query 参数名称或 glob
-        redact-query:
-          - access_token
-          - api_key
-          - apikey
-          - key
-          - token
-
-      # builtin.llmusage 配置
-      llmusage: null
-
-      # builtin.llmperf 配置
-      llmperf: null
-    - name: "llmusage" # 插件实例名称
-      type: "builtin.llmusage" # 插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf
-
-      # builtin.capture 配置
-      capture: null
-
-      # builtin.llmusage 配置
-      llmusage:
-        max-sse-metadata-bytes: 0 # 单个 SSE event metadata 保留上限，0 使用库默认值
-        max-result-bytes: 0 # 协议识别字段和 raw usage 保留上限，0 使用库默认值
-        max-nesting-depth: 0 # JSON 最大嵌套深度，0 使用库默认值
-
-      # builtin.llmperf 配置
-      llmperf: null
-    - name: "llmperf" # 插件实例名称
-      type: "builtin.llmperf" # 插件类型：builtin.capture、builtin.llmusage 或 builtin.llmperf
-
-      # builtin.capture 配置
-      capture: null
-
-      # builtin.llmusage 配置
-      llmusage: null
-
-      # builtin.llmperf 配置
-      llmperf:
-        max-sse-metadata-bytes: 0 # SSE metadata retention limit
-        max-retained-bytes: 0 # response event retention limit
-        max-nesting-depth: 0 # JSON nesting limit
-
-  # 唯一 Fluent 观测记录输出渠道
-  sink:
-    workers: 4 # 按 trace ID 分片的 sink worker 数
-
-    # Pipeline sink 队列配置
+    # Fluent 异步输出队列配置
     queue:
-      capacity: 8192 # 每个 worker 的记录队列容量
-      max-bytes: 268435456 # 输出所有 worker 合计的排队字节上限
-
-    # Fluent Forward 输出配置
-    fluent:
-      endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
-      connections: 4 # 按 trace ID 分片的 Fluent 客户端数
-      client-queue-capacity: 1024 # 每个 Fluent client 的内部发送队列容量
-      connect-timeout: 500ms # Fluent 建连超时
-      handshake-timeout: 500ms # Fluent Forward 握手超时
-      write-timeout: 500ms # Fluent 单条记录写入超时
-      ack-timeout: 500ms # Fluent ACK 读取超时
-      retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
-      retry-min-backoff: 100ms # Fluent 重试最短退避时间
-      retry-max-backoff: 500ms # Fluent 重试最长退避时间
-      tag-prefix: "dproxy" # Fluent tag 前缀
-      delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
-      tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发
+      max-records: 8192 # 所有 Fluent 连接合计的排队记录上限
+      max-bytes: 268435456 # 所有 Fluent 连接合计的排队字节上限
+    connect-timeout: 500ms # Fluent 建连超时
+    handshake-timeout: 500ms # Fluent Forward 握手超时
+    write-timeout: 500ms # Fluent 单条记录写入超时
+    ack-timeout: 500ms # Fluent ACK 读取超时
+    retry-max-attempts: 1 # Fluent 单条记录最大投递尝试次数
+    retry-min-backoff: 100ms # Fluent 重试最短退避时间
+    retry-max-backoff: 500ms # Fluent 重试最长退避时间
+    tag-prefix: "dproxy" # Fluent tag 前缀
+    delivery: "at-least-once" # Fluent 投递模式：unconfirmed 或 at-least-once
+    tls-insecure-skip-verify: false # 是否跳过 Fluent TLS 证书验证，仅用于开发

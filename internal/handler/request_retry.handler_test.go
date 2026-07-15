@@ -10,7 +10,6 @@ import (
 )
 
 type requestRetryTrackerStub struct {
-	retryID string
 	digest  [32]byte
 	attempt int
 	trigger proxyrequest.RetryTrigger
@@ -109,12 +108,4 @@ func TestPublicRequestRetryHidesInvalidProofAndUnknownRequest(t *testing.T) {
 			}
 		})
 	}
-}
-
-func bytesOfValue(value byte, size int) []byte {
-	data := make([]byte, size)
-	for index := range data {
-		data[index] = value
-	}
-	return data
 }

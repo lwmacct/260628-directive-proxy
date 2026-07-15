@@ -2,7 +2,6 @@ package config
 
 import (
 	"net/url"
-	"path"
 	"strings"
 
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
@@ -103,99 +102,17 @@ func Validate(cfg Config) (Config, error) {
 }
 
 func validateObservability(cfg Observability) (Observability, error) {
-	if cfg.ResponseCaptureMemory.MaxRetainedBytes <= 0 ||
-		cfg.ResponseCaptureMemory.Overflow != "drop" && cfg.ResponseCaptureMemory.Overflow != "backpressure" {
+	if !cfg.Fluent.Enabled {
+		return cfg, nil
+	}
+	if cfg.Fluent.Connections <= 0 || cfg.Fluent.Queue.MaxRecords <= 0 || cfg.Fluent.Queue.MaxBytes <= 0 {
 		return cfg, ErrInvalidObservability
 	}
-	pluginNames := make(map[string]struct{}, len(cfg.Plugins))
-	pluginTypes := make(map[string]struct{}, len(cfg.Plugins))
-	for index := range cfg.Plugins {
-		plugin := &cfg.Plugins[index]
-		plugin.Name = strings.TrimSpace(plugin.Name)
-		plugin.Type = strings.TrimSpace(plugin.Type)
-		if !validComponentName(plugin.Name) || plugin.Type == "" {
-			return cfg, ErrInvalidObservability
-		}
-		if _, exists := pluginNames[plugin.Name]; exists {
-			return cfg, ErrInvalidObservability
-		}
-		pluginNames[plugin.Name] = struct{}{}
-		if _, exists := pluginTypes[plugin.Type]; exists {
-			return cfg, ErrInvalidObservability
-		}
-		pluginTypes[plugin.Type] = struct{}{}
-		switch plugin.Type {
-		case ObservationPluginCapture:
-			if plugin.Capture == nil || plugin.LLMUsage != nil || plugin.LLMPerf != nil {
-				return cfg, ErrInvalidObservability
-			}
-			validated, err := validateCapturePlugin(*plugin.Capture)
-			if err != nil {
-				return cfg, err
-			}
-			plugin.Capture = &validated
-		case ObservationPluginLLMUsage:
-			if plugin.LLMUsage == nil || plugin.Capture != nil || plugin.LLMPerf != nil || plugin.LLMUsage.MaxSSEMetadataBytes < 0 || plugin.LLMUsage.MaxResultBytes < 0 || plugin.LLMUsage.MaxNestingDepth < 0 {
-				return cfg, ErrInvalidObservability
-			}
-		case ObservationPluginLLMPerf:
-			if plugin.LLMPerf == nil || plugin.Capture != nil || plugin.LLMUsage != nil || plugin.LLMPerf.MaxSSEMetadataBytes < 0 || plugin.LLMPerf.MaxRetainedBytes < 0 || plugin.LLMPerf.MaxNestingDepth < 0 {
-				return cfg, ErrInvalidObservability
-			}
-		default:
-			return cfg, ErrInvalidObservability
-		}
-	}
-	if cfg.Sink.Workers <= 0 || cfg.Sink.Queue.Capacity <= 0 || cfg.Sink.Queue.MaxBytes <= 0 {
-		return cfg, ErrInvalidObservability
-	}
-	validatedFluent, err := validateFluentOutput(cfg.Sink.Fluent)
+	validatedFluent, err := validateFluentOutput(cfg.Fluent)
 	if err != nil {
 		return cfg, err
 	}
-	cfg.Sink.Fluent = validatedFluent
-	return cfg, nil
-}
-
-func validComponentName(value string) bool {
-	if value == "" || len(value) > 64 {
-		return false
-	}
-	for index, char := range value {
-		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || (char == '-' || char == '_') && index > 0 && index < len(value)-1 {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func validateCapturePlugin(cfg CapturePluginConfig) (CapturePluginConfig, error) {
-	if cfg.BodyChunkBytes <= 0 || cfg.MaxSSEEventBytes <= 0 || len(cfg.RedactHeaders) == 0 {
-		return cfg, ErrInvalidObservability
-	}
-	for index, values := range [][]string{cfg.RedactHeaders, cfg.RedactQuery} {
-		seen := make(map[string]struct{}, len(values))
-		for itemIndex, value := range values {
-			value = strings.ToLower(strings.TrimSpace(value))
-			if value == "" {
-				return cfg, ErrInvalidObservability
-			}
-			if _, err := path.Match(value, "capture-test-value"); err != nil {
-				return cfg, ErrInvalidObservability
-			}
-			if _, exists := seen[value]; exists {
-				return cfg, ErrInvalidObservability
-			}
-			seen[value] = struct{}{}
-			values[itemIndex] = value
-		}
-		if index == 0 {
-			cfg.RedactHeaders = values
-		} else {
-			cfg.RedactQuery = values
-		}
-	}
+	cfg.Fluent = validatedFluent
 	return cfg, nil
 }
 
@@ -204,7 +121,7 @@ func validateFluentOutput(cfg FluentOutput) (FluentOutput, error) {
 	fluent.Endpoint = strings.TrimSpace(fluent.Endpoint)
 	fluent.Delivery = strings.ToLower(strings.TrimSpace(fluent.Delivery))
 	fluent.TagPrefix = strings.Trim(strings.TrimSpace(fluent.TagPrefix), ".")
-	if fluent.Connections <= 0 || fluent.ClientQueueCapacity <= 0 || fluent.ConnectTimeout <= 0 ||
+	if fluent.Connections <= 0 || fluent.ConnectTimeout <= 0 ||
 		fluent.HandshakeTimeout <= 0 || fluent.WriteTimeout <= 0 || fluent.ACKTimeout <= 0 ||
 		fluent.RetryMaxAttempts <= 0 || fluent.RetryMinBackoff <= 0 ||
 		fluent.RetryMaxBackoff < fluent.RetryMinBackoff || fluent.TagPrefix == "" {

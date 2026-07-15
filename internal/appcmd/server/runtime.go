@@ -121,49 +121,24 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 }
 
 func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*observability.Pipeline, error) {
-	plugins := make([]observability.Plugin, 0, len(cfg.Plugins))
-	for _, configured := range cfg.Plugins {
-		switch configured.Type {
-		case config.ObservationPluginCapture:
-			if configured.Capture == nil {
-				return nil, fmt.Errorf("capture plugin config is missing")
-			}
-			plugins = append(plugins, captureplugin.New(captureplugin.Config{
-				Name: configured.Name, BodyChunkBytes: configured.Capture.BodyChunkBytes, MaxSSEEventBytes: configured.Capture.MaxSSEEventBytes,
-				RedactHeaders: configured.Capture.RedactHeaders, RedactQuery: configured.Capture.RedactQuery,
-				MaxRetainedResponseBytes: cfg.ResponseCaptureMemory.MaxRetainedBytes, ResponseOverflow: cfg.ResponseCaptureMemory.Overflow,
-			}))
-		case config.ObservationPluginLLMUsage:
-			if configured.LLMUsage == nil {
-				return nil, fmt.Errorf("llm usage plugin config is missing")
-			}
-			plugins = append(plugins, llmusageplugin.New(llmusageplugin.Config{
-				Name: configured.Name, MaxSSEMetadataBytes: configured.LLMUsage.MaxSSEMetadataBytes,
-				MaxResultBytes: configured.LLMUsage.MaxResultBytes, MaxNestingDepth: configured.LLMUsage.MaxNestingDepth,
-			}))
-		case config.ObservationPluginLLMPerf:
-			if configured.LLMPerf == nil {
-				return nil, fmt.Errorf("llm perf plugin config is missing")
-			}
-			plugins = append(plugins, llmperfplugin.New(llmperfplugin.Config{
-				Name: configured.Name, MaxSSEMetadataBytes: configured.LLMPerf.MaxSSEMetadataBytes,
-				MaxRetainedBytes: configured.LLMPerf.MaxRetainedBytes, MaxNestingDepth: configured.LLMPerf.MaxNestingDepth,
-			}))
-		default:
-			return nil, fmt.Errorf("unsupported observation plugin %q", configured.Type)
-		}
+	if !cfg.Fluent.Enabled {
+		return observability.NewDisabledPipeline(), nil
 	}
-	fluentConfig := cfg.Sink.Fluent
+	plugins := []observability.Plugin{captureplugin.New(), llmusageplugin.New(), llmperfplugin.New()}
+	fluentConfig := cfg.Fluent
 	output := fluentoutput.New(fluentoutput.Config{
 		Endpoint: fluentConfig.Endpoint, Connections: fluentConfig.Connections,
-		ClientQueueCapacity: fluentConfig.ClientQueueCapacity, ConnectTimeout: fluentConfig.ConnectTimeout,
+		ConnectTimeout:   fluentConfig.ConnectTimeout,
 		HandshakeTimeout: fluentConfig.HandshakeTimeout, WriteTimeout: fluentConfig.WriteTimeout,
 		ACKTimeout: fluentConfig.ACKTimeout, RetryMaxAttempts: fluentConfig.RetryMaxAttempts,
 		RetryMinBackoff: fluentConfig.RetryMinBackoff, RetryMaxBackoff: fluentConfig.RetryMaxBackoff,
 		TagPrefix: fluentConfig.TagPrefix, DeliveryAtLeastOnce: fluentConfig.Delivery == config.FluentDeliveryAtLeastOnce,
 		TLSInsecureSkipVerify: fluentConfig.TLSInsecureSkipVerify,
 	})
-	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{Sink: output, Workers: cfg.Sink.Workers, QueueCapacity: cfg.Sink.Queue.Capacity, QueueMaxBytes: cfg.Sink.Queue.MaxBytes})
+	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{
+		Sink: output, Workers: fluentConfig.Connections,
+		QueueMaxRecords: fluentConfig.Queue.MaxRecords, QueueMaxBytes: fluentConfig.Queue.MaxBytes,
+	})
 }
 
 func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {

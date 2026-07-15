@@ -17,7 +17,7 @@ func (s observabilityHealthStub) ObservabilityHealth() observability.HealthSnaps
 func TestHealthReportsPluginAndSinkDegradation(t *testing.T) {
 	failureAt := time.Now().UTC().Add(-time.Second)
 	handler := &healthHandler{observability: observabilityHealthStub{snapshot: observability.HealthSnapshot{
-		Status: "degraded",
+		Enabled: true, Status: "degraded",
 		Plugins: map[string]observability.HealthStatus{
 			"llmusage": {Status: "ok"},
 		},
@@ -33,5 +33,18 @@ func TestHealthReportsPluginAndSinkDegradation(t *testing.T) {
 	output := response.Body.Observability.Sink
 	if output.Status != "degraded" || output.DroppedRecords != 2 || output.LastFailureAt == nil || !output.LastFailureAt.Equal(failureAt) {
 		t.Fatalf("unexpected output health: %#v", output)
+	}
+}
+
+func TestHealthReportsDisabledObservabilityWithoutDegradingService(t *testing.T) {
+	handler := &healthHandler{observability: observabilityHealthStub{snapshot: observability.HealthSnapshot{
+		Status: "disabled", Plugins: map[string]observability.HealthStatus{}, Sink: observability.HealthStatus{Status: "disabled"},
+	}}}
+	response, err := handler.get(context.Background(), &struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Body.Status != "ok" || response.Body.Observability.Enabled || response.Body.Observability.Status != "disabled" || response.Body.Observability.Sink.Status != "disabled" {
+		t.Fatalf("unexpected disabled health response: %#v", response.Body)
 	}
 }

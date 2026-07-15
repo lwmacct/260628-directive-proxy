@@ -28,20 +28,44 @@ type ownedTrace struct {
 	released *atomic.Bool
 }
 
+type borrowedPlugin struct {
+	data     []byte
+	accepted chan bool
+}
+
+func (p borrowedPlugin) Name() string { return "borrowed.plugin" }
+func (p borrowedPlugin) NewTrace(observability.TraceContext) observability.TraceObserver {
+	return borrowedTrace{data: p.data, accepted: p.accepted}
+}
+
+type borrowedTrace struct {
+	observability.NopTraceObserver
+	data     []byte
+	accepted chan bool
+}
+
+func (t borrowedTrace) Observe(signal observability.Signal, emitter observability.Emitter) {
+	t.accepted <- emitter.EmitBorrowed("borrowed.record", signal.Attempt, map[string]any{"data": t.data})
+}
+
 func (t ownedTrace) Observe(signal observability.Signal, emitter observability.Emitter) {
 	emitter.EmitOwned("owned.record", signal.Attempt, map[string]any{"data": []byte("owned")}, func() { t.released.Store(true) })
 }
 
 type blockingOutput struct {
-	started chan struct{}
-	allow   chan struct{}
+	started  chan struct{}
+	allow    chan struct{}
+	captured chan string
 }
 
 func (*blockingOutput) Name() string                { return "blocking" }
 func (*blockingOutput) Start(context.Context) error { return nil }
-func (o *blockingOutput) Write(context.Context, observability.Record) error {
+func (o *blockingOutput) Write(_ context.Context, _ int, record observability.Record) error {
 	close(o.started)
 	<-o.allow
+	if o.captured != nil {
+		o.captured <- string(record.Data["data"].([]byte))
+	}
 	return nil
 }
 func (*blockingOutput) Health() observability.HealthStatus {
@@ -52,7 +76,7 @@ func (*blockingOutput) Close(context.Context) error { return nil }
 func TestPipelineReleasesOwnedRecordAfterOutputReturns(t *testing.T) {
 	released := &atomic.Bool{}
 	output := &blockingOutput{started: make(chan struct{}), allow: make(chan struct{})}
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{ownedPlugin{released: released}}, observability.SinkConfig{Sink: output, QueueCapacity: 1, QueueMaxBytes: 1024})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{ownedPlugin{released: released}}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1, QueueMaxBytes: 1024})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +96,42 @@ func TestPipelineReleasesOwnedRecordAfterOutputReturns(t *testing.T) {
 	}
 }
 
+func TestPipelineCopiesBorrowedDataOnlyForAcceptedRecords(t *testing.T) {
+	source := []byte("original")
+	accepted := make(chan bool, 2)
+	output := &blockingOutput{started: make(chan struct{}), allow: make(chan struct{}), captured: make(chan string, 1)}
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{
+		borrowedPlugin{data: source, accepted: accepted},
+	}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1, QueueMaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := pipeline.StartTrace(observability.TraceContext{TraceID: "first"})
+	first.Observe(observability.Signal{Value: "first"})
+	if !<-accepted {
+		t.Fatal("first borrowed record was rejected")
+	}
+	<-output.started
+	copy(source, "modified")
+	second := pipeline.StartTrace(observability.TraceContext{TraceID: "second"})
+	second.Observe(observability.Signal{Value: "second"})
+	if <-accepted {
+		t.Fatal("record exceeding the global queue limit was accepted")
+	}
+	if health := pipeline.ObservabilityHealth(); health.Sink.DroppedRecords != 1 || health.Sink.QueuedRecords != 1 {
+		t.Fatalf("unexpected bounded queue health: %#v", health.Sink)
+	}
+	close(output.allow)
+	if got := <-output.captured; got != "original" {
+		t.Fatalf("borrowed data changed after emission: %q", got)
+	}
+	first.Close()
+	second.Close()
+	if err := pipeline.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type emittingTrace struct{ observability.NopTraceObserver }
 
 func (emittingTrace) Observe(signal observability.Signal, emitter observability.Emitter) {
@@ -80,7 +140,7 @@ func (emittingTrace) Observe(signal observability.Signal, emitter observability.
 
 func TestPipelineWritesRecordsAndPreservesTraceSequence(t *testing.T) {
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{emittingPlugin{}}, observability.SinkConfig{Sink: output, Workers: 2, QueueCapacity: 16, QueueMaxBytes: 1 << 20})
+	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{emittingPlugin{}}, observability.SinkConfig{Sink: output, Workers: 2, QueueMaxRecords: 16, QueueMaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

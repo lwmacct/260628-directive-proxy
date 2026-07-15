@@ -12,6 +12,7 @@ import (
 )
 
 type Pipeline struct {
+	enabled      bool
 	plugins      []Plugin
 	pluginHealth map[string]*pluginHealthState
 	sink         *sinkRunner
@@ -51,6 +52,7 @@ type queuedRecord struct {
 type sinkRunner struct {
 	sink         Sink
 	queues       []chan queuedRecord
+	maxRecords   int64
 	maxBytes     int64
 	queuedBytes  atomic.Int64
 	queuedCount  atomic.Int64
@@ -62,7 +64,7 @@ type sinkRunner struct {
 }
 
 func NewPipeline(ctx context.Context, plugins []Plugin, config SinkConfig) (*Pipeline, error) {
-	pipeline := &Pipeline{plugins: append([]Plugin(nil), plugins...), pluginHealth: make(map[string]*pluginHealthState)}
+	pipeline := &Pipeline{enabled: true, plugins: append([]Plugin(nil), plugins...), pluginHealth: make(map[string]*pluginHealthState)}
 	for _, plugin := range pipeline.plugins {
 		if plugin != nil && strings.TrimSpace(plugin.Name()) != "" {
 			pipeline.pluginHealth[plugin.Name()] = &pluginHealthState{}
@@ -78,8 +80,16 @@ func NewPipeline(ctx context.Context, plugins []Plugin, config SinkConfig) (*Pip
 	return pipeline, nil
 }
 
+func NewDisabledPipeline() *Pipeline {
+	return &Pipeline{pluginHealth: make(map[string]*pluginHealthState)}
+}
+
+func (p *Pipeline) Enabled() bool {
+	return p != nil && p.enabled && !p.closed.Load()
+}
+
 func (p *Pipeline) StartTrace(ctx TraceContext) *Trace {
-	if p == nil || p.closed.Load() {
+	if !p.Enabled() {
 		return nil
 	}
 	trace := &Trace{pipeline: p, context: ctx, pluginDown: make(map[string]bool)}
@@ -87,7 +97,7 @@ func (p *Pipeline) StartTrace(ctx TraceContext) *Trace {
 }
 
 func (p *Pipeline) StartRequestTrace(ctx TraceContext) *Trace {
-	if p == nil || p.closed.Load() {
+	if !p.Enabled() {
 		return nil
 	}
 	return &Trace{pipeline: p, context: ctx, pluginDown: make(map[string]bool)}
@@ -129,16 +139,6 @@ func (t *Trace) ReplacePlugins(specs map[string][]byte) error {
 		}
 	}
 	return nil
-}
-
-func (p *Pipeline) ValidatePluginSpecs(specs map[string][]byte) error {
-	if p == nil {
-		if len(specs) == 0 {
-			return nil
-		}
-		return fmt.Errorf("observability pipeline is unavailable")
-	}
-	return ValidatePluginSpecs(p.plugins, specs)
 }
 
 func (t *Trace) Observe(signal Signal) {
@@ -187,7 +187,7 @@ func (t *Trace) invoke(plugin tracePlugin, signal Signal) {
 			t.emit("observability", "observability.plugin.panic", signal.Attempt, map[string]any{
 				"plugin": plugin.name,
 				"error":  fmt.Sprint(recovered),
-			}, nil)
+			}, nil, false)
 		}
 	}()
 	plugin.observer.Observe(signal, traceEmitter{trace: t, plugin: plugin.name})
@@ -201,30 +201,37 @@ func (t *Trace) invokeClose(plugin tracePlugin) {
 			t.emit("observability", "observability.plugin.panic", 0, map[string]any{
 				"plugin": plugin.name,
 				"error":  fmt.Sprint(recovered),
-			}, nil)
+			}, nil, false)
 		}
 	}()
 	plugin.observer.Close(traceEmitter{trace: t, plugin: plugin.name})
 }
 
-func (e traceEmitter) Emit(topic string, attempt int, data map[string]any) {
+func (e traceEmitter) Emit(topic string, attempt int, data map[string]any) bool {
 	if e.trace == nil {
-		return
+		return false
 	}
-	e.trace.emit(e.plugin, topic, attempt, data, nil)
+	return e.trace.emit(e.plugin, topic, attempt, data, nil, false)
 }
 
-func (e traceEmitter) EmitOwned(topic string, attempt int, data map[string]any, release func()) {
+func (e traceEmitter) EmitOwned(topic string, attempt int, data map[string]any, release func()) bool {
 	if e.trace == nil {
 		if release != nil {
 			release()
 		}
-		return
+		return false
 	}
-	e.trace.emit(e.plugin, topic, attempt, data, release)
+	return e.trace.emit(e.plugin, topic, attempt, data, release, false)
 }
 
-func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any, release func()) {
+func (e traceEmitter) EmitBorrowed(topic string, attempt int, data map[string]any) bool {
+	if e.trace == nil {
+		return false
+	}
+	return e.trace.emit(e.plugin, topic, attempt, data, nil, true)
+}
+
+func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any, release func(), copyBorrowed bool) bool {
 	t.sequence++
 	now := time.Now().UTC()
 	record := Record{
@@ -242,16 +249,22 @@ func (t *Trace) emit(plugin, topic string, attempt int, data map[string]any, rel
 		resource:      newRecordResource(release),
 	}
 	if t.pipeline.sink != nil {
-		t.pipeline.sink.enqueue(record)
+		accepted := t.pipeline.sink.enqueue(record, copyBorrowed)
+		record.release()
+		return accepted
 	}
 	record.release()
+	return false
 }
 
 func (p *Pipeline) ObservabilityHealth() HealthSnapshot {
 	if p == nil {
-		return HealthSnapshot{Status: "unavailable", Plugins: map[string]HealthStatus{}}
+		return HealthSnapshot{Status: "unavailable", Plugins: map[string]HealthStatus{}, Sink: HealthStatus{Status: "unavailable"}}
 	}
-	result := HealthSnapshot{Status: "ok", Plugins: make(map[string]HealthStatus, len(p.pluginHealth))}
+	if !p.enabled {
+		return HealthSnapshot{Status: "disabled", Plugins: map[string]HealthStatus{}, Sink: HealthStatus{Status: "disabled"}}
+	}
+	result := HealthSnapshot{Enabled: true, Status: "ok", Plugins: make(map[string]HealthStatus, len(p.pluginHealth))}
 	for name, state := range p.pluginHealth {
 		status := HealthStatus{Status: "ok"}
 		if state.failed.Load() {
@@ -288,13 +301,10 @@ func (p *Pipeline) Close(ctx context.Context) error {
 	if p == nil || !p.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	var first error
-	if p.sink != nil {
-		if err := p.sink.close(ctx); err != nil && first == nil {
-			first = err
-		}
+	if p.sink == nil {
+		return nil
 	}
-	return first
+	return p.sink.close(ctx)
 }
 
 func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error) {
@@ -304,8 +314,8 @@ func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error)
 	if binding.Workers <= 0 {
 		binding.Workers = 1
 	}
-	if binding.QueueCapacity <= 0 {
-		binding.QueueCapacity = 1024
+	if binding.QueueMaxRecords <= 0 {
+		binding.QueueMaxRecords = 1024
 	}
 	if binding.QueueMaxBytes <= 0 {
 		binding.QueueMaxBytes = 64 << 20
@@ -314,43 +324,59 @@ func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error)
 		return nil, fmt.Errorf("start observability sink: %w", err)
 	}
 	runner := &sinkRunner{
-		sink:     binding.Sink,
-		maxBytes: binding.QueueMaxBytes,
-		queues:   make([]chan queuedRecord, binding.Workers),
+		sink:       binding.Sink,
+		maxRecords: int64(binding.QueueMaxRecords),
+		maxBytes:   binding.QueueMaxBytes,
+		queues:     make([]chan queuedRecord, binding.Workers),
 	}
 	for index := range runner.queues {
-		runner.queues[index] = make(chan queuedRecord, binding.QueueCapacity)
+		runner.queues[index] = make(chan queuedRecord, binding.QueueMaxRecords)
 		runner.wg.Add(1)
-		go runner.run(runner.queues[index])
+		go runner.run(index, runner.queues[index])
 	}
 	return runner, nil
 }
 
-func (r *sinkRunner) enqueue(record Record) {
+func (r *sinkRunner) enqueue(record Record, copyBorrowed bool) bool {
 	if r == nil || r.closed.Load() {
-		return
+		return false
 	}
 	size := estimateRecordBytes(record)
 	if !r.reserve(size) {
 		r.dropped.Add(1)
-		return
+		return false
+	}
+	if copyBorrowed {
+		record.Data = cloneBorrowedMap(record.Data)
 	}
 	record.retain()
 	index := shard(record.TraceID, len(r.queues))
 	select {
 	case r.queues[index] <- queuedRecord{record: record, size: size}:
-		r.queuedCount.Add(1)
+		return true
 	default:
 		r.queuedBytes.Add(-size)
+		r.queuedCount.Add(-1)
 		r.dropped.Add(1)
 		record.release()
+		return false
 	}
 }
 
 func (r *sinkRunner) reserve(size int64) bool {
 	for {
+		current := r.queuedCount.Load()
+		if current >= r.maxRecords {
+			return false
+		}
+		if r.queuedCount.CompareAndSwap(current, current+1) {
+			break
+		}
+	}
+	for {
 		current := r.queuedBytes.Load()
 		if current+size > r.maxBytes {
+			r.queuedCount.Add(-1)
 			return false
 		}
 		if r.queuedBytes.CompareAndSwap(current, current+size) {
@@ -359,10 +385,10 @@ func (r *sinkRunner) reserve(size int64) bool {
 	}
 }
 
-func (r *sinkRunner) run(queue <-chan queuedRecord) {
+func (r *sinkRunner) run(shardIndex int, queue <-chan queuedRecord) {
 	defer r.wg.Done()
 	for item := range queue {
-		err := r.sink.Write(context.Background(), item.record)
+		err := r.sink.Write(context.Background(), shardIndex, item.record)
 		item.record.release()
 		r.queuedBytes.Add(-item.size)
 		r.queuedCount.Add(-1)
@@ -373,6 +399,34 @@ func (r *sinkRunner) run(queue <-chan queuedRecord) {
 		} else {
 			r.failed.Store(false)
 		}
+	}
+}
+
+func cloneBorrowedMap(data map[string]any) map[string]any {
+	if data == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(data))
+	for key, value := range data {
+		cloned[key] = cloneBorrowedValue(value)
+	}
+	return cloned
+}
+
+func cloneBorrowedValue(value any) any {
+	switch typed := value.(type) {
+	case []byte:
+		return append([]byte(nil), typed...)
+	case map[string]any:
+		return cloneBorrowedMap(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, item := range typed {
+			cloned[index] = cloneBorrowedValue(item)
+		}
+		return cloned
+	default:
+		return value
 	}
 }
 

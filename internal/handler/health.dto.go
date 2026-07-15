@@ -9,6 +9,7 @@ type HealthResponseDTO struct {
 }
 
 type ObservabilityHealthDTO struct {
+	Enabled bool                       `json:"enabled"`
 	Status  string                     `json:"status"`
 	Plugins map[string]PluginHealthDTO `json:"plugins"`
 	Sink    OutputHealthDTO            `json:"sink"`

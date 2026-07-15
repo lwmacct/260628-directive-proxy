@@ -12,7 +12,7 @@
 
 ## Signal pipeline
 
-Proxy、RetryTransport 和 downstream ResponseWriter 只产生进程内 Signal。流式响应 Signal 中的 body slice 是 borrowed memory，只在插件回调期间有效；插件必须同步解析或复制。请求正文例外：`RequestBodyAvailable` 暴露连续、不可变的 canonical body，异步 Record 必须取得 lease，sink 完成或丢弃后执行 release。
+Proxy、RetryTransport 和 downstream ResponseWriter 只产生进程内 Signal。流式响应 Signal 中的 body slice 是 borrowed memory，只在插件回调期间有效；协议插件同步解析，Capture 通过 borrowed emission 让 Pipeline 在 Queue admission 成功后复制。请求正文例外：`RequestBodyAvailable` 暴露连续、不可变的 canonical body，异步 Record 必须取得 lease，sink 完成或丢弃后执行 release。
 
 请求正文准入流程为：验证 `Content-Length` -> 进入严格 FIFO 字节预算队列 -> 获得 reservation -> 设置 body read deadline -> 一次性读取准确长度 -> 发布不可变 body。排队阶段不会调用 `Body.Read`。未知长度返回 411，单体超限返回 413，队列满或等待超时返回 503。正文只驻留内存，不写临时文件，也不做分段存储。
 
@@ -37,12 +37,14 @@ Admin API 使用 `PUT /api/admin/proxy-requests/{trace_id}/retry` 和相同的 `
 
 Header 和 URL query 按插件配置的大小写不敏感 glob 脱敏。Body 默认不脱敏。SSE parser 支持 BOM、LF、CRLF、CR、多行 data、event、id、retry 和 comment；超过单事件上限时语义事件标记为 truncated，原始 downstream body 仍可重组。
 
-各内置插件的 directive spec、部署配置和 topic 见 [`docs/plugin-capture.md`](plugin-capture.md)、[`docs/plugin-llmusage.md`](plugin-llmusage.md) 和 [`docs/plugin-llmperf.md`](plugin-llmperf.md)。
+各内置插件的 directive spec 和 topic 见 [`docs/plugin-capture.md`](plugin-capture.md)、[`docs/plugin-llmusage.md`](plugin-llmusage.md) 和 [`docs/plugin-llmperf.md`](plugin-llmperf.md)。插件没有部署级参数。
 
 ## Fluent sink and delivery
 
-唯一 Fluent sink 接收所有 Record，按 `trace_id` 分片到固定 worker，以保持单 trace 顺序；队列同时限制记录数和总字节数。队列满时丢弃新 Record 并将 sink health 标记为 degraded，代理请求继续执行。
+`observability.fluent.enabled` 是整个观测子系统的总开关，默认关闭。关闭时不创建插件、Queue、worker 或 Fluent 连接；directive 中的插件配置被忽略，代理、重试和 trace ID 功能保持正常。`/health` 将 Observability 报告为 `disabled`，不会降低服务整体健康状态。
+
+开启后，唯一 Fluent sink 接收所有 Record，`connections` 个内部 worker 按 `trace_id` 分片并分别绑定一个 Fluent client，以保持单 trace 顺序并允许跨 trace 并行。唯一 Queue 同时限制所有连接合计的记录数和总字节数。队列满时非阻塞丢弃新 Record 并将 sink health 标记为 degraded，代理请求继续执行；不存在观测 backpressure 模式。
 
 Fluent sink 将 Record topic 作为 tag suffix，支持 MessagePack、亚秒时间戳和 `unconfirmed`/`at-least-once`。推荐本机 Fluentd Unix socket 配合文件 buffer。Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。
 
-启动阶段 Fluent sink 无法连接会导致服务启动失败。运行阶段 sink 失败、队列溢出、插件 panic 会反映在 `/health.observability`；单个 LLM payload 的解析失败属于数据事件，不会把插件全局健康状态标成 degraded。
+仅当 Fluent 开启时，启动阶段无法连接才会导致服务启动失败。运行阶段 sink 失败、队列溢出、插件 panic 会反映在 `/health.observability`；单个 LLM payload 的解析失败属于数据事件，不会把插件全局健康状态标成 degraded。
