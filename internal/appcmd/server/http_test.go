@@ -145,9 +145,9 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 	defer upstream.Close()
 	token, err := directive.Encode(directive.Payload{
 		Target: directive.TargetSection{URL: upstream.URL},
-		Headers: &directive.HeaderSection{Ops: []directive.HeaderOp{{
+		Headers: &directive.HeaderSection{Request: &directive.RequestHeaderSection{Ops: []directive.HeaderOp{{
 			Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"client-request-1"},
-		}}},
+		}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	if err := redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}`); err != nil {
+	if err := redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"request":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}}`); err != nil {
 		t.Fatalf("seed Redis directive: %v", err)
 	}
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
@@ -253,7 +253,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 			body.Protocol != "dproxy.resolve.v1" || body.Key != "team-a/service-a" {
 			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
 		}
-		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"op":"=","name":"X-Directive-Source","values":["http"]}]}}`)
+		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"request":{"ops":[{"op":"=","name":"X-Directive-Source","values":["http"]}]}}}`)
 	}))
 	defer resolver.Close()
 	token, err := directive.EncodeRemote(directive.RemoteSpec{

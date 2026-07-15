@@ -4,7 +4,7 @@ import "encoding/json"
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "15"
+	TokenVersion = "16"
 	TokenInline  = "i"
 	TokenRemote  = "r"
 )
@@ -46,14 +46,23 @@ type TargetSection struct {
 }
 
 type HeaderSection struct {
-	Mode string     `json:"mode,omitempty"`
-	Ops  []HeaderOp `json:"ops,omitempty"`
+	Request  *RequestHeaderSection  `json:"request,omitempty"`
+	Response *ResponseHeaderSection `json:"response,omitempty"`
+}
+
+type RequestHeaderSection struct {
+	Mode                    string     `json:"mode,omitempty"`
+	PreserveProxyDisclosure bool       `json:"preserve_proxy_disclosure,omitempty"`
+	Ops                     []HeaderOp `json:"ops,omitempty"`
+}
+
+type ResponseHeaderSection struct {
+	Ops []HeaderOp `json:"ops,omitempty"`
 }
 
 type HeaderOp struct {
 	Op     string   `json:"op"`
 	Name   string   `json:"name,omitempty"`
 	Glob   string   `json:"glob,omitempty"`
-	Preset string   `json:"preset,omitempty"`
 	Values []string `json:"values,omitempty"`
 }

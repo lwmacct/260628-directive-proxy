@@ -10,8 +10,7 @@ import (
 type Plan struct {
 	Target      *url.URL
 	Proxy       *url.URL
-	HeaderMode  HeaderMode
-	HeaderOps   []HeaderOp
+	Headers     HeaderPlan
 	Metadata    requestmeta.Metadata
 	PluginSpecs map[string][]byte
 	JoinPath    bool
@@ -38,14 +37,27 @@ func ClonePlan(in *Plan) *Plan {
 	out := *in
 	out.Target = cloneURL(in.Target)
 	out.Proxy = cloneURL(in.Proxy)
-	out.HeaderOps = make([]HeaderOp, len(in.HeaderOps))
-	for i, op := range in.HeaderOps {
-		out.HeaderOps[i] = op
-		out.HeaderOps[i].Values = append([]string(nil), op.Values...)
-	}
+	out.Headers = cloneHeaderPlan(in.Headers)
 	out.Metadata = requestmeta.Clone(in.Metadata)
 	out.PluginSpecs = clonePluginSpecs(in.PluginSpecs)
 	return &out
+}
+
+func cloneHeaderPlan(in HeaderPlan) HeaderPlan {
+	out := in
+	out.Request.StripBeforeOps = append([]string(nil), in.Request.StripBeforeOps...)
+	out.Request.Ops = cloneHeaderOps(in.Request.Ops)
+	out.Response.Ops = cloneHeaderOps(in.Response.Ops)
+	return out
+}
+
+func cloneHeaderOps(in []HeaderOp) []HeaderOp {
+	out := make([]HeaderOp, len(in))
+	for i, op := range in {
+		out[i] = op
+		out[i].Values = append([]string(nil), op.Values...)
+	}
+	return out
 }
 
 func clonePluginSpecs(in map[string][]byte) map[string][]byte {
@@ -66,6 +78,22 @@ const (
 	HeaderModeReplace HeaderMode = "replace"
 )
 
+type HeaderPlan struct {
+	Request  RequestHeaderPlan
+	Response ResponseHeaderPlan
+}
+
+type RequestHeaderPlan struct {
+	Mode                    HeaderMode
+	PreserveProxyDisclosure bool
+	StripBeforeOps          []string
+	Ops                     []HeaderOp
+}
+
+type ResponseHeaderPlan struct {
+	Ops []HeaderOp
+}
+
 type HeaderAction string
 
 const (
@@ -77,12 +105,9 @@ const (
 type HeaderSelectorKind string
 
 const (
-	HeaderSelectorExact  HeaderSelectorKind = "exact"
-	HeaderSelectorGlob   HeaderSelectorKind = "glob"
-	HeaderSelectorPreset HeaderSelectorKind = "preset"
+	HeaderSelectorExact HeaderSelectorKind = "exact"
+	HeaderSelectorGlob  HeaderSelectorKind = "glob"
 )
-
-const HeaderPresetProxyDisclosure = "proxy-disclosure"
 
 type HeaderSelector struct {
 	Kind    HeaderSelectorKind

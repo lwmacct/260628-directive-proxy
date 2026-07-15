@@ -28,10 +28,11 @@ export const initialEditor: EditorState = {
   targetURL: "https://httpbin.org/anything",
   joinPath: true,
   proxyURL: "",
-  headerMode: "patch",
-  headerOps: [
-    newHeaderOp("-", "preset", "proxy-disclosure", []),
+  requestHeaderMode: "patch",
+  preserveProxyDisclosure: false,
+  requestHeaderOps: [
     newHeaderOp("=", "name", "Authorization", ["Bearer upstream-token"]),
     newHeaderOp("=", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
   ],
+  responseHeaderOps: [],
 };

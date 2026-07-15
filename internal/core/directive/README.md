@@ -1,6 +1,6 @@
 # `directive`
 
-`directive` 负责解析 `Authorization: Bearer dproxy.15.<kind>.<payload>`，必要时通过 HTTP 或 Redis 读取完整 directive，并转换成 `proxy.Plan`。
+`directive` 负责解析 `Authorization: Bearer dproxy.<version>.<kind>.<payload>`，必要时通过 HTTP 或 Redis 读取完整 directive，并转换成 `proxy.Plan`。
 
 面向使用者的 payload 示例和字段说明放在根目录 [README.md](../../../README.md)；这里只保留包内部维护说明，避免两处文档重复。
 
@@ -9,15 +9,15 @@
 ## 职责
 
 - 从 `Authorization: Bearer <token>` 提取 `dproxy.` family token
-- 将 dproxy family 请求与 admin API 请求分流，decoder 只接受 `dproxy.15.i/r` 四段格式
+- 将 dproxy family 请求与 admin API 请求分流，decoder 只接受当前 `dproxy.<version>.i/r` 四段格式
 - inline 解码 directive JSON；remote 解码自包含 `RemoteSpec` 并通过 `RemoteReader` 读取完整 JSON
-- 校验 v14 token、RemoteSpec 与 directive payload schema
+- 校验当前版本 token、RemoteSpec 与 directive payload schema
 - 将 target、proxy、headers 等 payload 字段组装成 `proxy.Plan`
 
 ## 处理流程
 
 1. `resolver.go` 读取 `Authorization` bearer token。
-2. 非 dproxy family token 由 proxy handler 交给下一个 HTTP handler；dproxy family token 必须是 `dproxy.15.i/r.<base64url>`。
+2. 非 dproxy family token 由 proxy handler 交给下一个 HTTP handler；dproxy family token 必须是当前 `dproxy.<version>.i/r.<base64url>`。
 3. `payload_codec.go` 将 token 完整解码为领域 `Document`；inline payload 和 remote spec 在返回前已经校验。
 4. remote document 由 `RemoteReader` 取得裸 payload JSON，再进入与 inline 相同的严格解码流程。
 5. `assemble.go` 将合法 payload 直接编译成 `proxy.Plan`；resolver 另行返回来源观测信息。
@@ -25,12 +25,13 @@
 ## 实现约定
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
-- `dproxy.15.` 后的 `i`/`r` 明确区分 inline directive 与自包含 RemoteSpec。
+- `dproxy.<version>.` 后的 `i`/`r` 明确区分 inline directive 与自包含 RemoteSpec；实际版本只由 `TokenVersion` 定义。
 - HTTP RemoteSpec 默认不披露原请求 header，只有 `request_headers` 显式选择的 header 才会发送给 resolver。
 - HTTP 返回体和 Redis 8+ JSON 根文档必须是完整 payload，不做合并、回退、value 缓存或递归引用。
 - Redis directive 只使用 `JSON.GET key` 读取根文档；String key 不兼容，由写入方使用 `JSON.SET key $` 管理。
-- header op 必须且只能使用 `name`、`glob` 或 `preset` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
-- Preset 当前只接受仅用于 Remove 的 `proxy-disclosure`；preset 是有序 op，不是隐式清理策略。
+- `headers.request` 和 `headers.response` 的 op 必须且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
+- 请求 header 默认使用 patch 模式并移除代理披露 header；只有 `preserve_proxy_disclosure: true` 才保留入站值。
+- 响应 header op 只应用于最终上游响应，不应用于被重试丢弃的响应、informational response、trailer 或本地代理错误。
 - `Host` 只接受 exact selector；Remove 删除完整 header，不接受 `values`。
 - malformed 或不支持版本的 dproxy family token 返回 `proxy.ErrInvalidDirective`。
 - 未识别到 dproxy family token 返回 `proxy.ErrNoMatch`，不会启动代理请求生命周期。

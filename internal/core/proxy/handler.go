@@ -47,10 +47,11 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		FlushInterval: -1,
 		// RetryTransport rebuilds every outbound attempt from the immutable
 		// inbound template after resolving that attempt's directive.
-		Rewrite:      func(*httputil.ProxyRequest) {},
-		ErrorHandler: handleProxyError,
-		ErrorLog:     slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
-		Transport:    transport,
+		Rewrite:        func(*httputil.ProxyRequest) {},
+		ModifyResponse: modifyResponse,
+		ErrorHandler:   handleProxyError,
+		ErrorLog:       slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
+		Transport:      transport,
 	}
 	return &Handler{
 		resolver:           resolver,

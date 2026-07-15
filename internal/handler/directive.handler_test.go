@@ -21,7 +21,7 @@ func TestDirectiveCodecEndpoints(t *testing.T) {
 	if err := json.Unmarshal(encodeResponse.Body.Bytes(), &encoded); err != nil {
 		t.Fatalf("decode encode response: %v", err)
 	}
-	if !strings.HasPrefix(encoded.Token, "dproxy.15.r.") || encoded.Document.Remote == nil ||
+	if !strings.HasPrefix(encoded.Token, "dproxy.16.r.") || encoded.Document.Remote == nil ||
 		encoded.Document.Remote.Headers["Authorization"] != "Bearer secret" || len(encoded.Document.Remote.RequestHeaders) != 2 {
 		t.Fatalf("unexpected encoded document: %#v", encoded)
 	}

@@ -12,11 +12,11 @@ import (
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	raw, err := Encode(Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
-			{Op: "=", Name: "X-Test", Values: []string{"a"}},
-			{Op: "+", Name: "X-Multi", Values: []string{"b", "c"}},
-		}},
+		Headers: requestHeaders(
+			HeaderOp{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
+			HeaderOp{Op: "=", Name: "X-Test", Values: []string{"a"}},
+			HeaderOp{Op: "+", Name: "X-Multi", Values: []string{"b", "c"}},
+		),
 	})
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
@@ -35,16 +35,22 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	if !plan.JoinPath {
 		t.Fatal("expected join path")
 	}
-	if len(plan.HeaderOps) != 4 {
-		t.Fatalf("unexpected header op count: %d", len(plan.HeaderOps))
+	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 3 {
+		t.Fatalf("unexpected request header plan: %#v", plan.Headers.Request)
 	}
-	if plan.HeaderOps[0].Action != proxy.HeaderRemove || plan.HeaderOps[0].Selector.Pattern != "Authorization" {
-		t.Fatalf("expected authorization strip op first: %#v", plan.HeaderOps)
+	if plan.Headers.Request.StripBeforeOps[0] != "Authorization" {
+		t.Fatalf("expected authorization pre-strip: %#v", plan.Headers.Request)
 	}
 }
 
 func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
-	raw, err := Encode(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: &HeaderSection{Ops: []HeaderOp{{Op: "=", Name: "X-Test", Values: []string{"original"}}}}})
+	raw, err := Encode(Payload{
+		Target: TargetSection{URL: "https://api.example.com"},
+		Headers: &HeaderSection{
+			Request:  &RequestHeaderSection{Ops: []HeaderOp{{Op: "=", Name: "X-Test", Values: []string{"original"}}}},
+			Response: &ResponseHeaderSection{Ops: []HeaderOp{{Op: "=", Name: "X-Response", Values: []string{"original"}}}},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,12 +65,13 @@ func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	first.Plan.Target.Host = "mutated.example"
-	first.Plan.HeaderOps[len(first.Plan.HeaderOps)-1].Values[0] = "mutated"
+	first.Plan.Headers.Request.Ops[0].Values[0] = "mutated"
+	first.Plan.Headers.Response.Ops[0].Values[0] = "mutated"
 	second, err := prepared.ResolveAttempt(req.Context(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Plan.Target.Host != "api.example.com" || second.Plan.HeaderOps[len(second.Plan.HeaderOps)-1].Values[0] != "original" {
+	if second.Plan.Target.Host != "api.example.com" || second.Plan.Headers.Request.Ops[0].Values[0] != "original" || second.Plan.Headers.Response.Ops[0].Values[0] != "original" {
 		t.Fatalf("inline plan mutation leaked across attempts: %#v", second.Plan)
 	}
 }
@@ -85,12 +92,12 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dproxy.15.i.payload", want: true},
+		{name: "current version", authorization: "Bearer dproxy.16.i.payload", want: true},
 		{name: "unsupported version", authorization: "Bearer dproxy.12.payload", want: true},
 		{name: "malformed family token", authorization: "Bearer dproxy.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dproxy.15.i.payload", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dproxy.16.i.payload", want: true},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dproxy.15.i.payload", want: false},
+		{name: "other scheme", authorization: "Basic dproxy.16.i.payload", want: false},
 		{name: "missing", want: false},
 	}
 

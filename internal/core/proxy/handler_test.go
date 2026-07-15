@@ -315,22 +315,18 @@ func TestHandlerPatchHeaderPolicySurvivesReverseProxyPreprocessing(t *testing.T)
 	}
 	for _, tt := range []struct {
 		name          string
-		headerOps     []HeaderOp
+		preserve      bool
 		wantForwarded string
 	}{
-		{name: "preserves without preset", wantForwarded: "for=client.example"},
-		{
-			name: "removes with preset",
-			headerOps: []HeaderOp{{
-				Action:   HeaderRemove,
-				Selector: HeaderSelector{Kind: HeaderSelectorPreset, Pattern: HeaderPresetProxyDisclosure},
-			}},
-		},
+		{name: "removes by default"},
+		{name: "preserves when requested", preserve: true, wantForwarded: "for=client.example"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := NewHandler(
 				resolverFunc(func(*http.Request) (Resolution, error) {
-					return Resolution{Plan: &Plan{Target: target, JoinPath: true, HeaderOps: tt.headerOps}}, nil
+					return Resolution{Plan: &Plan{Target: target, JoinPath: true, Headers: HeaderPlan{
+						Request: RequestHeaderPlan{PreserveProxyDisclosure: tt.preserve},
+					}}}, nil
 				}),
 				roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					if got := req.Header.Get("Forwarded"); got != tt.wantForwarded {

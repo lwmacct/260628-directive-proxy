@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Button, Checkbox, Flex, Form, Input, Segmented, Select, Typography } from "antd";
+import { Button, Checkbox, Flex, Form, Input, Segmented, Select, Space, Tabs, Typography } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import type { ChangeEvent } from "react";
 import { HeaderOperationsTable } from "./HeaderOperationsTable";
@@ -11,7 +11,22 @@ const { Text: Label } = Typography;
 
 export function StructuredEditorPanel(props: { editor: EditorState; text: Text["authConsole"]; onUpdate: (patch: Partial<EditorState>) => void }) {
   const { editor, text, onUpdate } = props;
-  const updateHeaderOp = (key: string, patch: Partial<HeaderOp>) => onUpdate({ headerOps: editor.headerOps.map((item) => item.key === key ? { ...item, ...patch } : item) });
+  const updateHeaderOps = (field: "requestHeaderOps" | "responseHeaderOps", items: HeaderOp[]) => {
+    onUpdate(field === "requestHeaderOps" ? { requestHeaderOps: items } : { responseHeaderOps: items });
+  };
+  const updateHeaderOp = (field: "requestHeaderOps" | "responseHeaderOps", key: string, patch: Partial<HeaderOp>) => {
+    updateHeaderOps(field, editor[field].map((item) => item.key === key ? { ...item, ...patch } : item));
+  };
+  const headerOpsEditor = (field: "requestHeaderOps" | "responseHeaderOps") => <>
+    <Flex align="center" gap="small" justify="space-between" style={{ marginBottom: 12 }} wrap>
+      <Label strong>{text.headerOps}</Label>
+      <Space>
+        {field === "requestHeaderOps" ? <Select aria-label={text.headerMode} options={[{ label: "Patch", value: "patch" }, { label: "Replace", value: "replace" }]} style={{ width: 120 }} value={editor.requestHeaderMode} onChange={(requestHeaderMode: EditorState["requestHeaderMode"]) => onUpdate({ requestHeaderMode })} /> : null}
+        <Button icon={<PlusOutlined />} onClick={() => updateHeaderOps(field, [...editor[field], newHeaderOp("=", "name", "", [])])}>{text.add}</Button>
+      </Space>
+    </Flex>
+    <HeaderOperationsTable items={editor[field]} text={text} onChange={(key, patch) => updateHeaderOp(field, key, patch)} onRemove={(key) => updateHeaderOps(field, editor[field].filter((item) => item.key !== key))} />
+  </>;
   return <>
     <Form layout="vertical">
       <Form.Item label={text.directiveSource}><Segmented options={[{ label: "Inline", value: "inline" }, { label: "HTTP API", value: "http" }, { label: "Redis", value: "redis" }]} value={editor.source} onChange={(source: EditorState["source"]) => onUpdate({ source })} /></Form.Item>
@@ -20,9 +35,17 @@ export function StructuredEditorPanel(props: { editor: EditorState; text: Text["
         <Form.Item label="Proxy URL"><Input allowClear placeholder="socks5://user:pass@127.0.0.1:1080" value={editor.proxyURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ proxyURL: event.target.value })} /></Form.Item>
         <Form.Item label="Join Path"><Checkbox checked={editor.joinPath} onChange={(event: CheckboxChangeEvent) => onUpdate({ joinPath: event.target.checked })}>{text.enabled}</Checkbox></Form.Item>
         <div className="header-section">
-          <Form.Item label="Header Mode"><Select options={[{ label: "Patch", value: "patch" }, { label: "Replace", value: "replace" }]} value={editor.headerMode} onChange={(headerMode: EditorState["headerMode"]) => onUpdate({ headerMode })} /></Form.Item>
-          <Flex align="center" justify="space-between" style={{ marginBottom: 12 }}><Label strong>{text.headerOps}</Label><Button icon={<PlusOutlined />} onClick={() => onUpdate({ headerOps: [...editor.headerOps, newHeaderOp("=", "name", "", [])] })}>{text.add}</Button></Flex>
-          <HeaderOperationsTable items={editor.headerOps} text={text} onChange={updateHeaderOp} onRemove={(key) => onUpdate({ headerOps: editor.headerOps.filter((item) => item.key !== key) })} />
+          <Tabs items={[
+            {
+              key: "request",
+              label: text.requestHeaderPolicy,
+              children: <>
+                <Form.Item><Checkbox checked={editor.preserveProxyDisclosure} onChange={(event: CheckboxChangeEvent) => onUpdate({ preserveProxyDisclosure: event.target.checked })}>{text.preserveProxyDisclosure}</Checkbox></Form.Item>
+                {headerOpsEditor("requestHeaderOps")}
+              </>,
+            },
+            { key: "response", label: text.responseHeaderPolicy, children: headerOpsEditor("responseHeaderOps") },
+          ]} />
         </div>
       </> : <>
         <Form.Item label={editor.source === "http" ? text.httpResolverURL : text.redisURL}><Input placeholder={editor.source === "http" ? "https://policy.example.com/v1/resolve" : "redis://user:password@redis.example.com:6379/1"} value={editor.source === "http" ? editor.httpURL : editor.redisURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate(editor.source === "http" ? { httpURL: event.target.value } : { redisURL: event.target.value })} /></Form.Item>

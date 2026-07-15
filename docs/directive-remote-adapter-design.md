@@ -90,8 +90,12 @@ HTTP response body 和 Redis JSON 根文档都必须直接保存完整 `Payload`
     "url": "https://api.example.com/v1"
   },
   "headers": {
-    "mode": "patch",
-    "ops": []
+    "request": {
+      "ops": []
+    },
+    "response": {
+      "ops": []
+    }
   }
 }
 ```

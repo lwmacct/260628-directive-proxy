@@ -9,7 +9,7 @@ export type ResolverHeader = {
 export type HeaderOp = {
   key: string;
   op: "=" | "+" | "-";
-  selector: "name" | "glob" | "preset";
+  selector: "name" | "glob";
   pattern: string;
   values: string[];
 };
@@ -24,26 +24,31 @@ export type EditorState = {
   targetURL: string;
   joinPath: boolean;
   proxyURL: string;
-  headerMode: "patch" | "replace";
-  headerOps: HeaderOp[];
+  requestHeaderMode: "patch" | "replace";
+  preserveProxyDisclosure: boolean;
+  requestHeaderOps: HeaderOp[];
+  responseHeaderOps: HeaderOp[];
 };
 
 export type DirectivePayload = {
   target: { url: string; join_path?: boolean };
   proxy?: string;
   headers?: {
-    mode?: "patch" | "replace";
-    ops?: Array<{
-      op: "=" | "+" | "-";
-      name?: string;
-      glob?: string;
-      preset?: "proxy-disclosure";
-      values?: string[];
-    }>;
+    request?: {
+      mode?: "patch" | "replace";
+      preserve_proxy_disclosure?: boolean;
+      ops?: DirectiveHeaderOp[];
+    };
+    response?: { ops?: DirectiveHeaderOp[] };
   };
 };
 
-export type DirectiveHeaderOp = NonNullable<NonNullable<DirectivePayload["headers"]>["ops"]>[number];
+export type DirectiveHeaderOp = {
+  op: "=" | "+" | "-";
+  name?: string;
+  glob?: string;
+  values?: string[];
+};
 
 export type RemoteSpec = {
   type: "http" | "redis";

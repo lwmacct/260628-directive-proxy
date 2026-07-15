@@ -2,9 +2,9 @@
 
 `260628-directive-proxy`（Directive Proxy）是由 directive token 驱动的通用 HTTP 反向代理 data plane。
 
-`dproxy` 是 Directive Proxy 的协议前缀，当前用于 `dproxy.15.*` directive token 和 `dproxy.resolve.v1` 远端解析协议。
+`dproxy` 是 Directive Proxy 的协议前缀，当前用于 `dproxy.<version>.*` directive token 和 `dproxy.resolve.v1` 远端解析协议。
 
-项目只负责解析 `Authorization: Bearer dproxy.15...` 中的 directive，按 directive 改写请求并转发到目标上游。
+项目只负责解析 `Authorization: Bearer dproxy.<version>...` 中的 directive，按 directive 改写请求并转发到目标上游。
 
 服务仅使用一个 HTTP listener，默认监听 `:23198`：
 
@@ -229,11 +229,11 @@ proxy:
 唯一入口是：
 
 ```http
-Authorization: Bearer dproxy.15.i.<base64url-directive-json>
-Authorization: Bearer dproxy.15.r.<base64url-remote-spec-json>
+Authorization: Bearer dproxy.<version>.i.<base64url-directive-json>
+Authorization: Bearer dproxy.<version>.r.<base64url-remote-spec-json>
 ```
 
-`dproxy.` token family 由代理保留，当前只接受 `dproxy.15.i` 和 `dproxy.15.r` 四段协议。其他 Bearer token 不会进入代理，旧版 token 不再兼容。
+`<version>` 由 `internal/core/directive.TokenVersion` 定义。服务只接受当前版本的 `dproxy.<version>.i/r` 四段协议；其他 Bearer token 不会进入代理，旧版 token 不再兼容。
 
 - `i` 直接从 token 读取完整 directive JSON。
 - `r` 从 token 读取自包含的 HTTP 或 Redis `RemoteSpec`，远端响应就是完整 directive JSON。
@@ -248,21 +248,25 @@ payload schema：
   },
   "proxy": "socks5://user:pass@127.0.0.1:1080",
   "headers": {
-    "mode": "patch",
-    "ops": [
-      {
-        "op": "-",
-        "preset": "proxy-disclosure"
-      },
-      {
-        "op": "=",
-        "name": "Authorization",
-        "values": ["Bearer upstream-token"]
-      },
-      { "op": "=", "name": "X-Dproxy-key1", "values": ["value1"] },
-      { "op": "=", "name": "X-Dproxy-key2", "values": ["value2"] },
-      { "op": "=", "name": "X-Upstream-Tenant", "values": ["tenant-a"] }
-    ]
+    "request": {
+      "ops": [
+        {
+          "op": "=",
+          "name": "Authorization",
+          "values": ["Bearer upstream-token"]
+        },
+        { "op": "=", "name": "X-Dproxy-key1", "values": ["value1"] },
+        { "op": "=", "name": "X-Dproxy-key2", "values": ["value2"] },
+        { "op": "=", "name": "X-Upstream-Tenant", "values": ["tenant-a"] }
+      ]
+    },
+    "response": {
+      "ops": [
+        { "op": "-", "name": "Server" },
+        { "op": "-", "glob": "X-Upstream-*" },
+        { "op": "=", "name": "Access-Control-Allow-Origin", "values": ["*"] }
+      ]
+    }
   },
   "plugins": {}
 }
@@ -272,14 +276,15 @@ payload schema：
 
 使用 `directive.Encode` 生成 inline token，使用 `directive.EncodeRemote` 生成 remote token。
 
-每条 header op 必须且只能提供 `name`、`glob` 或 `preset` 之一：
+`headers.request` 配置发往上游的请求 header，`headers.response` 配置最终写给客户端的响应 header。每条 op 必须且只能提供 `name` 或 `glob` 之一：
 
 - `name` 执行大小写不敏感的精确匹配，Set/Add 可以创建 header。
 - `glob` 使用 Go `path.Match` 语法执行大小写不敏感的全名匹配，只影响该操作执行时已经存在的普通 header。
-- `preset` 当前只接受 `proxy-disclosure`，且只支持 Remove。该预设匹配 `X-Forwarded-*` 以及常见的 forwarding、代理链和客户端地址 header。
 - Glob 支持 `*`、`?`、字符类和转义，不匹配特殊的 `Host`。
 - Set (`=`) 和 Add (`+`) 必须包含 `values`；Remove (`-`) 删除完整 header，不能包含 `values`。
-- ops 按数组顺序执行。`patch` 继承所有端到端入站 header，不会隐式移除代理披露 header；`replace` 从空 header 集合开始。Glob 和 Preset 只匹配操作执行时已经存在的 header。
+- 请求 `mode` 省略时为 `patch`；`replace` 从空 header 集合开始。请求默认移除 `X-Forwarded-*` 以及常见 forwarding、代理链和客户端地址 header，只有 `preserve_proxy_disclosure: true` 才保留入站值。该策略在请求 ops 前执行，因此 ops 可以显式重建可信值。
+- 响应不支持 `mode`。响应 ops 只应用于最终上游响应；被重试丢弃的响应、100/103 informational response、trailer 和 dproxy 本地错误不受影响。连接级、framing、Upgrade 与 dproxy 系统 header 不允许修改。
+- 两侧 ops 都按数组顺序执行。Glob 只匹配操作执行时已经存在的普通 header。
 
 HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并可由 Capture 插件输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 的 `plugins` 按 attempt 生效，具体配置见各 [`plugin-*.md`](docs/plugin-capture.md)。携带 dproxy token 的入站 `Authorization` 会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 

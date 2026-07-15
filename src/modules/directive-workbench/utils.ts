@@ -3,35 +3,46 @@ import { newHeaderOp, newResolverHeader } from "./constants";
 import type { DirectiveDocument, DirectiveHeaderOp, DirectivePayload, EditorState, RemoteSpec } from "./types";
 
 export function buildPayload(input: EditorState): DirectivePayload {
-  const ops = input.headerOps.flatMap<DirectiveHeaderOp>((item) => {
+  const buildOps = (items: EditorState["requestHeaderOps"]): DirectiveHeaderOp[] => items.flatMap<DirectiveHeaderOp>((item) => {
     const pattern = item.pattern.trim();
     if (!pattern) return [];
-    const selector = item.selector === "name"
-      ? { name: pattern }
-      : item.selector === "glob"
-        ? { glob: pattern }
-        : { preset: pattern as "proxy-disclosure" };
+    const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
     return [{ op: item.op, ...selector, ...(item.op === "-" ? {} : { values: item.values }) }];
   });
+  const requestOps = buildOps(input.requestHeaderOps);
+  const responseOps = buildOps(input.responseHeaderOps);
   const payload: DirectivePayload = { target: { url: input.targetURL.trim() } };
   if (!input.joinPath) payload.target.join_path = false;
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
-  if (ops.length > 0) payload.headers = { mode: input.headerMode, ops };
+  const request = {
+    ...(input.requestHeaderMode === "replace" ? { mode: input.requestHeaderMode } : {}),
+    ...(input.preserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
+    ...(requestOps.length ? { ops: requestOps } : {}),
+  };
+  if (Object.keys(request).length || responseOps.length) {
+    payload.headers = {
+      ...(Object.keys(request).length ? { request } : {}),
+      ...(responseOps.length ? { response: { ops: responseOps } } : {}),
+    };
+  }
   return payload;
 }
 
-export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetURL" | "joinPath" | "proxyURL" | "headerMode" | "headerOps"> {
+export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetURL" | "joinPath" | "proxyURL" | "requestHeaderMode" | "preserveProxyDisclosure" | "requestHeaderOps" | "responseHeaderOps"> {
+  const toEditorOps = (ops: DirectiveHeaderOp[]) => ops.map((item) => newHeaderOp(
+    item.op,
+    item.glob !== undefined ? "glob" : "name",
+    item.name ?? item.glob ?? "",
+    item.values ?? [],
+  ));
   return {
     targetURL: payload.target.url,
     joinPath: payload.target.join_path ?? true,
     proxyURL: payload.proxy ?? "",
-    headerMode: payload.headers?.mode ?? "patch",
-    headerOps: (payload.headers?.ops ?? []).map((item) => newHeaderOp(
-      item.op,
-      item.preset !== undefined ? "preset" : item.glob !== undefined ? "glob" : "name",
-      item.name ?? item.glob ?? item.preset ?? "",
-      item.values ?? [],
-    )),
+    requestHeaderMode: payload.headers?.request?.mode ?? "patch",
+    preserveProxyDisclosure: payload.headers?.request?.preserve_proxy_disclosure ?? false,
+    requestHeaderOps: toEditorOps(payload.headers?.request?.ops ?? []),
+    responseHeaderOps: toEditorOps(payload.headers?.response?.ops ?? []),
   };
 }
 

@@ -333,9 +333,11 @@ func (s *proxyRequestSession) ObserveUpstreamResponse(attempt int, response *htt
 		metadata = requestmeta.Clone(s.attemptMeta)
 	})
 	s.observe(attempt, observability.UpstreamResponseStarted{
-		StatusCode: response.StatusCode, Header: response.Header, AttemptMetadata: metadata,
+		StatusCode: response.StatusCode, Header: response.Header.Clone(), AttemptMetadata: metadata,
 	})
-	response.Body = &observedResponseBody{ReadCloser: response.Body, session: s, attempt: attempt}
+	if response.StatusCode != http.StatusSwitchingProtocols {
+		response.Body = &observedResponseBody{ReadCloser: response.Body, session: s, attempt: attempt}
+	}
 }
 
 func (s *proxyRequestSession) Complete() {
@@ -376,7 +378,7 @@ func (s *proxyRequestSession) responseHeaders(status int, headers http.Header) {
 	s.bodyMu.Lock()
 	s.responseStatus = status
 	s.bodyMu.Unlock()
-	s.observe(s.currentAttempt(), observability.DownstreamResponseStarted{StatusCode: status, Header: headers})
+	s.observe(s.currentAttempt(), observability.DownstreamResponseStarted{StatusCode: status, Header: headers.Clone()})
 }
 
 func (s *proxyRequestSession) responseBodyChunk(data []byte) {

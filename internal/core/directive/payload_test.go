@@ -11,12 +11,15 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		Target: TargetSection{URL: "https://api.example.com/v1"},
 		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: &HeaderSection{
-			Mode: "replace",
-			Ops: []HeaderOp{
-				{Op: "-", Preset: "proxy-disclosure"},
-				{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
-				{Op: "=", Name: "X-Test", Values: []string{"a"}},
+			Request: &RequestHeaderSection{
+				Mode:                    "replace",
+				PreserveProxyDisclosure: true,
+				Ops: []HeaderOp{
+					{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
+					{Op: "=", Name: "X-Test", Values: []string{"a"}},
+				},
 			},
+			Response: &ResponseHeaderSection{Ops: []HeaderOp{{Op: "-", Name: "Server"}}},
 		},
 	}
 
@@ -42,14 +45,14 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if decoded.Proxy != input.Proxy {
 		t.Fatalf("unexpected proxy: %#v", decoded.Proxy)
 	}
-	if decoded.Headers == nil || decoded.Headers.Mode != "replace" {
+	if decoded.Headers == nil || decoded.Headers.Request == nil || decoded.Headers.Request.Mode != "replace" || !decoded.Headers.Request.PreserveProxyDisclosure {
 		t.Fatalf("unexpected header mode: %#v", decoded.Headers)
 	}
-	if len(decoded.Headers.Ops) != 3 ||
-		decoded.Headers.Ops[0].Preset != "proxy-disclosure" ||
-		decoded.Headers.Ops[1].Name != "Authorization" ||
-		len(decoded.Headers.Ops[1].Values) != 1 ||
-		decoded.Headers.Ops[1].Values[0] != "Bearer secret" {
+	if len(decoded.Headers.Request.Ops) != 2 ||
+		decoded.Headers.Request.Ops[0].Name != "Authorization" ||
+		len(decoded.Headers.Request.Ops[0].Values) != 1 ||
+		decoded.Headers.Request.Ops[0].Values[0] != "Bearer secret" ||
+		decoded.Headers.Response == nil || len(decoded.Headers.Response.Ops) != 1 {
 		t.Fatalf("unexpected headers: %#v", decoded.Headers)
 	}
 }
@@ -139,7 +142,7 @@ func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
 func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Mode: "invalid"},
+		Headers: &HeaderSection{Request: &RequestHeaderSection{Mode: "invalid"}},
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -148,10 +151,8 @@ func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
 
 func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "=", Name: "X-Test"},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "=", Name: "X-Test"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -160,10 +161,8 @@ func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 
 func TestValidateRejectsMultiValueHost(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "=", Name: "Host", Values: []string{"a.example.com", "b.example.com"}},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "=", Name: "Host", Values: []string{"a.example.com", "b.example.com"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -172,10 +171,8 @@ func TestValidateRejectsMultiValueHost(t *testing.T) {
 
 func TestValidateRejectsAppendHost(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "+", Name: "Host", Values: []string{"api.example.com"}},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "+", Name: "Host", Values: []string{"api.example.com"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -184,38 +181,25 @@ func TestValidateRejectsAppendHost(t *testing.T) {
 
 func TestValidateRejectsHeaderOpWithBothNameAndGlob(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "-", Name: "X-Test", Glob: "X-*"},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "-", Name: "X-Test", Glob: "X-*"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
 }
 
-func TestValidateRejectsUnknownOrNonRemovePreset(t *testing.T) {
-	for _, op := range []HeaderOp{
-		{Op: "-", Preset: "unknown"},
-		{Op: "=", Preset: "proxy-disclosure", Values: []string{"value"}},
-		{Op: "-", Name: "X-Test", Preset: "proxy-disclosure"},
-	} {
-		err := Validate(Payload{
-			Target:  TargetSection{URL: "https://api.example.com/v1"},
-			Headers: &HeaderSection{Ops: []HeaderOp{op}},
-		})
-		if err == nil {
-			t.Fatalf("expected validation error for %#v", op)
-		}
+func TestDecodeRejectsLegacyHeaderSchema(t *testing.T) {
+	raw := []byte(`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"op":"-","preset":"proxy-disclosure"}]}}`)
+	if _, err := DecodePayload(raw); err == nil {
+		t.Fatal("expected legacy header schema to be rejected")
 	}
 }
 
 func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "-", Glob: "X-["},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "-", Glob: "X-["}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -224,10 +208,8 @@ func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 
 func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "-", Name: "Bad Header"},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "-", Name: "Bad Header"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -236,13 +218,38 @@ func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
 
 func TestValidateRejectsRemoveWithValues(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Ops: []HeaderOp{
-			{Op: "-", Glob: "X-*", Values: []string{"value"}},
-		}},
+		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Headers: requestHeaders(HeaderOp{Op: "-", Glob: "X-*", Values: []string{"value"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestValidateRejectsProtectedResponseHeader(t *testing.T) {
+	for _, name := range []string{"Connection", "Content-Length", "Date", "Host", "X-Dproxy-Trace-ID"} {
+		err := Validate(Payload{
+			Target: TargetSection{URL: "https://api.example.com/v1"},
+			Headers: &HeaderSection{Response: &ResponseHeaderSection{Ops: []HeaderOp{{
+				Op: "-", Name: name,
+			}}}},
+		})
+		if err == nil {
+			t.Fatalf("expected protected response header %s to be rejected", name)
+		}
+	}
+}
+
+func TestValidateRejectsInvalidHeaderValue(t *testing.T) {
+	for _, headers := range []*HeaderSection{
+		requestHeaders(HeaderOp{Op: "=", Name: "X-Test", Values: []string{"bad\rvalue"}}),
+		&HeaderSection{Response: &ResponseHeaderSection{Ops: []HeaderOp{
+			{Op: "=", Name: "X-Test", Values: []string{"bad\nvalue"}},
+		}}},
+	} {
+		if err := Validate(Payload{Target: TargetSection{URL: "https://api.example.com/v1"}, Headers: headers}); err == nil {
+			t.Fatal("expected invalid header value to be rejected")
+		}
 	}
 }
 

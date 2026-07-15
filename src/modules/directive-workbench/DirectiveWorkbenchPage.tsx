@@ -18,8 +18,8 @@ export function DirectiveWorkbenchPage() {
     : state.tokenInput !== state.directiveToken;
   const items = useMemo(() => state.editor.source === "inline" ? [
     { key: "payload", label: "Payload JSON", children: <SourceEditor placeholder='{ "target": { "url": "https://api.example.com" } }' value={state.payloadInput} onChange={state.setPayloadInput} /> },
-    { key: "token", label: "Token", children: <SourceEditor placeholder="dproxy.14.i..." value={state.tokenInput} onChange={state.setTokenInput} /> },
-  ] : [{ key: "token", label: "Token", children: <SourceEditor placeholder="dproxy.14.r..." value={state.tokenInput} onChange={state.setTokenInput} /> }], [state.editor.source, state.payloadInput, state.tokenInput]);
+    { key: "token", label: "Token", children: <SourceEditor placeholder="dproxy.<version>.i..." value={state.tokenInput} onChange={state.setTokenInput} /> },
+  ] : [{ key: "token", label: "Token", children: <SourceEditor placeholder="dproxy.<version>.r..." value={state.tokenInput} onChange={state.setTokenInput} /> }], [state.editor.source, state.payloadInput, state.tokenInput]);
   return <WorkbenchPage description={t.authConsole.description} title={t.app.authConsole}>
     {state.error ? <Alert closable showIcon style={{ marginBottom: 16 }} title={state.error} type="error" onClose={() => state.setError(null)} /> : null}
     <Flex vertical gap={16}>

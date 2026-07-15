@@ -147,7 +147,8 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return response, roundTripErr
 		}
 		session.ObserveUpstreamResponse(attempt, response)
-		response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancel}
+		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
+		response.Body = wrapCancelOnCloseBody(response, cancel)
 		return response, roundTripErr
 	}
 }
@@ -181,7 +182,11 @@ func (t *RetryTransport) roundTripOnce(req *http.Request, prepared preparedReque
 	attemptRequest.GetBody = func() (io.ReadCloser, error) { return bodyLease.Reader(), nil }
 	attemptRequest.ContentLength = bodyLease.Size()
 	attemptRequest.TransferEncoding = nil
-	return t.base.RoundTrip(attemptRequest)
+	response, roundTripErr := t.base.RoundTrip(attemptRequest)
+	if response != nil {
+		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
+	}
+	return response, roundTripErr
 }
 
 func directiveErrorCode(err error) string {
@@ -210,16 +215,14 @@ func planFingerprint(plan *Plan) string {
 	data, err := json.Marshal(struct {
 		Target      string
 		Proxy       string
-		HeaderMode  HeaderMode
-		HeaderOps   []HeaderOp
+		Headers     HeaderPlan
 		Metadata    map[string][]string
 		PluginSpecs map[string][]byte
 		JoinPath    bool
 	}{
 		Target:      urlString(plan.Target),
 		Proxy:       urlString(plan.Proxy),
-		HeaderMode:  plan.HeaderMode,
-		HeaderOps:   plan.HeaderOps,
+		Headers:     plan.Headers,
 		Metadata:    plan.Metadata,
 		PluginSpecs: plan.PluginSpecs,
 		JoinPath:    plan.JoinPath,
@@ -242,6 +245,25 @@ type cancelOnCloseBody struct {
 	io.ReadCloser
 	cancel context.CancelFunc
 	done   atomic.Bool
+}
+
+type cancelOnCloseReadWriteBody struct {
+	*cancelOnCloseBody
+	writer io.Writer
+}
+
+func wrapCancelOnCloseBody(response *http.Response, cancel context.CancelFunc) io.ReadCloser {
+	body := &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancel}
+	if response.StatusCode == http.StatusSwitchingProtocols {
+		if writer, ok := response.Body.(io.Writer); ok {
+			return &cancelOnCloseReadWriteBody{cancelOnCloseBody: body, writer: writer}
+		}
+	}
+	return body
+}
+
+func (b *cancelOnCloseReadWriteBody) Write(data []byte) (int, error) {
+	return b.writer.Write(data)
 }
 
 func (b *cancelOnCloseBody) Read(data []byte) (int, error) {

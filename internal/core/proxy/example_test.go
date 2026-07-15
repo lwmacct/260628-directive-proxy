@@ -12,14 +12,14 @@ func (staticResolver) Prepare(*http.Request) (PreparedDirective, error) {
 	return staticPrepared{resolution: Resolution{Plan: &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []HeaderOp{{
+		Headers: HeaderPlan{Request: RequestHeaderPlan{Ops: []HeaderOp{{
 			Action: HeaderSet,
 			Selector: HeaderSelector{
 				Kind:    HeaderSelectorExact,
 				Pattern: "Authorization",
 			},
 			Values: []string{"Bearer upstream-token"},
-		}},
+		}}}},
 	}}}, nil
 }
 

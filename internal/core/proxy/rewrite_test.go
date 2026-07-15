@@ -109,11 +109,11 @@ func TestApplyRewrite(t *testing.T) {
 	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []HeaderOp{{
+		Headers: requestHeaderPlan(HeaderModePatch, false, HeaderOp{
 			Action:   HeaderSet,
 			Selector: exactSelector("Authorization"),
 			Values:   []string{"Bearer abc"},
-		}},
+		}),
 	})
 
 	if req.Out.URL.String() != "https://example.com/base/v1/resources" {
@@ -210,14 +210,13 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:     target,
-		JoinPath:   true,
-		HeaderMode: HeaderModeReplace,
-		HeaderOps: []HeaderOp{{
+		Target:   target,
+		JoinPath: true,
+		Headers: requestHeaderPlan(HeaderModeReplace, false, HeaderOp{
 			Action:   HeaderSet,
 			Selector: exactSelector("X-Only"),
 			Values:   []string{"keep"},
-		}},
+		}),
 	})
 
 	if got := req.Out.Header.Get("X-Inbound"); got != "" {
@@ -231,11 +230,11 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 	}
 }
 
-func TestApplyRewritePatchPreservesProxyDisclosureHeadersByDefault(t *testing.T) {
+func TestApplyRewritePatchRemovesProxyDisclosureHeadersByDefault(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	for _, name := range proxyDisclosureHeaders {
-		in.Header.Set(name, "preserve")
+		in.Header.Set(name, "remove")
 	}
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
@@ -246,9 +245,26 @@ func TestApplyRewritePatchPreservesProxyDisclosureHeadersByDefault(t *testing.T)
 	})
 
 	for _, name := range proxyDisclosureHeaders {
-		if got := req.Out.Header.Get(name); got != "preserve" {
-			t.Fatalf("expected %s to be preserved, got %q", name, got)
+		if got := req.Out.Header.Get(name); got != "" {
+			t.Fatalf("expected %s to be removed, got %q", name, got)
 		}
+	}
+}
+
+func TestApplyRewriteCanPreserveProxyDisclosureHeaders(t *testing.T) {
+	target, _ := url.Parse("https://example.com/base")
+	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
+	in.Header.Set("Forwarded", "for=client.example")
+	out := in.Clone(in.Context())
+	req := &httputil.ProxyRequest{In: in, Out: out}
+
+	applyRewrite(req, &Plan{
+		Target:  target,
+		Headers: requestHeaderPlan(HeaderModePatch, true),
+	})
+
+	if got := req.Out.Header.Get("Forwarded"); got != "for=client.example" {
+		t.Fatalf("expected proxy disclosure header to be preserved, got %q", got)
 	}
 }
 
@@ -264,11 +280,11 @@ func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
 	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []HeaderOp{{
+		Headers: requestHeaderPlan(HeaderModePatch, false, HeaderOp{
 			Action:   HeaderSet,
 			Selector: exactSelector("X-Dproxy-Injected"),
 			Values:   []string{"drop"},
-		}},
+		}),
 	})
 
 	for name := range req.Out.Header {
@@ -281,7 +297,7 @@ func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
 	}
 }
 
-func TestApplyRewriteProxyDisclosurePresetIsOrdered(t *testing.T) {
+func TestApplyRewriteProxyDisclosurePolicyRunsBeforeOps(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in.Header.Set("True-Client-IP", "drop")
@@ -293,10 +309,9 @@ func TestApplyRewriteProxyDisclosurePresetIsOrdered(t *testing.T) {
 	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []HeaderOp{
-			{Action: HeaderRemove, Selector: presetSelector(HeaderPresetProxyDisclosure)},
-			{Action: HeaderSet, Selector: exactSelector("True-Client-IP"), Values: []string{"explicit"}},
-		},
+		Headers: requestHeaderPlan(HeaderModePatch, false,
+			HeaderOp{Action: HeaderSet, Selector: exactSelector("True-Client-IP"), Values: []string{"explicit"}},
+		),
 	})
 
 	if got := req.Out.Header.Get("True-Client-IP"); got != "explicit" {
@@ -342,10 +357,10 @@ func TestApplyRewritePreservesTrustedTransportHeadersAndRejectsDirectiveInjectio
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		HeaderOps: []HeaderOp{
-			{Action: HeaderSet, Selector: exactSelector("Connection"), Values: []string{"X-Injected"}},
-			{Action: HeaderSet, Selector: exactSelector("X-Injected"), Values: []string{"unsafe"}},
-		},
+		Headers: requestHeaderPlan(HeaderModePatch, false,
+			HeaderOp{Action: HeaderSet, Selector: exactSelector("Connection"), Values: []string{"X-Injected"}},
+			HeaderOp{Action: HeaderSet, Selector: exactSelector("X-Injected"), Values: []string{"unsafe"}},
+		),
 	})
 
 	if got := req.Out.Header.Get("Connection"); got != "Upgrade" {
@@ -368,11 +383,11 @@ func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 	applyRewrite(req, &Plan{
 		Target:   target,
 		JoinPath: true,
-		HeaderOps: []HeaderOp{{
+		Headers: requestHeaderPlan(HeaderModePatch, false, HeaderOp{
 			Action:   HeaderSet,
 			Selector: exactSelector("Host"),
 			Values:   []string{"custom.example.com"},
-		}},
+		}),
 	})
 
 	if req.Out.Host != "custom.example.com" {
@@ -391,6 +406,8 @@ func globSelector(pattern string) HeaderSelector {
 	return HeaderSelector{Kind: HeaderSelectorGlob, Pattern: pattern}
 }
 
-func presetSelector(pattern string) HeaderSelector {
-	return HeaderSelector{Kind: HeaderSelectorPreset, Pattern: pattern}
+func requestHeaderPlan(mode HeaderMode, preserveProxyDisclosure bool, ops ...HeaderOp) HeaderPlan {
+	return HeaderPlan{Request: RequestHeaderPlan{
+		Mode: mode, PreserveProxyDisclosure: preserveProxyDisclosure, Ops: ops,
+	}}
 }

@@ -26,9 +26,9 @@ func TestRemotePreparedRefreshesEveryAttemptFromOriginalRequestMetadata(t *testi
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Header)
 		}
 		if calls == 1 {
-			return []byte(`{"target":{"url":"https://one.example"},"headers":{"ops":[{"op":"=","name":"X-Route","values":["one"]}]}}`), nil
+			return []byte(`{"target":{"url":"https://one.example"},"headers":{"request":{"ops":[{"op":"=","name":"X-Route","values":["one"]}]}}}`), nil
 		}
-		return []byte(`{"target":{"url":"https://two.example"},"proxy":"socks5://127.0.0.1:1080","headers":{"mode":"replace","ops":[{"op":"=","name":"X-Route","values":["two"]}]}}`), nil
+		return []byte(`{"target":{"url":"https://two.example"},"proxy":"socks5://127.0.0.1:1080","headers":{"request":{"mode":"replace","ops":[{"op":"=","name":"X-Route","values":["two"]}]}}}`), nil
 	})})
 	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeHTTP, URL: "https://resolver.example/resolve", Key: "routing"})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestRemotePreparedRefreshesEveryAttemptFromOriginalRequestMetadata(t *testi
 	if calls != 2 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "two.example" {
 		t.Fatalf("remote directive was not refreshed: calls=%d first=%#v second=%#v", calls, first.Plan, second.Plan)
 	}
-	if second.Plan.Proxy == nil || second.Plan.Proxy.Scheme != "socks5" || second.Plan.HeaderMode != proxy.HeaderModeReplace {
+	if second.Plan.Proxy == nil || second.Plan.Proxy.Scheme != "socks5" || second.Plan.Headers.Request.Mode != proxy.HeaderModeReplace {
 		t.Fatalf("second remote plan was not independently compiled: %#v", second.Plan)
 	}
 	if first.Source.PayloadSHA256 == "" || second.Source.PayloadSHA256 == "" || first.Source.PayloadSHA256 == second.Source.PayloadSHA256 {
@@ -70,7 +70,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	resolver := NewResolver(ResolverOptions{
 		RemoteReader: remoteReaderFunc(func(_ context.Context, spec RemoteSpec, _ *http.Request) ([]byte, error) {
 			requested = spec
-			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"ops":[{"op":"=","name":"X-Source","values":["remote"]}]}}`), nil
+			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"request":{"ops":[{"op":"=","name":"X-Source","values":["remote"]}]}}}`), nil
 		}),
 		LookupTimeout: time.Second,
 	})
@@ -94,8 +94,8 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		resolution.Source.Endpoint != "https://policy.example.com/v1/resolve" || resolution.Source.Key != spec.Key {
 		t.Fatalf("unexpected directive metadata: %#v", resolution.Source)
 	}
-	if len(plan.HeaderOps) != 2 || plan.HeaderOps[1].Values[0] != "remote" {
-		t.Fatalf("unexpected header ops: %#v", plan.HeaderOps)
+	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Values[0] != "remote" {
+		t.Fatalf("unexpected request header plan: %#v", plan.Headers.Request)
 	}
 }
 

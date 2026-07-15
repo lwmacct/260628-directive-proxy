@@ -32,6 +32,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 			t.Errorf("retry identity leaked upstream: %#v", r.Header)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("X-Upstream", "raw")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "id: 1\nevent: token\ndata: hello\n\n")
 		_ = http.NewResponseController(w).Flush()
@@ -61,9 +62,15 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	token, err := directive.Encode(directive.Payload{
 		Target:  directive.TargetSection{URL: upstream.URL},
 		Plugins: map[string]json.RawMessage{"capture": json.RawMessage(`{"body-chunk-bytes":8,"max-sse-event-bytes":1024}`)},
-		Headers: &directive.HeaderSection{Ops: []directive.HeaderOp{{
-			Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"},
-		}}},
+		Headers: &directive.HeaderSection{
+			Request: &directive.RequestHeaderSection{Ops: []directive.HeaderOp{{
+				Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"},
+			}}},
+			Response: &directive.ResponseHeaderSection{Ops: []directive.HeaderOp{
+				{Op: "-", Name: "X-Upstream"},
+				{Op: "=", Name: "X-Downstream", Values: []string{"rewritten"}},
+			}},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +95,9 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	if active := tracker.ListActive(); len(active) != 0 {
 		t.Fatalf("SSE remained retryable after response headers: %#v", active)
 	}
+	if response.Header.Get("X-Upstream") != "" || response.Header.Get("X-Downstream") != "rewritten" {
+		t.Fatalf("unexpected rewritten response headers: %#v", response.Header)
+	}
 	reader := bufio.NewReader(response.Body)
 	var first strings.Builder
 	for {
@@ -108,6 +118,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	deadline := time.Now().Add(time.Second)
 	var values []string
 	var metadataCaptured bool
+	var responseHeadersCaptured bool
 	for time.Now().Before(deadline) {
 		values = values[:0]
 		for _, event := range output.Records() {
@@ -118,15 +129,19 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 				metadata := event.Data["metadata"].(map[string][]string)
 				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
 			}
+			if event.Topic == "capture.response.headers" {
+				headers := event.Data["headers"].(map[string][]string)
+				responseHeadersCaptured = len(headers["X-Downstream"]) == 1 && headers["X-Downstream"][0] == "rewritten" && len(headers["X-Upstream"]) == 0
+			}
 		}
-		if len(values) == 2 && metadataCaptured {
+		if len(values) == 2 && metadataCaptured && responseHeadersCaptured {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured {
+	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured || !responseHeadersCaptured {
 		allEvents := output.Records()
-		t.Fatalf("unexpected captured events: values=%#v metadata=%t events=%#v", values, metadataCaptured, allEvents)
+		t.Fatalf("unexpected captured events: values=%#v metadata=%t response_headers=%t events=%#v", values, metadataCaptured, responseHeadersCaptured, allEvents)
 	}
 }
 

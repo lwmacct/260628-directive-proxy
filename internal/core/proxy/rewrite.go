@@ -51,14 +51,21 @@ func applyPlan(out *http.Request, originalHeaders http.Header, d *Plan) {
 
 	transportHeaders := trustedTransportHeaders(originalHeaders)
 	out.Host = ""
-	replaceHeaders := d.HeaderMode == HeaderModeReplace
+	requestHeaders := d.Headers.Request
+	replaceHeaders := requestHeaders.Mode == HeaderModeReplace
 	if replaceHeaders {
 		out.Header = make(http.Header)
 		out.Host = ""
 	} else {
 		out.Header = cloneEndToEndHeaders(originalHeaders)
 	}
-	applyRequestHeaderOps(out, d.HeaderOps)
+	for _, name := range requestHeaders.StripBeforeOps {
+		out.Header.Del(name)
+	}
+	if !requestHeaders.PreserveProxyDisclosure {
+		stripProxyDisclosureHeaders(out.Header)
+	}
+	applyRequestHeaderOps(out, requestHeaders.Ops)
 	stripDproxyHeaders(out.Header)
 	stripHopByHopHeaders(out.Header)
 	copyHeaders(out.Header, transportHeaders)
@@ -124,9 +131,6 @@ func matchingHeaderNames(headers http.Header, selector HeaderSelector) []string 
 	if selector.Kind == HeaderSelectorExact {
 		return []string{http.CanonicalHeaderKey(pattern)}
 	}
-	if selector.Kind == HeaderSelectorPreset {
-		return matchingPresetHeaderNames(headers, pattern)
-	}
 	if selector.Kind != HeaderSelectorGlob {
 		return nil
 	}
@@ -146,20 +150,6 @@ func matchingHeaderNames(headers http.Header, selector HeaderSelector) []string 
 	return names
 }
 
-func matchingPresetHeaderNames(headers http.Header, preset string) []string {
-	if preset != HeaderPresetProxyDisclosure {
-		return nil
-	}
-	names := make([]string, 0, len(headers))
-	for name := range headers {
-		if isProxyDisclosureHeader(name) {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
 func isProxyDisclosureHeader(name string) bool {
 	if strings.HasPrefix(strings.ToLower(name), "x-forwarded-") {
 		return true
@@ -170,6 +160,14 @@ func isProxyDisclosureHeader(name string) bool {
 		}
 	}
 	return false
+}
+
+func stripProxyDisclosureHeaders(headers http.Header) {
+	for name := range headers {
+		if isProxyDisclosureHeader(name) {
+			headers.Del(name)
+		}
+	}
 }
 
 func applyHeaderOp(headers http.Header, headerName string, op HeaderOp) {

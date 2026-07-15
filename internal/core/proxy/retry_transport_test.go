@@ -206,22 +206,21 @@ func TestRetryTransportRefreshesPlanAndRebuildsFromOriginalTemplate(t *testing.T
 		{
 			Target:   firstTarget,
 			Metadata: requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}},
-			HeaderOps: []HeaderOp{
+			Headers: HeaderPlan{Request: RequestHeaderPlan{Ops: []HeaderOp{
 				{Action: HeaderRemove, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "Authorization"}},
 				{Action: HeaderSet, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "Host"}, Values: []string{"one.internal"}},
 				{Action: HeaderSet, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "X-Only-First"}, Values: []string{"one"}},
-			},
+			}}},
 		},
 		{
-			Target:     secondTarget,
-			Proxy:      secondProxy,
-			HeaderMode: HeaderModeReplace,
-			Metadata:   requestmeta.Metadata{"X-Dproxy-Request-Id": {"changed"}},
-			HeaderOps: []HeaderOp{
+			Target:   secondTarget,
+			Proxy:    secondProxy,
+			Metadata: requestmeta.Metadata{"X-Dproxy-Request-Id": {"changed"}},
+			Headers: HeaderPlan{Request: RequestHeaderPlan{Mode: HeaderModeReplace, Ops: []HeaderOp{
 				{Action: HeaderRemove, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "Authorization"}},
 				{Action: HeaderSet, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "Host"}, Values: []string{"two.internal"}},
 				{Action: HeaderSet, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "X-Second"}, Values: []string{"two"}},
-			},
+			}}},
 		},
 	}}
 	type seenRequest struct {
@@ -318,4 +317,16 @@ func retryTestContext(t *testing.T, inbound *http.Request, session proxyrequest.
 	t.Cleanup(body.Release)
 	ctx := proxyrequest.ContextWithSession(inbound.Context(), session)
 	return contextWithPreparedRequest(ctx, prepared, NewRequestTemplate(inbound), body)
+}
+
+func TestPlanFingerprintIncludesResponseHeaderPlan(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	first := &Plan{Target: target, Headers: HeaderPlan{Response: ResponseHeaderPlan{Ops: []HeaderOp{{
+		Action: HeaderSet, Selector: HeaderSelector{Kind: HeaderSelectorExact, Pattern: "X-Test"}, Values: []string{"one"},
+	}}}}}
+	second := ClonePlan(first)
+	second.Headers.Response.Ops[0].Values[0] = "two"
+	if planFingerprint(first) == planFingerprint(second) {
+		t.Fatal("response header plan did not affect fingerprint")
+	}
 }
