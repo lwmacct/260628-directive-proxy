@@ -24,7 +24,6 @@ type ActiveProxyRequestDTO struct {
 	AttemptStartedAt  time.Time           `json:"attempt_started_at"`
 	UpstreamStartedAt *time.Time          `json:"upstream_started_at,omitempty"`
 	WaitingMillis     int64               `json:"waiting_millis"`
-	RetryableAt       *time.Time          `json:"retryable_at,omitempty"`
 	Retryable         bool                `json:"retryable"`
 	MaxAttempts       int                 `json:"max_attempts"`
 }

@@ -23,7 +23,6 @@ type Handler struct {
 	trackBeforeResolve bool
 	bodyMemory         *bodymemory.Controller
 	bodyReadTimeout    time.Duration
-	requireIdentity    bool
 	next               http.Handler
 }
 
@@ -32,7 +31,6 @@ type HandlerOptions struct {
 	TrackBeforeResolve bool
 	BodyMemory         *bodymemory.Controller
 	BodyReadTimeout    time.Duration
-	RequireIdentity    bool
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
 }
@@ -61,7 +59,6 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		trackBeforeResolve: opts.TrackBeforeResolve,
 		bodyMemory:         opts.BodyMemory,
 		bodyReadTimeout:    opts.BodyReadTimeout,
-		requireIdentity:    opts.RequireIdentity,
 		next:               opts.Next,
 	}
 }
@@ -125,14 +122,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	identity, identityErr := proxyrequest.TakeIdentity(r)
-	if identityErr != nil || h.requireIdentity && !identity.Valid() {
+	if identityErr != nil {
 		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_retry_identity", "proxy: valid request ID and retry capability are required")
 		return
 	}
 	var session proxyrequest.Session
 	if h.trackBeforeResolve && h.tracker != nil {
 		session = h.tracker.Start(r, identity)
-		if session == nil && h.requireIdentity {
+		if session == nil && identity.Valid() {
 			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_request_id", "proxy: request ID is already active")
 			return
 		}
@@ -153,7 +150,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if session == nil && h.tracker != nil {
 		session = h.tracker.Start(r, identity)
-		if session == nil && h.requireIdentity {
+		if session == nil && identity.Valid() {
 			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_request_id", "proxy: request ID is already active")
 			return
 		}

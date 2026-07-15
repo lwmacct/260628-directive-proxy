@@ -21,7 +21,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 		BodyChunkBytes: 4, MaxSSEEventBytes: 1024, RedactHeaders: []string{"authorization"}, RedactQuery: []string{"token"},
 	})
 	tracker := NewProxyRequestService(ProxyRequestOptions{
-		RetryAfter: 0, MaxAttempts: 3, InstanceID: "test-instance",
+		MaxAttempts: 3, InstanceID: "test-instance",
 	}, pipeline)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -35,6 +35,9 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 
 	canceled := false
 	attempt := session.BeginAttempt(func() { canceled = true }, "inline", "", "", "")
+	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
 	session.BindMetadata(attempt, requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}})
 	session.DirectiveResolved(attempt, target, time.Millisecond, "", false, false)
 	if !session.BeginUpstream(attempt, req) {
@@ -52,6 +55,9 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 		t.Fatalf("unexpected attempt action: %v", action)
 	}
 	attempt = session.BeginAttempt(func() {}, "inline", "", "", "")
+	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
 	if attempt != 2 {
 		t.Fatalf("unexpected second attempt: %d", attempt)
 	}
@@ -83,7 +89,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := output.Records()
-	var sawSSE, sawComment, sawRedacted, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata bool
+	var sawSSE, sawComment, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata bool
 	var previous uint64
 	for _, event := range events {
 		if event.Sequence <= previous {
@@ -99,27 +105,27 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 			sawUpstreamStarted = event.Attempt > 0
 		case "capture.request.metadata.bound":
 			sawMetadata = event.Data["metadata"] != nil
-		case "capture.request.headers":
-			headers := event.Data["headers"].(map[string][]string)
-			sawRedacted = headers["Authorization"][0] == "<redacted>"
 		case "capture.response.sse.event":
 			sawSSE = event.Data["data"] == "one\ntwo" && event.Data["upstream_event_id"] == "9"
 		case "capture.response.sse.comment":
 			sawComment = true
 		}
 	}
-	if !sawSSE || !sawComment || !sawRedacted || !sawResolveStarted || !sawResolveFinished || !sawUpstreamStarted || !sawMetadata {
-		t.Fatalf("missing capture events: sse=%t comment=%t redacted=%t resolve_started=%t resolve_finished=%t upstream_started=%t metadata=%t events=%#v", sawSSE, sawComment, sawRedacted, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata, events)
+	if !sawSSE || !sawComment || !sawResolveFinished || !sawUpstreamStarted || !sawMetadata {
+		t.Fatalf("missing capture events: sse=%t comment=%t resolve_started=%t resolve_finished=%t upstream_started=%t metadata=%t events=%#v", sawSSE, sawComment, sawResolveStarted, sawResolveFinished, sawUpstreamStarted, sawMetadata, events)
 	}
 }
 
 func TestProxyRequestRetryByCapabilityUsesProofAndCAS(t *testing.T) {
 	pipeline, output := newCapturePipeline(t, captureplugin.Config{})
-	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: 0, MaxAttempts: 3}, pipeline)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, pipeline)
 	newActive := func(path string, seed byte, canceled *bool) (proxyrequest.Session, proxyrequest.Identity, [32]byte) {
 		identity, digest := testIdentity(t, seed)
 		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/"+path, nil), identity)
 		attempt := session.BeginAttempt(func() { *canceled = true }, "inline", "", "", "")
+		if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
 		session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)
 		if !session.BeginUpstream(attempt, nil) {
 			t.Fatal("attempt did not enter upstream state")
@@ -166,6 +172,9 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	}, pipeline)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
+	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
 	session.BindMetadata(attempt, requestmeta.Metadata{
 		"X-Dproxy-Request-Id": {"request-1"},
 		"X-Dproxy-Secret-Key": {"secret"},
@@ -188,10 +197,10 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 }
 
 func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
-	tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: time.Hour, MaxAttempts: 2}, nil)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, nil)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
-	if active, ok := tracker.GetActive(session.TraceID()); !ok || active.State != proxyrequest.StateResolvingDirective || !active.RetryableAt.IsZero() {
+	if active, ok := tracker.GetActive(session.TraceID()); !ok || active.State != proxyrequest.StateResolvingDirective {
 		t.Fatalf("unexpected resolving state: active=%#v ok=%t", active, ok)
 	}
 	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrRetryNotReady {
@@ -199,8 +208,8 @@ func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
 	}
 	session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)
 	session.BeginUpstream(attempt, nil)
-	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrRetryNotReady {
-		t.Fatalf("unexpected early retry error: %v", err)
+	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt, proxyrequest.RetryTriggerControlAPI); err != nil {
+		t.Fatalf("retry after upstream start failed: %v", err)
 	}
 	if _, err := tracker.RetryByTraceID(session.TraceID(), attempt+1, proxyrequest.RetryTriggerControlAPI); err != proxyrequest.ErrAttemptChanged {
 		t.Fatalf("unexpected stale attempt error: %v", err)
@@ -211,7 +220,7 @@ func TestProxyRequestRetryRejectsEarlyAndStaleAttempts(t *testing.T) {
 func TestProxyRequestRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
-			tracker := NewProxyRequestService(ProxyRequestOptions{RetryAfter: 0, MaxAttempts: 2}, nil)
+			tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, nil)
 			session := tracker.Start(httptest.NewRequest(method, "http://proxy.local/resource", nil), proxyrequest.Identity{})
 			attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
 			session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)

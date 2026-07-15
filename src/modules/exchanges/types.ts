@@ -11,7 +11,6 @@ export type ActiveProxyRequest = {
   attempt_started_at: string;
   upstream_started_at?: string;
   waiting_millis: number;
-  retryable_at?: string;
   retryable: boolean;
   max_attempts: number;
 };

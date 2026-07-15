@@ -18,7 +18,7 @@
 
 代理为每个进入 data plane 的逻辑请求生成 128-bit `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并从同一份不可变内存正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
 
-启用重试时，入站请求必须同时携带 `Dproxy-Request-ID`（16 个随机字节的无填充 Base64URL）和 `Dproxy-Retry-Capability`（32 个随机字节的无填充 Base64URL）。代理在任何日志、插件或上游处理前移除这两个 header，只保留绑定两者的 SHA-256 verifier；调用方必须自行保存 capability。匿名调用方用 possession proof 介入自己的请求：
+Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retry identity 即可正常转发。需要通过 Public API 介入自己的请求时，调用方才携带 `Dproxy-Request-ID`（16 个随机字节的无填充 Base64URL）和 `Dproxy-Retry-Capability`（32 个随机字节的无填充 Base64URL）。代理在任何日志、插件或上游处理前移除这两个 header，只保留绑定两者的 SHA-256 verifier：
 
 - `PUT /api/public/proxy-requests/{request_id}/attempts/{next_attempt}`：无需 Control Auth，但必须携带 `Authorization: DProxy-Retry <request_id>.<capability>` 和 `If-Match: "attempt:<current_attempt>"`。
 - `GET /api/control/proxy-requests`：认证后列出活动请求。
@@ -35,7 +35,6 @@
 proxy:
   retry:
     enabled: true
-    retryable-after: 10s
     max-attempts: 3
     command-retention: 1m
   body-memory:

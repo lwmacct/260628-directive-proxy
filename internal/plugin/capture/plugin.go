@@ -3,6 +3,7 @@ package captureplugin
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"hash"
 	"mime"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 )
 
 const Name = "builtin.capture"
+const DirectiveName = "capture"
 
 type Config struct {
 	Name                     string
@@ -98,6 +100,19 @@ func (p *Plugin) Name() string {
 		return Name
 	}
 	return p.name
+}
+
+func (*Plugin) DirectiveName() string { return DirectiveName }
+
+func (*Plugin) ValidateSpec(raw []byte) error {
+	if len(strings.TrimSpace(string(raw))) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return nil
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *Plugin) NewTrace(observability.TraceContext) observability.TraceObserver {

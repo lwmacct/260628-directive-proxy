@@ -20,33 +20,35 @@ import (
 )
 
 type ProxyRequestOptions struct {
-	RetryAfter       time.Duration
 	MaxAttempts      int
 	CommandRetention time.Duration
 	InstanceID       string
 }
 
 type proxyRequestSession struct {
-	service        *ProxyRequestService
-	ctx            context.Context
-	trace          *observability.Trace
-	traceID        string
-	identity       proxyrequest.Identity
-	startedAt      time.Time
-	method         string
-	idempotencyKey string
-	requestURL     string
-	targetURL      string
-	metadata       requestmeta.Metadata
-	metadataBound  bool
-	attemptMeta    requestmeta.Metadata
-	pluginSpecs    map[string][]byte
-	retryResults   map[int]proxyrequest.RetryResult
-	state          proxyrequest.State
-	attempt        int
-	attemptAt      time.Time
-	upstreamAt     time.Time
-	cancelAttempt  func()
+	service               *ProxyRequestService
+	ctx                   context.Context
+	trace                 *observability.Trace
+	requestStarted        observability.RequestStarted
+	requestStartedEmitted bool
+	attemptStarted        observability.AttemptStarted
+	traceID               string
+	identity              proxyrequest.Identity
+	startedAt             time.Time
+	method                string
+	idempotencyKey        string
+	requestURL            string
+	targetURL             string
+	metadata              requestmeta.Metadata
+	metadataBound         bool
+	attemptMeta           requestmeta.Metadata
+	pluginSpecs           map[string][]byte
+	retryResults          map[int]proxyrequest.RetryResult
+	state                 proxyrequest.State
+	attempt               int
+	attemptAt             time.Time
+	upstreamAt            time.Time
+	cancelAttempt         func()
 
 	bodyMu           sync.Mutex
 	requestBodyEnded bool
@@ -180,11 +182,11 @@ func (s *proxyRequestSession) BeginAttempt(cancel func(), mode, backend, endpoin
 		s.cancelAttempt = cancel
 		s.attemptMeta = nil
 		s.pluginSpecs = nil
+		s.attemptStarted = observability.AttemptStarted{Mode: mode, Backend: backend, Endpoint: endpoint, Key: key}
 		s.state = proxyrequest.StateResolvingDirective
 		attempt = s.attempt
 	})
 
-	s.observe(attempt, observability.AttemptStarted{Mode: mode, Backend: backend, Endpoint: endpoint, Key: key})
 	return attempt
 }
 
@@ -236,6 +238,16 @@ func (s *proxyRequestSession) ConfigureAttempt(attempt int, specs map[string][]b
 		}
 	} else if err := s.service.pipeline.ValidatePluginSpecs(specs); err != nil {
 		return err
+	}
+	if s.trace != nil {
+		if err := s.trace.ReplacePlugins(specs); err != nil {
+			return err
+		}
+		if attempt == 1 && !s.requestStartedEmitted {
+			s.trace.Observe(observability.Signal{Attempt: 0, Value: s.requestStarted})
+			s.requestStartedEmitted = true
+		}
+		s.trace.Observe(observability.Signal{Attempt: attempt, Value: s.attemptStarted})
 	}
 	configured := false
 	s.invoke(func() {

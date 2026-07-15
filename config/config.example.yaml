@@ -74,8 +74,6 @@ proxy:
 
   # 等待上游响应时的外部介入重试配置
   retry:
-    enabled: true # 是否启用等待响应请求的外部介入重试
-    retryable-after: 10s # 单次上游请求等待多久后允许外部介入重试
     max-attempts: 3 # 单个逻辑请求允许的最大上游尝试次数，包含首次请求
     command-retention: 1m0s # 已接受重试命令终态的保留时间
 
@@ -141,7 +139,6 @@ observability:
   plugins:
     - name: "capture" # 插件实例名称
       type: "builtin.capture" # 插件类型：builtin.capture 或 builtin.llmusage
-      enabled: false # 是否启用插件
 
       # builtin.capture 配置
       capture:
@@ -169,7 +166,6 @@ observability:
       llmusage: null
     - name: "llmusage" # 插件实例名称
       type: "builtin.llmusage" # 插件类型：builtin.capture 或 builtin.llmusage
-      enabled: false # 是否启用插件
 
       # builtin.capture 配置
       capture: null

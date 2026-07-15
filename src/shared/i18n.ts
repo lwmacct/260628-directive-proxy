@@ -16,7 +16,7 @@ const zh = {
     auto: "自动刷新", refresh: "刷新", active: "活动请求", retryable: "可重试", oldestWait: "最长阶段时长",
     time: "尝试时间", method: "方法", status: "状态", metadata: "请求元数据", search: "搜索 URL、目标地址、Metadata 或 Trace ID",
     target: "目标地址", attempt: "尝试", waiting: "阶段时长", resolving: "解析远程指令", memoryWait: "等待正文内存", bodyReading: "读取请求正文", awaiting: "等待上游响应", retrying: "正在切换尝试",
-    retry: "重试", retryConfirm: "取消当前上游尝试并启动下一次尝试？", retryNotReady: "尚未达到重试阈值或已达到次数上限",
+    retry: "重试", retryConfirm: "取消当前上游尝试并启动下一次尝试？", retryNotReady: "当前请求不可重试或已达到次数上限",
     requestFailed: "请求失败", retryFailed: "重试失败",
   },
   authConsole: {
@@ -60,7 +60,7 @@ const en: Text = {
     auto: "Auto refresh", refresh: "Refresh", active: "Active requests", retryable: "Retryable", oldestWait: "Oldest state",
     time: "Attempt time", method: "Method", status: "Status", metadata: "Request metadata", search: "Search URL, target, metadata, or Trace ID",
     target: "Target", attempt: "Attempt", waiting: "State time", resolving: "Resolving directive", memoryWait: "Waiting for body memory", bodyReading: "Reading request body", awaiting: "Awaiting upstream", retrying: "Switching attempt",
-    retry: "Retry", retryConfirm: "Cancel the current upstream attempt and start the next attempt?", retryNotReady: "Retry threshold not reached or attempt limit reached",
+    retry: "Retry", retryConfirm: "Cancel the current upstream attempt and start the next attempt?", retryNotReady: "Request is not retryable or attempt limit reached",
     requestFailed: "Request failed", retryFailed: "Retry failed",
   },
   authConsole: {

@@ -216,7 +216,6 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 
 func TestValidateRetryConfiguration(t *testing.T) {
 	for _, mutate := range []func(*ProxyRetry){
-		func(cfg *ProxyRetry) { cfg.RetryableAfter = -time.Second },
 		func(cfg *ProxyRetry) { cfg.MaxAttempts = 1 },
 		func(cfg *ProxyRetry) { cfg.CommandRetention = 0 },
 	} {
@@ -240,12 +239,6 @@ func TestValidateRetryConfiguration(t *testing.T) {
 			t.Fatalf("expected invalid body memory config, got %v", err)
 		}
 	}
-	cfg := validDefaultConfig()
-	cfg.Proxy.Retry.Enabled = false
-	validated, err := Validate(cfg)
-	if err != nil || validated.Proxy.Retry.MaxAttempts != 1 {
-		t.Fatalf("disabled retry was not normalized: cfg=%#v err=%v", validated.Proxy.Retry, err)
-	}
 }
 
 func TestValidateObservabilityConfiguration(t *testing.T) {
@@ -260,8 +253,6 @@ func TestValidateObservabilityConfiguration(t *testing.T) {
 		}
 	}
 	cfg := validDefaultConfig()
-	cfg.Observability.Plugins[0].Enabled = true
-	cfg.Observability.Plugins[1].Enabled = true
 	cfg.Observability.Outputs[0].Enabled = true
 	validated, err := Validate(cfg)
 	if err != nil || validated.Observability.Outputs[0].Fluent == nil || validated.Observability.Outputs[0].Fluent.Endpoint != "unix:///run/fluent/fluent.sock" {
@@ -278,16 +269,10 @@ func TestValidateObservabilityConfiguration(t *testing.T) {
 		func(cfg *Observability) { cfg.Outputs[0].Queue.MaxBytes = 0 },
 	} {
 		cfg := validDefaultConfig()
-		cfg.Observability.Plugins[0].Enabled = true
 		cfg.Observability.Outputs[0].Enabled = true
 		mutate(&cfg.Observability)
 		if _, err := Validate(cfg); err != ErrInvalidObservability {
 			t.Fatalf("expected invalid observability config, got %v", err)
 		}
-	}
-	unpaired := validDefaultConfig()
-	unpaired.Observability.Plugins[0].Enabled = true
-	if _, err := Validate(unpaired); err != ErrInvalidObservability {
-		t.Fatalf("enabled plugin without output was accepted: %v", err)
 	}
 }

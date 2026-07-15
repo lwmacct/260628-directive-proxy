@@ -85,16 +85,52 @@ func (p *Pipeline) StartTrace(ctx TraceContext) *Trace {
 		return nil
 	}
 	trace := &Trace{pipeline: p, context: ctx, pluginDown: make(map[string]bool)}
-	for _, plugin := range p.plugins {
+	return trace.withPlugins(p.plugins)
+}
+
+func (p *Pipeline) StartRequestTrace(ctx TraceContext) *Trace {
+	if p == nil || p.closed.Load() {
+		return nil
+	}
+	return &Trace{pipeline: p, context: ctx, pluginDown: make(map[string]bool)}
+}
+
+func (t *Trace) withPlugins(plugins []Plugin) *Trace {
+	for _, plugin := range plugins {
 		if plugin == nil || strings.TrimSpace(plugin.Name()) == "" {
 			continue
 		}
-		observer := plugin.NewTrace(ctx)
+		observer := plugin.NewTrace(t.context)
 		if observer != nil {
-			trace.plugins = append(trace.plugins, tracePlugin{name: plugin.Name(), observer: observer})
+			t.plugins = append(t.plugins, tracePlugin{name: plugin.Name(), observer: observer})
 		}
 	}
-	return trace
+	return t
+}
+
+func (t *Trace) ReplacePlugins(specs map[string][]byte) error {
+	if t == nil || t.pipeline == nil {
+		return nil
+	}
+	plugins, err := PluginsForSpecs(t.pipeline.plugins, specs)
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, plugin := range t.plugins {
+		if !t.pluginDown[plugin.name] {
+			t.invokeClose(plugin)
+		}
+	}
+	t.plugins = nil
+	t.pluginDown = make(map[string]bool)
+	for _, plugin := range plugins {
+		if observer := plugin.NewTrace(t.context); observer != nil {
+			t.plugins = append(t.plugins, tracePlugin{name: plugin.Name(), observer: observer})
+		}
+	}
+	return nil
 }
 
 func (p *Pipeline) ValidatePluginSpecs(specs map[string][]byte) error {

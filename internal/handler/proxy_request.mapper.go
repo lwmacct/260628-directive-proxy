@@ -12,15 +12,10 @@ func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) Act
 		waitStartedAt = item.StartedAt
 	}
 	var upstreamStartedAt *time.Time
-	var retryableAt *time.Time
 	if !item.UpstreamStartedAt.IsZero() {
 		value := item.UpstreamStartedAt
 		upstreamStartedAt = &value
 		waitStartedAt = value
-	}
-	if !item.RetryableAt.IsZero() {
-		value := item.RetryableAt
-		retryableAt = &value
 	}
 	waiting := now.Sub(waitStartedAt).Milliseconds()
 	if waiting < 0 {
@@ -39,8 +34,7 @@ func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) Act
 		AttemptStartedAt:  item.AttemptStartedAt,
 		UpstreamStartedAt: upstreamStartedAt,
 		WaitingMillis:     waiting,
-		RetryableAt:       retryableAt,
-		Retryable:         retryableAt != nil && !now.Before(*retryableAt) && item.State == proxyrequest.StateAwaitingResponse && item.Attempt < item.MaxAttempts,
+		Retryable:         item.State == proxyrequest.StateAwaitingResponse && item.Attempt < item.MaxAttempts,
 		MaxAttempts:       item.MaxAttempts,
 	}
 }

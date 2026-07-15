@@ -19,7 +19,6 @@ type ProxyRequestService struct {
 	byRequestID       map[string]*proxyRequestSession
 	terminalByTrace   map[string]retryTombstone
 	terminalByRequest map[string]retryTombstone
-	retryAfter        time.Duration
 	maxAttempts       int
 	commandRetention  time.Duration
 	pipeline          *observability.Pipeline
@@ -33,9 +32,6 @@ type retryTombstone struct {
 }
 
 func NewProxyRequestService(opts ProxyRequestOptions, pipeline *observability.Pipeline) *ProxyRequestService {
-	if opts.RetryAfter < 0 {
-		opts.RetryAfter = 0
-	}
 	if opts.MaxAttempts < 1 {
 		opts.MaxAttempts = 1
 	}
@@ -47,7 +43,6 @@ func NewProxyRequestService(opts ProxyRequestOptions, pipeline *observability.Pi
 		byRequestID:       make(map[string]*proxyRequestSession),
 		terminalByTrace:   make(map[string]retryTombstone),
 		terminalByRequest: make(map[string]retryTombstone),
-		retryAfter:        opts.RetryAfter,
 		maxAttempts:       opts.MaxAttempts,
 		commandRetention:  opts.CommandRetention,
 		pipeline:          pipeline,
@@ -73,6 +68,7 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 		retryResults:   make(map[int]proxyrequest.RetryResult),
 		events:         make(chan coordinatorEvent),
 		done:           make(chan struct{}),
+		requestStarted: observability.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
 	s.mu.Lock()
 	s.pruneTerminalLocked(now)
@@ -88,9 +84,8 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 	s.mu.Unlock()
 	go session.run()
 	if s.pipeline != nil {
-		session.trace = s.pipeline.StartTrace(observability.TraceContext{TraceID: session.traceID, InstanceID: s.instanceID})
+		session.trace = s.pipeline.StartRequestTrace(observability.TraceContext{TraceID: session.traceID, InstanceID: s.instanceID})
 	}
-	session.observe(0, observability.RequestStarted{Method: session.method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()})
 	return session
 }
 
@@ -259,10 +254,6 @@ func (s *proxyRequestSession) requestRetry(expectedAttempt int, trigger proxyreq
 			retryErr = proxyrequest.ErrMaxAttempts
 			return
 		}
-		if time.Now().Before(s.upstreamAt.Add(s.service.retryAfter)) {
-			retryErr = proxyrequest.ErrRetryNotReady
-			return
-		}
 		s.state = proxyrequest.StateRetryRequested
 		accepted = true
 		cancel = s.cancelAttempt
@@ -290,10 +281,6 @@ func (s *proxyRequestSession) snapshot() (proxyrequest.ActiveRequest, bool) {
 }
 
 func (s *proxyRequestSession) activeItem() proxyrequest.ActiveRequest {
-	retryableAt := time.Time{}
-	if !s.upstreamAt.IsZero() {
-		retryableAt = s.upstreamAt.Add(s.service.retryAfter)
-	}
 	return proxyrequest.ActiveRequest{
 		TraceID:           s.traceID,
 		RequestID:         s.identity.RequestID,
@@ -306,7 +293,6 @@ func (s *proxyRequestSession) activeItem() proxyrequest.ActiveRequest {
 		Attempt:           s.attempt,
 		AttemptStartedAt:  s.attemptAt,
 		UpstreamStartedAt: s.upstreamAt,
-		RetryableAt:       retryableAt,
 		MaxAttempts:       s.service.maxAttempts,
 	}
 }

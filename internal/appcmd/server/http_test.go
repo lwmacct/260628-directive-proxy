@@ -118,7 +118,6 @@ func TestHTTPServerAllowsRequesterRetryByCapabilityWithoutControlAuthentication(
 		t.Fatal(err)
 	}
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
-		RetryAfter:  0,
 		MaxAttempts: 3,
 	}, nil)
 	base := proxy.NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))

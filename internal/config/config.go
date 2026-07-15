@@ -78,8 +78,6 @@ type Proxy struct {
 }
 
 type ProxyRetry struct {
-	Enabled          bool          `json:"enabled"            desc:"是否启用等待响应请求的外部介入重试"`
-	RetryableAfter   time.Duration `json:"retryable-after"    desc:"单次上游请求等待多久后允许外部介入重试"`
 	MaxAttempts      int           `json:"max-attempts"       desc:"单个逻辑请求允许的最大上游尝试次数，包含首次请求"`
 	CommandRetention time.Duration `json:"command-retention"  desc:"已接受重试命令终态的保留时间"`
 }
@@ -107,7 +105,6 @@ type ResponseCaptureMemory struct {
 type ObservationPlugin struct {
 	Name     string                `json:"name"      desc:"插件实例名称"`
 	Type     string                `json:"type"      desc:"插件类型：builtin.capture 或 builtin.llmusage"`
-	Enabled  bool                  `json:"enabled"   desc:"是否启用插件"`
 	Capture  *CapturePluginConfig  `json:"capture,omitempty"   desc:"builtin.capture 配置"`
 	LLMUsage *LLMUsagePluginConfig `json:"llmusage,omitempty" desc:"builtin.llmusage 配置"`
 }
@@ -246,8 +243,6 @@ func DefaultConfig() Config {
 		},
 		Proxy: Proxy{
 			Retry: ProxyRetry{
-				Enabled:          true,
-				RetryableAfter:   10 * time.Second,
 				MaxAttempts:      3,
 				CommandRetention: time.Minute,
 			},
@@ -291,14 +286,14 @@ func DefaultConfig() Config {
 			ResponseCaptureMemory: ResponseCaptureMemory{MaxRetainedBytes: 256 << 20, Overflow: "drop"},
 			Plugins: []ObservationPlugin{
 				{
-					Name: "capture", Type: ObservationPluginCapture, Enabled: false,
+					Name: "capture", Type: ObservationPluginCapture,
 					Capture: &CapturePluginConfig{
 						BodyChunkBytes: 32 << 10, MaxSSEEventBytes: 1 << 20,
 						RedactHeaders: []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"},
 						RedactQuery:   []string{"access_token", "api_key", "apikey", "key", "token"},
 					},
 				},
-				{Name: "llmusage", Type: ObservationPluginLLMUsage, Enabled: false, LLMUsage: &LLMUsagePluginConfig{}},
+				{Name: "llmusage", Type: ObservationPluginLLMUsage, LLMUsage: &LLMUsagePluginConfig{}},
 			},
 			Outputs: []ObservabilityOutput{
 				{

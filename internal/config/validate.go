@@ -78,15 +78,8 @@ func Validate(cfg Config) (Config, error) {
 		return cfg, ErrInvalidTransport
 	}
 	retry := cfg.Proxy.Retry
-	if retry.Enabled {
-		if retry.RetryableAfter < 0 || retry.MaxAttempts < 2 || retry.CommandRetention <= 0 {
-			return cfg, ErrInvalidRetry
-		}
-	} else {
-		cfg.Proxy.Retry.MaxAttempts = 1
-		if retry.CommandRetention <= 0 {
-			return cfg, ErrInvalidRetry
-		}
+	if retry.MaxAttempts < 2 || retry.CommandRetention <= 0 {
+		return cfg, ErrInvalidRetry
 	}
 	bodyMemory := cfg.Proxy.BodyMemory
 	if bodyMemory.MaxActiveBytes <= 0 || bodyMemory.MaxBodyBytes <= 0 ||
@@ -116,7 +109,6 @@ func validateObservability(cfg Observability) (Observability, error) {
 	}
 	pluginNames := make(map[string]struct{}, len(cfg.Plugins))
 	pluginTypes := make(map[string]struct{}, len(cfg.Plugins))
-	enabledPlugins := 0
 	for index := range cfg.Plugins {
 		plugin := &cfg.Plugins[index]
 		plugin.Name = strings.TrimSpace(plugin.Name)
@@ -132,10 +124,6 @@ func validateObservability(cfg Observability) (Observability, error) {
 			return cfg, ErrInvalidObservability
 		}
 		pluginTypes[plugin.Type] = struct{}{}
-		if !plugin.Enabled {
-			continue
-		}
-		enabledPlugins++
 		switch plugin.Type {
 		case ObservationPluginCapture:
 			if plugin.Capture == nil || plugin.LLMUsage != nil {
@@ -195,9 +183,7 @@ func validateObservability(cfg Observability) (Observability, error) {
 			return cfg, ErrInvalidObservability
 		}
 	}
-	if (enabledPlugins == 0) != (enabledOutputs == 0) {
-		return cfg, ErrInvalidObservability
-	}
+	_ = enabledOutputs
 	return cfg, nil
 }
 

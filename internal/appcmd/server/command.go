@@ -54,8 +54,6 @@ func commandFlags() []cli.Flag {
 		&cli.IntFlag{Name: "proxy.transport.max-conns-per-host", Usage: flagHelp.MustUsage("proxy.transport.max-conns-per-host"), Value: defaults.Proxy.Transport.MaxConnsPerHost},
 		&cli.DurationFlag{Name: "proxy.transport.idle-conn-timeout", Usage: flagHelp.MustUsage("proxy.transport.idle-conn-timeout"), Value: defaults.Proxy.Transport.IdleConnTimeout},
 		&cli.BoolFlag{Name: "proxy.transport.disable-keep-alives", Usage: flagHelp.MustUsage("proxy.transport.disable-keep-alives"), Value: defaults.Proxy.Transport.DisableKeepAlives},
-		&cli.BoolFlag{Name: "proxy.retry.enabled", Usage: flagHelp.MustUsage("proxy.retry.enabled"), Value: defaults.Proxy.Retry.Enabled},
-		&cli.DurationFlag{Name: "proxy.retry.retryable-after", Usage: flagHelp.MustUsage("proxy.retry.retryable-after"), Value: defaults.Proxy.Retry.RetryableAfter},
 		&cli.IntFlag{Name: "proxy.retry.max-attempts", Usage: flagHelp.MustUsage("proxy.retry.max-attempts"), Value: defaults.Proxy.Retry.MaxAttempts},
 		&cli.DurationFlag{Name: "proxy.retry.command-retention", Usage: flagHelp.MustUsage("proxy.retry.command-retention"), Value: defaults.Proxy.Retry.CommandRetention},
 		&cli.Int64Flag{Name: "proxy.body-memory.max-active-bytes", Usage: flagHelp.MustUsage("proxy.body-memory.max-active-bytes"), Value: defaults.Proxy.BodyMemory.MaxActiveBytes},

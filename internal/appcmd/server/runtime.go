@@ -78,7 +78,6 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 		instanceID, _ = os.Hostname()
 	}
 	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
-		RetryAfter:       cfg.Proxy.Retry.RetryableAfter,
 		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
 		CommandRetention: cfg.Proxy.Retry.CommandRetention,
 		InstanceID:       instanceID,
@@ -123,9 +122,6 @@ func newRuntime(ctx context.Context, cfg *config.Config) (*runtime, error) {
 func newObservabilityPipeline(ctx context.Context, cfg config.Observability) (*observability.Pipeline, error) {
 	plugins := make([]observability.Plugin, 0, len(cfg.Plugins))
 	for _, configured := range cfg.Plugins {
-		if !configured.Enabled {
-			continue
-		}
 		switch configured.Type {
 		case config.ObservationPluginCapture:
 			if configured.Capture == nil {
@@ -244,7 +240,6 @@ func newProxyHandler(cfg *config.Config, reader directive.RemoteReader, tracker 
 	options := proxy.HandlerOptions{
 		BodyMemory:      bodyMemory,
 		BodyReadTimeout: cfg.Proxy.BodyMemory.ReadTimeout,
-		RequireIdentity: tracker != nil && cfg.Proxy.Retry.Enabled,
 	}
 	if tracker != nil {
 		options.Tracker = tracker

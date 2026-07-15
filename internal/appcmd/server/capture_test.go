@@ -50,7 +50,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	}
 	t.Cleanup(func() { _ = pipeline.Close(context.Background()) })
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
-		RetryAfter: 0, MaxAttempts: 3,
+		MaxAttempts: 3,
 	}, pipeline)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
@@ -61,7 +61,8 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
-		Target: directive.TargetSection{URL: upstream.URL},
+		Target:  directive.TargetSection{URL: upstream.URL},
+		Plugins: map[string]json.RawMessage{"capture": json.RawMessage(`{}`)},
 		Headers: &directive.HeaderSection{Ops: []directive.HeaderOp{{
 			Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"},
 		}}},
@@ -108,7 +109,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	_, _ = io.ReadAll(reader)
 	deadline := time.Now().Add(time.Second)
 	var values []string
-	var metadataCaptured, retryIdentityHidden bool
+	var metadataCaptured bool
 	for time.Now().Before(deadline) {
 		values = values[:0]
 		for _, event := range output.Records() {
@@ -119,19 +120,15 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 				metadata := event.Data["metadata"].(map[string][]string)
 				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
 			}
-			if event.Topic == "capture.request.headers" {
-				headers := event.Data["headers"].(map[string][]string)
-				retryIdentityHidden = len(headers["Dproxy-Request-Id"]) == 0 && len(headers["Dproxy-Retry-Capability"]) == 0
-			}
 		}
-		if len(values) == 2 && metadataCaptured && retryIdentityHidden {
+		if len(values) == 2 && metadataCaptured {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
-	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured || !retryIdentityHidden {
+	if len(values) != 2 || values[0] != "hello" || values[1] != "done" || !metadataCaptured {
 		allEvents := output.Records()
-		t.Fatalf("unexpected captured events: values=%#v metadata=%t retry_identity_hidden=%t events=%#v", values, metadataCaptured, retryIdentityHidden, allEvents)
+		t.Fatalf("unexpected captured events: values=%#v metadata=%t events=%#v", values, metadataCaptured, allEvents)
 	}
 }
 

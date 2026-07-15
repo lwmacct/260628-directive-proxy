@@ -40,7 +40,6 @@ type ActiveRequest struct {
 	Attempt           int
 	AttemptStartedAt  time.Time
 	UpstreamStartedAt time.Time
-	RetryableAt       time.Time
 	MaxAttempts       int
 }
 
