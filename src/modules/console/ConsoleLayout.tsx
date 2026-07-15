@@ -1,7 +1,7 @@
 import { ApiOutlined, HistoryOutlined } from "@ant-design/icons";
 import { WorkbenchSectionLayout } from "@lwmacct/260627-antd-workbench";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { AuthConsolePage } from "../auth-console/AuthConsolePage";
+import { DirectiveWorkbenchPage } from "../directive-workbench/DirectiveWorkbenchPage";
 import { ExchangesPage } from "../exchanges/ExchangesPage";
 import { useText } from "../../shared/i18n";
 
@@ -42,7 +42,7 @@ export function ConsoleLayout() {
       <Routes>
         <Route element={<Navigate replace to="exchanges" />} index />
         <Route element={<ExchangesPage />} path="exchanges" />
-        <Route element={<AuthConsolePage />} path="auth-console" />
+        <Route element={<DirectiveWorkbenchPage />} path="auth-console" />
         <Route element={<Navigate replace to="exchanges" />} path="*" />
       </Routes>
     </WorkbenchSectionLayout>
