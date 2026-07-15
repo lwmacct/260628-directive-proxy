@@ -303,7 +303,7 @@ func DefaultConfig() Config {
 				Workers: 4,
 				Queue:   SinkQueue{Capacity: 8192, MaxBytes: 256 << 20},
 				Fluent: FluentOutput{
-					Endpoint: "unix:///run/fluent/fluent.sock", Connections: 4, ClientQueueCapacity: 1024,
+					Endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}", Connections: 4, ClientQueueCapacity: 1024,
 					ConnectTimeout: 500 * time.Millisecond, HandshakeTimeout: 500 * time.Millisecond,
 					WriteTimeout: 500 * time.Millisecond, ACKTimeout: 500 * time.Millisecond,
 					RetryMaxAttempts: 1, RetryMinBackoff: 100 * time.Millisecond, RetryMaxBackoff: 500 * time.Millisecond,

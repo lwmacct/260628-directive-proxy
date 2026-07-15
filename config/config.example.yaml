@@ -207,7 +207,7 @@ observability:
 
     # Fluent Forward 输出配置
     fluent:
-      endpoint: "unix:///run/fluent/fluent.sock" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
+      endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent Forward endpoint，支持 tcp、tls、unix、ws 和 wss
       connections: 4 # 按 trace ID 分片的 Fluent 客户端数
       client-queue-capacity: 1024 # 每个 Fluent client 的内部发送队列容量
       connect-timeout: 500ms # Fluent 建连超时
