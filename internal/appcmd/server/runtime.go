@@ -23,7 +23,6 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
-	fluentoutput "github.com/lwmacct/260628-directive-proxy/internal/output/fluent"
 	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
 	llmperfplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmperf"
 	llmusageplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmusage"
@@ -120,9 +119,9 @@ func newObservabilityPipeline(ctx context.Context, fluentConfig fluent.Config) (
 		return observability.NewDisabledPipeline(), nil
 	}
 	plugins := []observability.Plugin{captureplugin.New(), llmusageplugin.New(), llmperfplugin.New()}
-	output := fluentoutput.New(fluentConfig)
+	sink := newFluentSink(fluentConfig)
 	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{
-		Sink:            output,
+		Sink:            sink,
 		QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
 		QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
 	})
