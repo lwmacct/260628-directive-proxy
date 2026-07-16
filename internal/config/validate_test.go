@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -115,7 +116,7 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 			case "duplicate users":
 				cfg.HTTP.AuthMe.AllowedGitHubUsers = []string{"lwmacct", " LwMacct "}
 			}
-			if _, err := Validate(cfg); err != ErrInvalidAuth {
+			if _, err := Validate(cfg); !errors.Is(err, ErrInvalidAuth) {
 				t.Fatalf("expected invalid auth config, got %v", err)
 			}
 		})
@@ -150,7 +151,7 @@ func TestValidateTokenAuth(t *testing.T) {
 		t.Fatalf("opaque token was rejected: %v", err)
 	}
 	cfg.HTTP.AuthMe.StaticToken.Credentials[0].Token = "invalid token"
-	if _, err := Validate(cfg); err != ErrInvalidAuth {
+	if _, err := Validate(cfg); !errors.Is(err, ErrInvalidAuth) {
 		t.Fatalf("token containing whitespace was accepted: %v", err)
 	}
 }
@@ -169,8 +170,22 @@ func TestValidateOIDCAndTokenAuth(t *testing.T) {
 func TestValidateRejectsDisabledAuth(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.HTTP.AuthMe.StaticToken.Enabled = false
-	if _, err := Validate(cfg); err != ErrInvalidAuth {
+	if _, err := Validate(cfg); !errors.Is(err, ErrInvalidAuth) {
 		t.Fatalf("expected invalid auth config, got %v", err)
+	}
+}
+
+func TestValidateReportsAuthCause(t *testing.T) {
+	cfg := validDefaultConfig()
+	cfg.HTTP.AuthMe.Origins = []string{"http://localhost:23199", "https://2310.s.lwmacct.com:23109"}
+
+	_, err := Validate(cfg)
+	if !errors.Is(err, ErrInvalidAuth) {
+		t.Fatalf("expected invalid auth config, got %v", err)
+	}
+	want := `invalid auth config: authme: invalid authme config: trusted origins must use one scheme: origin[1]="https://2310.s.lwmacct.com:23109" conflicts with origin[0]="http://localhost:23199"`
+	if err.Error() != want {
+		t.Fatalf("unexpected diagnostic:\nwant: %s\n got: %s", want, err)
 	}
 }
 

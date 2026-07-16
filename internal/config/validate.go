@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"net/netip"
 	"strings"
 
@@ -32,7 +33,7 @@ func Validate(cfg Server) (Server, error) {
 	coreConfig := authme.Config{Prefix: cfg.HTTP.AuthMe.PathPrefix, Origins: cfg.HTTP.AuthMe.Origins, Session: cfg.HTTP.AuthMe.Session}
 	validatedCore, err := coreConfig.Normalize()
 	if err != nil {
-		return cfg, ErrInvalidAuth
+		return cfg, fmt.Errorf("%w: authme: %w", ErrInvalidAuth, err)
 	}
 	cfg.HTTP.AuthMe.PathPrefix = validatedCore.Prefix
 	cfg.HTTP.AuthMe.Origins = validatedCore.Origins
@@ -40,19 +41,19 @@ func Validate(cfg Server) (Server, error) {
 	if cfg.HTTP.AuthMe.StaticToken.Enabled {
 		validatedToken, err := cfg.HTTP.AuthMe.StaticToken.Normalize()
 		if err != nil {
-			return cfg, ErrInvalidAuth
+			return cfg, fmt.Errorf("%w: authme static token: %w", ErrInvalidAuth, err)
 		}
 		cfg.HTTP.AuthMe.StaticToken = validatedToken
 	}
 	if cfg.HTTP.AuthMe.DexGitHub.Enabled {
 		validatedAuth, err := cfg.HTTP.AuthMe.DexGitHub.Normalize()
 		if err != nil {
-			return cfg, ErrInvalidAuth
+			return cfg, fmt.Errorf("%w: authme dexgithub: %w", ErrInvalidAuth, err)
 		}
 		cfg.HTTP.AuthMe.DexGitHub = validatedAuth
 		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.HTTP.AuthMe.AllowedGitHubUsers)
 		if err != nil {
-			return cfg, ErrInvalidAuth
+			return cfg, fmt.Errorf("%w: authme allowed GitHub users: %w", ErrInvalidAuth, err)
 		}
 		_ = authorizer
 		for index, username := range cfg.HTTP.AuthMe.AllowedGitHubUsers {
@@ -60,7 +61,7 @@ func Validate(cfg Server) (Server, error) {
 		}
 	}
 	if !cfg.HTTP.AuthMe.StaticToken.Enabled && !cfg.HTTP.AuthMe.DexGitHub.Enabled {
-		return cfg, ErrInvalidAuth
+		return cfg, fmt.Errorf("%w: authme: at least one authentication method must be enabled", ErrInvalidAuth)
 	}
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
 		validatedAccess, err := validateDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
