@@ -35,26 +35,14 @@ type Server struct {
 }
 
 type ServerHTTP struct {
-	Listen          string        `json:"listen"            desc:"HTTP 服务监听地址"`
-	TLS             TLSConfig     `json:"tls"               desc:"HTTPS TLS 配置"`
-	Auth            Auth          `json:"auth"              desc:"Admin API 认证配置"`
-	ReadTimeout     time.Duration `json:"read-timeout"       desc:"HTTP 读取超时时间"`
-	WriteTimeout    time.Duration `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
-	IdleTimeout     time.Duration `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
-	MaxAPIBodyBytes int64         `json:"max-api-body-bytes" desc:"Admin API 最大请求体字节数，0 表示不限制"`
-	MaxHeaderBytes  int           `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
-}
-
-type TLSConfig struct {
-	tlsreload.Config `cfgm:",inline"`
-	Enabled          bool `json:"enabled" desc:"是否启用 HTTPS TLS"`
-}
-
-func (c TLSConfig) Validate() error {
-	if !c.Enabled {
-		return nil
-	}
-	return c.Config.Validate()
+	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
+	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
+	Auth            Auth             `json:"auth"              desc:"Admin API 认证配置"`
+	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
+	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
+	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
+	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"Admin API 最大请求体字节数，0 表示不限制"`
+	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
 }
 
 type AuthMethod string
@@ -174,19 +162,18 @@ func DefaultConfig() Config {
 				IdleTimeout:     120 * time.Second,
 				MaxAPIBodyBytes: 1 << 20,
 				MaxHeaderBytes:  128 << 10,
-				TLS: TLSConfig{
-					Enabled: false,
-					Config: tlsreload.Config{
-						DefaultCertificate: "default",
-						Certificates: []tlsreload.CertificateSource{
-							{
-								ID:          "default",
-								Certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
-								PrivateKey:  "${APP_DATA:-.local/data}/ssl/privkey.pem",
-							},
+				TLS: func() tlsreload.Config {
+					config := tlsreload.DefaultConfig()
+					config.DefaultCertificate = "default"
+					config.Certificates = []tlsreload.CertificateSource{
+						{
+							ID:          "default",
+							Certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem",
+							PrivateKey:  "${APP_DATA:-.local/data}/ssl/privkey.pem",
 						},
-					},
-				},
+					}
+					return config
+				}(),
 			},
 			Proxy: Proxy{
 				Retry: ProxyRetry{

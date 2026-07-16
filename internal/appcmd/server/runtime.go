@@ -242,14 +242,12 @@ type tlsRuntime struct {
 	store  *tlsreload.Store
 }
 
-func newTLSRuntime(ctx context.Context, cfg config.TLSConfig) (*tlsRuntime, error) {
+func newTLSRuntime(ctx context.Context, cfg tlsreload.Config) (*tlsRuntime, error) {
 	if !cfg.Enabled {
 		return &tlsRuntime{}, nil
 	}
 
-	store, err := tlsreload.New(ctx, cfg.Config, tlsreload.Options{
-		Logger: slog.Default(),
-	})
+	store, err := tlsreload.New(ctx, cfg, tlsreload.WithLogger(slog.Default()))
 	if err != nil {
 		return nil, err
 	}

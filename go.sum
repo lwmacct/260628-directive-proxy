@@ -37,8 +37,8 @@ github.com/lwmacct/251207-go-pkg-version v0.4.260630 h1:JbCqG58osn4j9iAGupb2SE0Z
 github.com/lwmacct/251207-go-pkg-version v0.4.260630/go.mod h1:HU2NHRi5L/eitqczyz9ZD+thhLXHp+CT6nodPKuOWFE=
 github.com/lwmacct/251219-go-pkg-logm v0.9.260413 h1:NcW1XeXH/7N2RhUoeR6FP1cEPkgbMf7uaOurTD8vZUM=
 github.com/lwmacct/251219-go-pkg-logm v0.9.260413/go.mod h1:BnMqg/hjah4hx8mrac+6js5bnMLyf6PzHJ05yJQF4qY=
-github.com/lwmacct/260614-go-pkg-tlsreload v0.14.260715 h1:y2QMl5fWBO2hYFOtnJ+N1qosQ43Ug6iwsN3VRpqqLBk=
-github.com/lwmacct/260614-go-pkg-tlsreload v0.14.260715/go.mod h1:2W0xK40pSXql00+H/mt0DBQyoFRUyLtjBxh/s14OY9E=
+github.com/lwmacct/260614-go-pkg-tlsreload v0.15.260716 h1:g3+v6DOeko1QbDxuPsa3DlNt/5l1lrbJENaHMgZWjMk=
+github.com/lwmacct/260614-go-pkg-tlsreload v0.15.260716/go.mod h1:2W0xK40pSXql00+H/mt0DBQyoFRUyLtjBxh/s14OY9E=
 github.com/lwmacct/260622-go-pkg-tddcheck v0.22.260711 h1:L2I40h8W4lOjP9K3wySrF27N+zVxuU5999fvCLtO9NQ=
 github.com/lwmacct/260622-go-pkg-tddcheck v0.22.260711/go.mod h1:vcBuL7xMgFha98wyMcmTck3z6IADiP7pspe4PRUq0Cg=
 github.com/lwmacct/260711-go-pkg-httpauth v0.6.260714 h1:z4x6H9Om8a8IsWJjv/McwmTikbtBNKmmRd1pEKmEaA8=

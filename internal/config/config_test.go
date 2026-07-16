@@ -57,7 +57,7 @@ func TestConfigFileLoadsInlineTLSConfiguration(t *testing.T) {
 		t.Fatalf("unexpected TLS config: %#v", loaded.Server.HTTP.TLS)
 	}
 	if loaded.Server.HTTP.TLS.DefaultCertificate != "default" || len(loaded.Server.HTTP.TLS.Certificates) != 1 {
-		t.Fatalf("inline TLS defaults were not preserved: %#v", loaded.Server.HTTP.TLS.Config)
+		t.Fatalf("TLS defaults were not preserved: %#v", loaded.Server.HTTP.TLS)
 	}
 }
 

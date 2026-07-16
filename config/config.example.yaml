@@ -10,6 +10,7 @@ server:
 
     # HTTPS TLS 配置
     tls:
+      enabled: false # 是否在调用方中启用 TLS 证书热重载
 
       # TLS 证书来源列表
       certificates:
@@ -17,9 +18,10 @@ server:
           certificate: "${APP_DATA:-.local/data}/ssl/fullchain.pem" # TLS 证书路径或 URI
           private-key: "${APP_DATA:-.local/data}/ssl/privkey.pem" # TLS 私钥路径或 URI
       default-certificate: "default" # 未匹配 SNI 时使用的证书 ID
-      poll-interval: 0s # 证书来源兜底轮询间隔
-      retry-interval: 0s # 证书重载失败后的重试间隔
-      enabled: false # 是否启用 HTTPS TLS
+      poll-interval: 5m0s # 证书来源兜底轮询间隔
+      retry-interval: 2s # 证书重载失败后的重试间隔
+      poll-jitter-ratio: 0.1 # 成功轮询后的向下随机抖动比例
+      allow-insecure-http: false # 允许通过明文 HTTP 读取证书材料
 
     # Admin API 认证配置
     auth:

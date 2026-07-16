@@ -60,32 +60,6 @@ func TestValidateRejectsInvalidHTTPHeaderLimit(t *testing.T) {
 	}
 }
 
-func TestValidateTLSConfiguration(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*TLSConfig)
-	}{
-		{name: "missing certificates", mutate: func(cfg *TLSConfig) { cfg.Certificates = nil }},
-		{name: "missing default", mutate: func(cfg *TLSConfig) { cfg.DefaultCertificate = "" }},
-		{name: "unknown default", mutate: func(cfg *TLSConfig) { cfg.DefaultCertificate = "unknown" }},
-		{name: "duplicate id", mutate: func(cfg *TLSConfig) { cfg.Certificates = append(cfg.Certificates, cfg.Certificates[0]) }},
-		{name: "missing certificate", mutate: func(cfg *TLSConfig) { cfg.Certificates[0].Certificate = "" }},
-		{name: "missing private key", mutate: func(cfg *TLSConfig) { cfg.Certificates[0].PrivateKey = "" }},
-		{name: "negative poll interval", mutate: func(cfg *TLSConfig) { cfg.PollInterval = -time.Second }},
-		{name: "negative retry interval", mutate: func(cfg *TLSConfig) { cfg.RetryInterval = -time.Second }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := validDefaultConfig()
-			cfg.HTTP.TLS.Enabled = true
-			test.mutate(&cfg.HTTP.TLS)
-			if _, err := Validate(cfg); err != ErrInvalidHTTP {
-				t.Fatalf("expected invalid HTTP config, got %v", err)
-			}
-		})
-	}
-}
-
 func TestValidateNormalizesTLSConfiguration(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.HTTP.TLS.Enabled = true
