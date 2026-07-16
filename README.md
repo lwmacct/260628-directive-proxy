@@ -27,7 +27,7 @@ Proxy Retry 是每个 Exchange 的固有能力；入站请求无需携带 retry 
 
 重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 Attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，Exchange 立即退出可重试索引，但仍继续拥有流式响应生命周期，直到下游结束。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 Attempt 强制保留原值，但上游仍需正确实现幂等语义。
 
-带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由 Exchange、重试 Attempt 和异步 Capture Module 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；Module 的 mutation 在提交前形成 barrier，异步观察端口只处理自己拥有的投影视图。
+请求正文使用单写入、多 reader 的流式 Replay Store。代理读取客户端 chunk 后立即提交 request Module barrier，并允许当前 Attempt 同时把同一批字节发送给上游；新的重试 Attempt 从 offset 0 重放已有前缀，追上尾部后继续等待客户端后续数据。Store 按实际字节执行单请求限额，不要求 `Content-Length`；小正文使用分段内存，超过阈值或全局内存紧张时转入匿名临时文件。最终响应头到达后禁止新 reader，正文历史在活动上传 reader 结束时立即释放，不被长 SSE 响应持续占用。
 
 活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Admin API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
 
@@ -37,11 +37,13 @@ server:
     retry:
       max-attempts: 3
       command-retention: 1m
-    body-memory:
-      max-active-bytes: 2147483648
+    body-store:
+      memory-max-bytes: 536870912
+      memory-per-body-bytes: 1048576
+      disk-max-bytes: 8589934592
       max-body-bytes: 33554432
-      queue-max-requests: 512
-      queue-max-wait: 15s
+      chunk-bytes: 65536
+      temp-dir: ${APP_DATA:-.local/data}/tmp/body-store
       body-read-timeout: 30s
   fluent:
     enabled: false

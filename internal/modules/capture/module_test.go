@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
@@ -51,36 +50,32 @@ type captureRuntime struct{ output *captureOutput }
 func (runtime captureRuntime) Emitter(string, int) module.Emitter { return runtime.output }
 func (captureRuntime) ModuleFailed(string)                        {}
 
-func TestRequestCaptureReferencesCanonicalBody(t *testing.T) {
-	controller := bodymemory.New(bodymemory.Config{MaxActiveBytes: 16, MaxBodyBytes: 16})
-	reservation, err := controller.Reserve(t.Context(), 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := bodymemory.NewBody([]byte("payload"), reservation)
+func TestRequestCaptureRechunksStreamingBody(t *testing.T) {
 	output := &captureOutput{}
 	scope := configuredScope(t, `{"body-chunk-bytes":4}`, output)
-	if err := scope.RequestBodyAvailable(t.Context(), module.RequestBodyAvailable{Body: body}); err != nil {
+	if err := scope.RequestBodyChunk(t.Context(), module.BodyChunk{Data: []byte("pay")}); err != nil {
 		t.Fatal(err)
 	}
-	if len(output.items) != 2 {
-		t.Fatalf("unexpected body records: %#v", output.items)
+	if err := scope.RequestBodyChunk(t.Context(), module.BodyChunk{Data: []byte("load")}); err != nil {
+		t.Fatal(err)
 	}
-	body.Release()
-	if snapshot := controller.Snapshot(); snapshot.UsedBytes != 7 {
-		t.Fatalf("capture did not retain canonical body: %#v", snapshot)
+	if err := scope.RequestBodyEnded(t.Context(), module.RequestBodyEnded{Total: 7, Complete: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scope.Finish(context.Background(), module.FinishCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.items) != 3 {
+		t.Fatalf("unexpected body records: %#v", output.items)
 	}
 	first := output.items[0].data["data"].([]byte)
 	if string(first) != "payl" || output.items[0].data["encoding"] != "binary" {
 		t.Fatalf("unexpected binary body record: %#v", output.items[0])
 	}
-	for _, item := range output.items {
-		item.release()
+	second := output.items[1].data["data"].([]byte)
+	if string(second) != "oad" {
+		t.Fatalf("unexpected trailing body record: %#v", output.items[1])
 	}
-	if snapshot := controller.Snapshot(); snapshot.UsedBytes != 0 {
-		t.Fatalf("capture body leases were not released: %#v", snapshot)
-	}
-	_ = scope.Finish(context.Background(), module.FinishCompleted)
 }
 
 func TestResponseCaptureReportsOutputQueueDropsWithoutBlocking(t *testing.T) {

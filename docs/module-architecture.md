@@ -34,7 +34,7 @@ directive 使用有序数组声明程序：
 `core/exchange` 是生命周期拥有者，`core/module` 是被生命周期调用的通用执行机制，两者不互相替代：
 
 - `Manager` 只维护活动 Exchange 索引、retry command 和短期 tombstone，不调度单个请求的生命周期；
-- `Exchange` 拥有入站请求、canonical body、request scope、下游响应和当前 Attempt；
+- `Exchange` 拥有入站请求生命周期、request scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RetryTransport；
 - `Attempt` 是 Exchange 创建的强类型子对象，拥有一次 directive 解析、上游访问和 attempt scope；
 - `Runtime` 只注册 Definition、编译 directive program、创建 Run/Scope 和汇总 Module 健康。
 
@@ -49,7 +49,7 @@ directive 使用有序数组声明程序：
 
 ## 类型化端口
 
-- Hook：提交前可变 Draft，例如 outbound request/body、upstream response/body chunk；
+- Hook：提交前可变 Draft，例如 outbound request/body chunk、upstream response/body chunk；
 - Transform：按 directive 顺序修改流数据；
 - Stream：只读数据或派生投影，例如 raw chunk、JSON chunk、SSE data/comment；
 - Fact：不可变生命周期事实，例如 request started、directive resolved、retry requested、body ended；

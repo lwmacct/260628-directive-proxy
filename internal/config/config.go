@@ -18,6 +18,7 @@ var (
 	ErrInvalidAuth      = errors.New("invalid auth config")
 	ErrInvalidTransport = errors.New("invalid transport config")
 	ErrInvalidRetry     = errors.New("invalid retry config")
+	ErrInvalidBodyStore = errors.New("invalid body store config")
 	ErrInvalidFluent    = errors.New("invalid fluent config")
 	ErrInvalidDirective = errors.New("invalid directive config")
 	ErrInvalidAccess    = errors.New("invalid source access config")
@@ -54,10 +55,10 @@ type AuthMe struct {
 }
 
 type Proxy struct {
-	Transport  ProxyTransport  `json:"transport" desc:"上游连接池与连接复用配置"`
-	Retry      ProxyRetry      `json:"retry"     desc:"等待上游响应时的外部介入重试配置"`
-	BodyMemory ProxyBodyMemory `json:"body-memory" desc:"可重放请求正文的内存与等待队列配置"`
-	Directive  ProxyDirective  `json:"directive" desc:"指令来源配置"`
+	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
+	Retry     ProxyRetry     `json:"retry"     desc:"等待上游响应时的外部介入重试配置"`
+	BodyStore ProxyBodyStore `json:"body-store" desc:"流式可重放请求正文的内存与磁盘配置"`
+	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
 }
 
 type ProxyRetry struct {
@@ -65,12 +66,14 @@ type ProxyRetry struct {
 	CommandRetention time.Duration `json:"command-retention"  desc:"已接受重试命令终态的保留时间"`
 }
 
-type ProxyBodyMemory struct {
-	MaxActiveBytes int64         `json:"max-active-bytes" desc:"所有活动 Exchange 的可重放正文占用的最大逻辑字节数"`
-	MaxBodyBytes   int64         `json:"max-body-bytes"   desc:"单个 Exchange 可重放正文的最大字节数"`
-	QueueMax       int           `json:"queue-max-requests" desc:"等待正文内存的最大请求数"`
-	QueueWait      time.Duration `json:"queue-max-wait" desc:"请求等待正文内存的最长时间"`
-	ReadTimeout    time.Duration `json:"body-read-timeout" desc:"获得内存后读取完整请求正文的最长时间"`
+type ProxyBodyStore struct {
+	MemoryMaxBytes     int64         `json:"memory-max-bytes" desc:"所有活动 Replay Store 使用的最大内存字节数"`
+	MemoryPerBodyBytes int64         `json:"memory-per-body-bytes" desc:"单个请求 spill 到磁盘前保留在内存的最大字节数"`
+	DiskMaxBytes       int64         `json:"disk-max-bytes" desc:"所有活动 Replay Store 使用的最大临时磁盘字节数"`
+	MaxBodyBytes       int64         `json:"max-body-bytes" desc:"单个请求正文允许的最大实际字节数"`
+	ChunkBytes         int           `json:"chunk-bytes" desc:"正文摄取和内存分段的 chunk 字节数"`
+	TempDir            string        `json:"temp-dir" desc:"匿名 spill 临时文件目录"`
+	ReadTimeout        time.Duration `json:"body-read-timeout" desc:"读取请求正文的最长时间"`
 }
 
 type ProxyDirective struct {
@@ -157,12 +160,14 @@ func DefaultConfig() Config {
 					MaxAttempts:      3,
 					CommandRetention: time.Minute,
 				},
-				BodyMemory: ProxyBodyMemory{
-					MaxActiveBytes: 2 << 30,
-					MaxBodyBytes:   32 << 20,
-					QueueMax:       512,
-					QueueWait:      15 * time.Second,
-					ReadTimeout:    30 * time.Second,
+				BodyStore: ProxyBodyStore{
+					MemoryMaxBytes:     512 << 20,
+					MemoryPerBodyBytes: 1 << 20,
+					DiskMaxBytes:       8 << 30,
+					MaxBodyBytes:       32 << 20,
+					ChunkBytes:         64 << 10,
+					TempDir:            "${APP_DATA:-.local/data}/tmp/body-store",
+					ReadTimeout:        30 * time.Second,
 				},
 				Directive: ProxyDirective{
 					MaxTokenBytes:  64 << 10,

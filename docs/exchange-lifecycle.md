@@ -6,7 +6,7 @@
 Manager
   ├─ active index / retry command / tombstone
   └─ Exchange
-       ├─ canonical request body
+       ├─ streaming replay store
        ├─ request Module scope
        ├─ Attempt 1 -> attempt Module scope
        ├─ Attempt 2 -> attempt Module scope
@@ -18,7 +18,7 @@ Manager
 ## 状态转换
 
 ```text
-waiting_body_memory -> reading_body -> resolving_directive -> awaiting_response
+starting_body_stream -> streaming_request -> resolving_directive -> awaiting_response
                                               ^                    |
                                               |                    | retry accepted
                                               +-- retry_requested <-+
@@ -41,11 +41,12 @@ resolve/transport/client failure ----------> finished
 prepare directive
   -> open request modules
   -> RequestStarted
-  -> request body available/end
-  -> Attempt N: resolve directive plan
+  -> start request body ingest
+       -> RequestBodyChunk ... -> RequestBodyEnded
+  -> Attempt N: resolve directive plan（与 ingest 并行）
        -> open attempt modules
        -> AttemptStarted / DirectiveResolved
-       -> outbound request + body mutation barriers
+       -> outbound request + streaming body mutation barriers
        -> UpstreamStarted
        -> upstream response mutation barrier
        -> raw chunks -> transforms -> SSE/JSON projection
@@ -56,7 +57,7 @@ prepare directive
 
 Module 通过 `Binder` 声明自己接收的事件和 mutation port。未声明的事件不会投递，未订阅的 SSE/JSON 投影不会创建。例如 `builtin.llmusage` 只接收 upstream response headers、SSE data、JSON chunk 和 body end；`builtin.llmperf` 接收 upstream start、response headers、raw body chunk 和 body end。
 
-请求正文经过 `Content-Length` 验证和 FIFO 内存预算后成为不可变 canonical body。request Module 必须在 `RequestBodyAvailable` 的提交 barrier 内取得 lease，不能异步保留裸指针。
+请求正文只由 ingest goroutine 读取一次并追加到 Replay Store。`RequestBodyChunk` 在字节对上游可见前形成提交 barrier；Attempt reader 可以读取已保存前缀并在当前尾部等待。Store 按实际字节限制正文大小，支持未知 `Content-Length`，以内存分段保存小正文并将较大正文 spill 到匿名临时文件。最终响应头关闭重试窗口后立即 retire Store；仍在工作的 reader/ingest 结束后释放存储，不等待下游响应结束。
 
 响应流边界：
 

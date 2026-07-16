@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -38,15 +37,16 @@ func (current *Exchange) ConfigureRequest(specs []module.Spec) error {
 	return scope.RequestStarted(current.ctx, current.requestStarted)
 }
 
-func (current *Exchange) RequestBodyAvailable(body *bodymemory.Body) {
-	if current == nil || body == nil {
-		return
+func (current *Exchange) RequestBodyChunk(data []byte) error {
+	if current == nil || len(data) == 0 {
+		return nil
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if current.requestScope != nil {
-		_ = current.requestScope.RequestBodyAvailable(current.ctx, module.RequestBodyAvailable{Body: body})
+		return current.requestScope.RequestBodyChunk(current.ctx, module.BodyChunk{Data: data})
 	}
+	return nil
 }
 
 func (current *Exchange) RequestBodyEnd(total int64, digest string, complete bool) {
@@ -199,7 +199,7 @@ func (attempt *Attempt) MutateOutboundRequest(request *http.Request) error {
 	return nil
 }
 
-func (attempt *Attempt) MutateOutboundBody(data []byte) ([]byte, error) {
+func (attempt *Attempt) MutateOutboundBodyChunk(data []byte) ([]byte, error) {
 	if attempt == nil || attempt.exchange == nil || attempt.closed.Load() || !attempt.exchange.isCurrent(attempt) {
 		return nil, context.Canceled
 	}
@@ -208,16 +208,27 @@ func (attempt *Attempt) MutateOutboundBody(data []byte) ([]byte, error) {
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if current.requestScope != nil {
-		if err := current.requestScope.MutateOutboundBody(current.ctx, &draft); err != nil {
+		if err := current.requestScope.MutateOutboundBodyChunk(current.ctx, &draft); err != nil {
 			return nil, err
 		}
 	}
 	if attempt.scope != nil {
-		if err := attempt.scope.MutateOutboundBody(current.ctx, &draft); err != nil {
+		if err := attempt.scope.MutateOutboundBodyChunk(current.ctx, &draft); err != nil {
 			return nil, err
 		}
 	}
 	return draft.Data, nil
+}
+
+func (attempt *Attempt) HasOutboundBodyMutators() bool {
+	if attempt == nil || attempt.exchange == nil {
+		return false
+	}
+	current := attempt.exchange
+	current.lifecycleMu.Lock()
+	defer current.lifecycleMu.Unlock()
+	return current.requestScope != nil && current.requestScope.HasOutboundBodyMutators() ||
+		attempt.scope != nil && attempt.scope.HasOutboundBodyMutators()
 }
 
 func (attempt *Attempt) MutateUpstreamResponse(response *http.Response) error {

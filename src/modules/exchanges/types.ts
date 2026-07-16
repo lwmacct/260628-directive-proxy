@@ -2,7 +2,7 @@ export type ActiveProxyRequest = {
   trace_id: string;
 	has_retry_id: boolean;
   metadata?: Record<string, string[]>;
-  state: "waiting_body_memory" | "reading_body" | "resolving_directive" | "awaiting_response" | "retry_requested";
+	state: "starting_body_stream" | "streaming_request" | "resolving_directive" | "awaiting_response" | "retry_requested";
   method: string;
   url: string;
   target_url: string;

@@ -2,17 +2,15 @@ package proxy
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/retry"
 )
@@ -26,7 +24,7 @@ type Handler struct {
 	proxy              *httputil.ReverseProxy
 	exchanges          exchangeStarter
 	trackBeforeResolve bool
-	bodyMemory         *bodymemory.Controller
+	bodyStore          *bodystore.Controller
 	bodyReadTimeout    time.Duration
 	next               http.Handler
 }
@@ -34,7 +32,7 @@ type Handler struct {
 type HandlerOptions struct {
 	Exchanges          exchangeStarter
 	TrackBeforeResolve bool
-	BodyMemory         *bodymemory.Controller
+	BodyStore          *bodystore.Controller
 	BodyReadTimeout    time.Duration
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
@@ -63,7 +61,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		proxy:              proxy,
 		exchanges:          opts.Exchanges,
 		trackBeforeResolve: opts.TrackBeforeResolve,
-		bodyMemory:         opts.BodyMemory,
+		bodyStore:          opts.BodyStore,
 		bodyReadTimeout:    opts.BodyReadTimeout,
 		next:               opts.Next,
 	}
@@ -74,26 +72,17 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		slog.Debug("proxy request canceled", "error", err, "path", requestPath(r))
 		return
 	}
-	if errors.Is(err, bodymemory.ErrBodyTooLarge) {
-		WriteProxyErrorJSON(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "proxy: request body exceeds memory limit")
+	if errors.Is(err, bodystore.ErrBodyTooLarge) {
+		WriteProxyErrorJSON(w, http.StatusRequestEntityTooLarge, "request_body_too_large", "proxy: request body exceeds replay store limit")
 		return
 	}
-	if errors.Is(err, bodymemory.ErrQueueFull) {
+	if errors.Is(err, bodystore.ErrStoreCapacity) {
 		w.Header().Set("Retry-After", "1")
-		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_memory_queue_full", "proxy: request body memory queue is full")
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_store_capacity", "proxy: request body replay store capacity is exhausted")
 		return
 	}
-	if errors.Is(err, bodymemory.ErrWaitTimeout) {
-		w.Header().Set("Retry-After", "1")
-		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_memory_wait_timeout", "proxy: request body memory wait timed out")
-		return
-	}
-	if errors.Is(err, ErrContentLengthRequired) {
-		WriteProxyErrorJSON(w, http.StatusLengthRequired, "content_length_required", "proxy: Content-Length is required for request bodies")
-		return
-	}
-	if errors.Is(err, ErrBodyMemoryUnavailable) {
-		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_memory_unavailable", "proxy: request body memory is unavailable")
+	if errors.Is(err, ErrBodyStoreUnavailable) {
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_store_unavailable", "proxy: request body replay store is unavailable")
 		return
 	}
 	if errors.Is(err, ErrResolverFailed) {
@@ -188,62 +177,47 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	body, bodyErr := h.readRequestBody(w, r, current)
+	body, bodyErr := h.startRequestBody(w, r, current)
 	if bodyErr != nil {
 		handleProxyError(w, r, bodyErr)
 		return
 	}
-	defer body.Release()
+	defer func() { _ = body.Close() }()
 	template := NewRequestTemplate(r)
 	ctx := contextWithPreparedRequest(r.Context(), prepared, template, body)
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
-func (h *Handler) readRequestBody(w http.ResponseWriter, r *http.Request, current *exchange.Exchange) (*bodymemory.Body, error) {
+func (h *Handler) startRequestBody(w http.ResponseWriter, r *http.Request, current *exchange.Exchange) (*bodystore.Store, error) {
+	observer := bodystore.Observer{}
+	if current != nil {
+		observer.Chunk = func(_ int64, data []byte) error {
+			if err := current.RequestBodyChunk(data); err != nil {
+				return fmt.Errorf("%w: request body chunk: %v", ErrModuleFailed, err)
+			}
+			return nil
+		}
+		observer.End = func(result bodystore.Result) {
+			current.RequestBodyEnd(result.Total, result.SHA256, result.Complete)
+		}
+	}
 	if r == nil || r.Body == nil || r.Body == http.NoBody {
-		if current != nil {
-			digest := sha256.Sum256(nil)
-			current.RequestBodyEnd(0, fmt.Sprintf("%x", digest), true)
-		}
-		return bodymemory.NewBody(nil, nil), nil
+		return bodystore.Empty(observer), nil
 	}
-	if r.ContentLength < 0 {
-		return nil, ErrContentLengthRequired
+	if h.bodyStore == nil {
+		return nil, ErrBodyStoreUnavailable
 	}
-	if h.bodyMemory == nil {
-		return nil, ErrBodyMemoryUnavailable
-	}
-	reservation, err := h.bodyMemory.Reserve(r.Context(), r.ContentLength)
-	if err != nil {
-		return nil, err
-	}
-	completed := false
-	defer func() {
-		if !completed {
-			reservation.Close()
-		}
-	}()
 	if h.bodyReadTimeout > 0 {
 		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(h.bodyReadTimeout))
 	}
 	if current != nil {
-		current.BeginBodyRead()
+		current.BeginBodyStream()
 	}
-	data := make([]byte, int(r.ContentLength))
-	if _, err = io.ReadFull(r.Body, data); err != nil {
-		if current != nil {
-			current.RequestBodyEnd(0, "", false)
-		}
-		return nil, fmt.Errorf("read request body: %w", err)
+	body, err := h.bodyStore.Stream(r.Context(), r.Body, r.ContentLength, observer)
+	if err != nil {
+		return nil, err
 	}
-	_ = r.Body.Close()
 	r.Body = http.NoBody
-	body := bodymemory.NewBody(data, reservation)
-	completed = true
-	if current != nil {
-		current.RequestBodyAvailable(body)
-		current.RequestBodyEnd(int64(len(data)), fmt.Sprintf("%x", body.Digest()), true)
-	}
 	return body, nil
 }
 

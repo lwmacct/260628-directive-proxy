@@ -273,18 +273,22 @@ func TestValidateRetryConfiguration(t *testing.T) {
 			t.Fatalf("expected invalid retry config, got %v", err)
 		}
 	}
-	for _, mutate := range []func(*ProxyBodyMemory){
-		func(cfg *ProxyBodyMemory) { cfg.MaxActiveBytes = 0 },
-		func(cfg *ProxyBodyMemory) { cfg.MaxBodyBytes = 0 },
-		func(cfg *ProxyBodyMemory) { cfg.MaxBodyBytes = cfg.MaxActiveBytes + 1 },
-		func(cfg *ProxyBodyMemory) { cfg.QueueMax = 0 },
-		func(cfg *ProxyBodyMemory) { cfg.QueueWait = 0 },
-		func(cfg *ProxyBodyMemory) { cfg.ReadTimeout = 0 },
+	for _, mutate := range []func(*ProxyBodyStore){
+		func(cfg *ProxyBodyStore) { cfg.MemoryMaxBytes = 0 },
+		func(cfg *ProxyBodyStore) { cfg.MemoryPerBodyBytes = 0 },
+		func(cfg *ProxyBodyStore) { cfg.MemoryPerBodyBytes = cfg.MemoryMaxBytes + 1 },
+		func(cfg *ProxyBodyStore) { cfg.MemoryPerBodyBytes = cfg.MaxBodyBytes + 1 },
+		func(cfg *ProxyBodyStore) { cfg.DiskMaxBytes = cfg.MaxBodyBytes - 1 },
+		func(cfg *ProxyBodyStore) { cfg.MaxBodyBytes = 0 },
+		func(cfg *ProxyBodyStore) { cfg.ChunkBytes = 0 },
+		func(cfg *ProxyBodyStore) { cfg.ChunkBytes = 2 << 20 },
+		func(cfg *ProxyBodyStore) { cfg.TempDir = "" },
+		func(cfg *ProxyBodyStore) { cfg.ReadTimeout = 0 },
 	} {
 		cfg := validDefaultConfig()
-		mutate(&cfg.Proxy.BodyMemory)
-		if _, err := Validate(cfg); err != ErrInvalidRetry {
-			t.Fatalf("expected invalid body memory config, got %v", err)
+		mutate(&cfg.Proxy.BodyStore)
+		if _, err := Validate(cfg); err != ErrInvalidBodyStore {
+			t.Fatalf("expected invalid body store config, got %v", err)
 		}
 	}
 }

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,10 +19,9 @@ import (
 )
 
 var (
-	ErrResolverFailed        = errors.New("proxy directive resolver failed")
-	ErrContentLengthRequired = errors.New("proxy request Content-Length is required")
-	ErrBodyMemoryUnavailable = errors.New("proxy request body memory is unavailable")
-	ErrModuleFailed          = errors.New("proxy module failed")
+	ErrResolverFailed       = errors.New("proxy directive resolver failed")
+	ErrBodyStoreUnavailable = errors.New("proxy request body replay store is unavailable")
+	ErrModuleFailed         = errors.New("proxy module failed")
 )
 
 type RetryTransportOptions struct{}
@@ -53,13 +51,8 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	if prepared.body == nil {
-		return nil, ErrBodyMemoryUnavailable
+		return nil, ErrBodyStoreUnavailable
 	}
-	bodyLease := prepared.body.Acquire()
-	if !bodyLease.Valid() {
-		return nil, ErrBodyMemoryUnavailable
-	}
-	defer func() { _ = bodyLease.Close() }()
 	var previousFingerprint string
 	var previousTarget string
 	for {
@@ -119,7 +112,12 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		attempt.BindMetadata(resolution.Plan.Metadata)
 		attempt.DirectiveResolved(target, resolveDuration, resolution.Source.PayloadSHA256, targetChanged, planChanged)
 
-		body := bodyLease.Reader()
+		body, bodyErr := prepared.body.Open(attemptCtx)
+		if bodyErr != nil {
+			attempt.FinishRoundTrip(false, bodyErr)
+			cancel()
+			return nil, bodyErr
+		}
 		attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, attemptCtx, body)
 		if attemptRequest == nil {
 			_ = body.Close()
@@ -133,19 +131,19 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			cancel()
 			return nil, fmt.Errorf("%w: outbound request: %v", ErrModuleFailed, mutationErr)
 		}
-		bodyData, mutationErr := attempt.MutateOutboundBody(bodyLease.Bytes())
-		if mutationErr != nil {
-			_ = body.Close()
-			attempt.FinishRoundTrip(false, mutationErr)
-			cancel()
-			return nil, fmt.Errorf("%w: outbound body: %v", ErrModuleFailed, mutationErr)
+		if attempt.HasOutboundBodyMutators() {
+			attemptRequest.Body = newMutatingBody(body, func(data []byte) ([]byte, error) {
+				mutated, err := attempt.MutateOutboundBodyChunk(data)
+				if err != nil {
+					return nil, fmt.Errorf("%w: outbound body chunk: %v", ErrModuleFailed, err)
+				}
+				return mutated, nil
+			})
+			attemptRequest.ContentLength = -1
+		} else {
+			attemptRequest.ContentLength = prepared.body.ContentLength()
 		}
-		_ = body.Close()
-		attemptRequest.Body = io.NopCloser(bytes.NewReader(bodyData))
-		attemptRequest.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(bodyData)), nil
-		}
-		attemptRequest.ContentLength = int64(len(bodyData))
+		attemptRequest.GetBody = nil
 		attemptRequest.TransferEncoding = nil
 		if !attempt.BeginUpstream(attemptRequest) {
 			_ = body.Close()
@@ -175,12 +173,14 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			continue
 		}
 		if roundTripErr != nil || response == nil || response.Body == nil {
+			prepared.body.Retire()
 			cancel()
 			return response, roundTripErr
 		}
 		attempt.ObserveUpstreamResponse(response)
 		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
 		response.Body = wrapCancelOnCloseBody(response, cancel)
+		prepared.body.Retire()
 		return response, roundTripErr
 	}
 }
@@ -199,26 +199,83 @@ func (t *RetryTransport) roundTripOnce(req *http.Request, prepared preparedReque
 	}
 	resolution.Plan.Metadata = normalizedMetadata
 	if prepared.body == nil {
-		return nil, ErrBodyMemoryUnavailable
+		return nil, ErrBodyStoreUnavailable
 	}
-	bodyLease := prepared.body.Acquire()
-	if !bodyLease.Valid() {
-		return nil, ErrBodyMemoryUnavailable
+	body, bodyErr := prepared.body.Open(req.Context())
+	if bodyErr != nil {
+		return nil, bodyErr
 	}
-	defer func() { _ = bodyLease.Close() }()
-	body := bodyLease.Reader()
 	attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, req.Context(), body)
 	if attemptRequest == nil {
+		_ = body.Close()
 		return nil, ErrResolverFailed
 	}
-	attemptRequest.GetBody = func() (io.ReadCloser, error) { return bodyLease.Reader(), nil }
-	attemptRequest.ContentLength = bodyLease.Size()
+	attemptRequest.GetBody = nil
+	attemptRequest.ContentLength = prepared.body.ContentLength()
 	attemptRequest.TransferEncoding = nil
 	response, roundTripErr := t.base.RoundTrip(attemptRequest)
+	prepared.body.Retire()
 	if response != nil {
 		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
 	}
 	return response, roundTripErr
+}
+
+type mutatingBody struct {
+	source      io.ReadCloser
+	mutate      func([]byte) ([]byte, error)
+	buffer      []byte
+	pending     []byte
+	terminalErr error
+	closed      bool
+}
+
+func newMutatingBody(source io.ReadCloser, mutate func([]byte) ([]byte, error)) io.ReadCloser {
+	return &mutatingBody{source: source, mutate: mutate, buffer: make([]byte, 64<<10)}
+}
+
+func (b *mutatingBody) Read(target []byte) (int, error) {
+	if b == nil || b.source == nil || b.closed {
+		return 0, io.EOF
+	}
+	if len(target) == 0 {
+		return 0, nil
+	}
+	for len(b.pending) == 0 && b.terminalErr == nil {
+		n, err := b.source.Read(b.buffer)
+		if n > 0 {
+			data := b.buffer[:n]
+			if b.mutate != nil {
+				data, b.terminalErr = b.mutate(data)
+			}
+			b.pending = data
+		}
+		if err != nil {
+			b.terminalErr = err
+		}
+	}
+	if len(b.pending) > 0 {
+		n := copy(target, b.pending)
+		b.pending = b.pending[n:]
+		return n, nil
+	}
+	err := b.terminalErr
+	if err == nil {
+		err = io.EOF
+	}
+	_ = b.Close()
+	return 0, err
+}
+
+func (b *mutatingBody) Close() error {
+	if b == nil || b.closed {
+		return nil
+	}
+	b.closed = true
+	if b.source != nil {
+		return b.source.Close()
+	}
+	return nil
 }
 
 func directiveErrorCode(err error) string {

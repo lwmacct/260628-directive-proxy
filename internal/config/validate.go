@@ -78,11 +78,13 @@ func Validate(cfg Server) (Server, error) {
 	if retry.MaxAttempts < 2 || retry.CommandRetention <= 0 {
 		return cfg, ErrInvalidRetry
 	}
-	bodyMemory := cfg.Proxy.BodyMemory
-	if bodyMemory.MaxActiveBytes <= 0 || bodyMemory.MaxBodyBytes <= 0 ||
-		bodyMemory.MaxBodyBytes > bodyMemory.MaxActiveBytes || bodyMemory.QueueMax <= 0 ||
-		bodyMemory.QueueWait <= 0 || bodyMemory.ReadTimeout <= 0 {
-		return cfg, ErrInvalidRetry
+	bodyStore := cfg.Proxy.BodyStore
+	if bodyStore.MemoryMaxBytes <= 0 || bodyStore.MemoryPerBodyBytes <= 0 ||
+		bodyStore.MemoryPerBodyBytes > bodyStore.MemoryMaxBytes || bodyStore.MaxBodyBytes <= 0 ||
+		bodyStore.MemoryPerBodyBytes > bodyStore.MaxBodyBytes || bodyStore.DiskMaxBytes < bodyStore.MaxBodyBytes ||
+		bodyStore.ChunkBytes < 4<<10 || bodyStore.ChunkBytes > 1<<20 ||
+		strings.TrimSpace(bodyStore.TempDir) == "" || bodyStore.ReadTimeout <= 0 {
+		return cfg, ErrInvalidBodyStore
 	}
 	validatedFluent, err := validateFluentOutput(cfg.Fluent)
 	if err != nil {

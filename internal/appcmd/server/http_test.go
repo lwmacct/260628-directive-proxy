@@ -145,7 +145,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: retryTransport, adminAuth: adminAuth}
+	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: retryTransport, adminAuth: adminAuth}
 	handler := newHTTPServer(&cfg, rt).Handler
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
 	proxyReq.Header.Set("Authorization", "Bearer "+token)
@@ -457,8 +457,8 @@ func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Server, value runti
 	t.Cleanup(engine.Close)
 	value.sourceAccess = access
 	value.sourceEngine = engine
-	if value.bodyMemory == nil {
-		value.bodyMemory = newTestBodyMemory(cfg.Proxy.BodyMemory)
+	if value.bodyStore == nil {
+		value.bodyStore = newTestBodyStore(cfg.Proxy.BodyStore)
 	}
 	return &value
 }

@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -141,8 +140,6 @@ type RequestStarted struct {
 	Host   string
 	Header http.Header
 }
-
-type RequestBodyAvailable struct{ Body *bodymemory.Body }
 
 type RequestBodyEnded struct {
 	Total    int64

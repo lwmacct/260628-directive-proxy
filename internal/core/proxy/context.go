@@ -3,7 +3,7 @@ package proxy
 import (
 	"context"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 )
 
 type preparedRequestContextKey struct{}
@@ -11,14 +11,14 @@ type preparedRequestContextKey struct{}
 type preparedRequest struct {
 	directive PreparedDirective
 	template  *RequestTemplate
-	body      *bodymemory.Body
+	body      *bodystore.Store
 }
 
-func contextWithPreparedRequest(ctx context.Context, directive PreparedDirective, template *RequestTemplate, body ...*bodymemory.Body) context.Context {
+func contextWithPreparedRequest(ctx context.Context, directive PreparedDirective, template *RequestTemplate, body ...*bodystore.Store) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	var requestBody *bodymemory.Body
+	var requestBody *bodystore.Store
 	if len(body) > 0 {
 		requestBody = body[0]
 	}

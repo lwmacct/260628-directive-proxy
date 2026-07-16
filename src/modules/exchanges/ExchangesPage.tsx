@@ -196,15 +196,15 @@ export function ExchangesPage() {
       render: (value: ActiveProxyRequest["state"]) => {
         const labels = {
           resolving_directive: t.exchanges.resolving,
-          waiting_body_memory: t.exchanges.memoryWait,
-          reading_body: t.exchanges.bodyReading,
+          starting_body_stream: t.exchanges.bodyStarting,
+          streaming_request: t.exchanges.bodyStreaming,
           awaiting_response: t.exchanges.awaiting,
           retry_requested: t.exchanges.retrying,
         };
         const colors = {
           resolving_directive: "blue",
-          waiting_body_memory: "cyan",
-          reading_body: "geekblue",
+          starting_body_stream: "cyan",
+          streaming_request: "geekblue",
           awaiting_response: "warning",
           retry_requested: "processing",
         };

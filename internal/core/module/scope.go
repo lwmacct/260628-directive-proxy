@@ -76,7 +76,7 @@ func (s *Scope) HasOutboundBodyMutators() bool {
 		return false
 	}
 	for _, mounted := range s.mounted {
-		if len(mounted.binder.outboundBody) > 0 {
+		if len(mounted.binder.outboundBodyChunk) > 0 {
 			return true
 		}
 	}
@@ -118,8 +118,8 @@ func (s *Scope) RequestStarted(ctx context.Context, value RequestStarted) error 
 	return dispatch(s, ctx, value, func(b *Binder) []subscription[RequestStarted] { return b.requestStarted }, cloneRequestStarted)
 }
 
-func (s *Scope) RequestBodyAvailable(ctx context.Context, value RequestBodyAvailable) error {
-	return dispatch(s, ctx, value, func(b *Binder) []subscription[RequestBodyAvailable] { return b.requestBodyAvailable }, nil)
+func (s *Scope) RequestBodyChunk(ctx context.Context, value BodyChunk) error {
+	return dispatch(s, ctx, value, func(b *Binder) []subscription[BodyChunk] { return b.requestBodyChunk }, cloneBodyChunk)
 }
 
 func (s *Scope) RequestBodyEnded(ctx context.Context, value RequestBodyEnded) error {
@@ -212,8 +212,8 @@ func (s *Scope) MutateOutboundRequest(ctx context.Context, request *http.Request
 	return mutate(s, ctx, request, func(b *Binder) []mutation[http.Request] { return b.outboundRequest })
 }
 
-func (s *Scope) MutateOutboundBody(ctx context.Context, draft *BodyDraft) error {
-	return mutate(s, ctx, draft, func(b *Binder) []mutation[BodyDraft] { return b.outboundBody })
+func (s *Scope) MutateOutboundBodyChunk(ctx context.Context, draft *BodyDraft) error {
+	return mutate(s, ctx, draft, func(b *Binder) []mutation[BodyDraft] { return b.outboundBodyChunk })
 }
 
 func (s *Scope) MutateUpstreamResponse(ctx context.Context, draft *ResponseDraft) error {
@@ -446,7 +446,7 @@ func (b *Binder) allPolicies() []Policy {
 	}
 	appendSubscriptions(
 		policies(len(b.requestStarted), func(i int) Policy { return b.requestStarted[i].policy }),
-		policies(len(b.requestBodyAvailable), func(i int) Policy { return b.requestBodyAvailable[i].policy }),
+		policies(len(b.requestBodyChunk), func(i int) Policy { return b.requestBodyChunk[i].policy }),
 		policies(len(b.requestBodyEnded), func(i int) Policy { return b.requestBodyEnded[i].policy }),
 		policies(len(b.attemptStarted), func(i int) Policy { return b.attemptStarted[i].policy }),
 		policies(len(b.directiveResolved), func(i int) Policy { return b.directiveResolved[i].policy }),
@@ -468,7 +468,7 @@ func (b *Binder) allPolicies() []Policy {
 		policies(len(b.downstreamBodyEnded), func(i int) Policy { return b.downstreamBodyEnded[i].policy }),
 		policies(len(b.requestFinished), func(i int) Policy { return b.requestFinished[i].policy }),
 		policies(len(b.outboundRequest), func(i int) Policy { return b.outboundRequest[i].policy }),
-		policies(len(b.outboundBody), func(i int) Policy { return b.outboundBody[i].policy }),
+		policies(len(b.outboundBodyChunk), func(i int) Policy { return b.outboundBodyChunk[i].policy }),
 		policies(len(b.upstreamDraft), func(i int) Policy { return b.upstreamDraft[i].policy }),
 		policies(len(b.upstreamBodyDraft), func(i int) Policy { return b.upstreamBodyDraft[i].policy }),
 	)

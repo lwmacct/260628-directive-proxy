@@ -17,7 +17,7 @@ import (
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
@@ -32,7 +32,7 @@ const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
 	exchanges       *exchange.Manager
-	bodyMemory      *bodymemory.Controller
+	bodyStore       *bodystore.Controller
 	proxyTransport  http.RoundTripper
 	moduleRuntime   *module.Runtime
 	eventOutput     *event.Dispatcher
@@ -88,11 +88,13 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
 		CommandRetention: cfg.Proxy.Retry.CommandRetention,
 	}, moduleRuntime)
-	bodyMemory := bodymemory.New(bodymemory.Config{
-		MaxActiveBytes: cfg.Proxy.BodyMemory.MaxActiveBytes,
-		MaxBodyBytes:   cfg.Proxy.BodyMemory.MaxBodyBytes,
-		QueueMax:       cfg.Proxy.BodyMemory.QueueMax,
-		QueueWait:      cfg.Proxy.BodyMemory.QueueWait,
+	bodyStore := bodystore.New(bodystore.Config{
+		MemoryMaxBytes:     cfg.Proxy.BodyStore.MemoryMaxBytes,
+		MemoryPerBodyBytes: cfg.Proxy.BodyStore.MemoryPerBodyBytes,
+		DiskMaxBytes:       cfg.Proxy.BodyStore.DiskMaxBytes,
+		MaxBodyBytes:       cfg.Proxy.BodyStore.MaxBodyBytes,
+		ChunkBytes:         cfg.Proxy.BodyStore.ChunkBytes,
+		TempDir:            cfg.Proxy.BodyStore.TempDir,
 	})
 	baseTransport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
@@ -117,7 +119,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	directiveReader := newDirectiveRemoteReader(remoteConfig)
 	return &runtime{
 		exchanges:       exchanges,
-		bodyMemory:      bodyMemory,
+		bodyStore:       bodyStore,
 		proxyTransport:  retryTransport,
 		moduleRuntime:   moduleRuntime,
 		eventOutput:     eventOutput,
@@ -199,11 +201,11 @@ func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAcc
 	return guard, engine, nil
 }
 
-func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, exchanges *exchange.Manager, bodyMemory *bodymemory.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, exchanges *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
-		BodyMemory:      bodyMemory,
-		BodyReadTimeout: cfg.Proxy.BodyMemory.ReadTimeout,
+		BodyStore:       bodyStore,
+		BodyReadTimeout: cfg.Proxy.BodyStore.ReadTimeout,
 	}
 	if exchanges != nil {
 		options.Exchanges = exchanges

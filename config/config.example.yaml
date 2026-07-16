@@ -89,13 +89,15 @@ server:
       max-attempts: 3 # 单个 Exchange 允许的最大上游 Attempt 数，包含首次请求
       command-retention: 1m0s # 已接受重试命令终态的保留时间
 
-    # 可重放请求正文的内存与等待队列配置
-    body-memory:
-      max-active-bytes: 2147483648 # 所有活动 Exchange 的可重放正文占用的最大逻辑字节数
-      max-body-bytes: 33554432 # 单个 Exchange 可重放正文的最大字节数
-      queue-max-requests: 512 # 等待正文内存的最大请求数
-      queue-max-wait: 15s # 请求等待正文内存的最长时间
-      body-read-timeout: 30s # 获得内存后读取完整请求正文的最长时间
+    # 流式可重放请求正文的内存与磁盘配置
+    body-store:
+      memory-max-bytes: 536870912 # 所有活动 Replay Store 使用的最大内存字节数
+      memory-per-body-bytes: 1048576 # 单个请求 spill 到磁盘前保留在内存的最大字节数
+      disk-max-bytes: 8589934592 # 所有活动 Replay Store 使用的最大临时磁盘字节数
+      max-body-bytes: 33554432 # 单个请求正文允许的最大实际字节数
+      chunk-bytes: 65536 # 正文摄取和内存分段的 chunk 字节数
+      temp-dir: "${APP_DATA:-.local/data}/tmp/body-store" # 匿名 spill 临时文件目录
+      body-read-timeout: 30s # 读取请求正文的最长时间
 
     # 指令来源配置
     directive:

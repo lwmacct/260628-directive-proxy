@@ -60,7 +60,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -167,7 +167,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime}
+	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime}
 	token, err := directive.Encode(directive.Payload{
 		Target:  directive.TargetSection{URL: upstream.URL},
 		Program: module.Program{Request: []module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
@@ -232,7 +232,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{

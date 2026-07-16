@@ -17,7 +17,7 @@ type mutation[T any] struct {
 
 type Binder struct {
 	requestStarted       []subscription[RequestStarted]
-	requestBodyAvailable []subscription[RequestBodyAvailable]
+	requestBodyChunk     []subscription[BodyChunk]
 	requestBodyEnded     []subscription[RequestBodyEnded]
 	attemptStarted       []subscription[AttemptStarted]
 	directiveResolved    []subscription[DirectiveResolved]
@@ -39,7 +39,7 @@ type Binder struct {
 	downstreamBodyEnded  []subscription[BodyEnded]
 	requestFinished      []subscription[RequestFinished]
 	outboundRequest      []mutation[http.Request]
-	outboundBody         []mutation[BodyDraft]
+	outboundBodyChunk    []mutation[BodyDraft]
 	upstreamDraft        []mutation[ResponseDraft]
 	upstreamBodyDraft    []mutation[BodyDraft]
 }
@@ -61,8 +61,8 @@ func appendMutation[T any](target *[]mutation[T], policy Policy, handle Mutator[
 func (b *Binder) OnRequestStarted(policy Policy, handle Handler[RequestStarted]) {
 	appendSubscription(&b.requestStarted, policy, handle)
 }
-func (b *Binder) OnRequestBodyAvailable(policy Policy, handle Handler[RequestBodyAvailable]) {
-	appendSubscription(&b.requestBodyAvailable, policy, handle)
+func (b *Binder) OnRequestBodyChunk(policy Policy, handle Handler[BodyChunk]) {
+	appendSubscription(&b.requestBodyChunk, policy, handle)
 }
 func (b *Binder) OnRequestBodyEnded(policy Policy, handle Handler[RequestBodyEnded]) {
 	appendSubscription(&b.requestBodyEnded, policy, handle)
@@ -127,8 +127,8 @@ func (b *Binder) OnRequestFinished(policy Policy, handle Handler[RequestFinished
 func (b *Binder) MutateOutboundRequest(policy Policy, handle Mutator[http.Request]) {
 	appendMutation(&b.outboundRequest, policy, handle)
 }
-func (b *Binder) MutateOutboundBody(policy Policy, handle Mutator[BodyDraft]) {
-	appendMutation(&b.outboundBody, policy, handle)
+func (b *Binder) MutateOutboundBodyChunk(policy Policy, handle Mutator[BodyDraft]) {
+	appendMutation(&b.outboundBodyChunk, policy, handle)
 }
 func (b *Binder) MutateUpstreamResponse(policy Policy, handle Mutator[ResponseDraft]) {
 	appendMutation(&b.upstreamDraft, policy, handle)

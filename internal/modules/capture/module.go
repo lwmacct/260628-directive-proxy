@@ -45,6 +45,8 @@ type instance struct {
 
 	requestBodyEnded bool
 	requestChunks    int64
+	requestOffset    int64
+	requestPending   []byte
 
 	responseHash         hash.Hash
 	responseOffset       int64
@@ -79,7 +81,7 @@ func (binding binding) Open(module.OpenContext) (module.Instance, error) {
 func (capture *instance) Mount(binder *module.Binder) {
 	async := module.AsyncPolicy(module.OverflowDrop)
 	binder.OnRequestStarted(async, capture.onRequestStarted)
-	binder.OnRequestBodyAvailable(module.AsyncBarrierPolicy(module.OverflowBlock), capture.onRequestBodyAvailable)
+	binder.OnRequestBodyChunk(module.AsyncBarrierPolicy(module.OverflowBlock), capture.onRequestBodyChunk)
 	binder.OnRequestBodyEnded(async, capture.onRequestBodyEnded)
 	binder.OnAttemptStarted(async, capture.onAttemptStarted)
 	binder.OnDirectiveResolved(async, capture.onDirectiveResolved)
@@ -115,22 +117,14 @@ func (capture *instance) onRequestStarted(ctx module.EventContext, value module.
 	return nil
 }
 
-func (capture *instance) onRequestBodyAvailable(ctx module.EventContext, value module.RequestBodyAvailable) error {
-	if value.Body == nil || ctx.Emitter == nil {
+func (capture *instance) onRequestBodyChunk(ctx module.EventContext, value module.BodyChunk) error {
+	if len(value.Data) == 0 || ctx.Emitter == nil {
 		return nil
 	}
-	for offset := int64(0); offset < value.Body.Size(); offset += int64(capture.spec.BodyChunkBytes) {
-		lease := value.Body.Acquire()
-		if !lease.Valid() {
-			return nil
-		}
-		length := min(int64(capture.spec.BodyChunkBytes), value.Body.Size()-offset)
-		data := lease.Bytes()[offset : offset+length]
-		capture.requestChunks++
-		ctx.Emitter.EmitOwned("capture.request.body.chunk", map[string]any{
-			"chunk_index": capture.requestChunks, "offset": offset, "length": length,
-			"encoding": "binary", "data": data,
-		}, func() { _ = lease.Close() })
+	capture.requestPending = append(capture.requestPending, value.Data...)
+	for len(capture.requestPending) >= capture.spec.BodyChunkBytes {
+		capture.emitRequestChunk(ctx.Emitter, capture.requestPending[:capture.spec.BodyChunkBytes])
+		capture.requestPending = capture.requestPending[capture.spec.BodyChunkBytes:]
 	}
 	return nil
 }
@@ -139,11 +133,27 @@ func (capture *instance) onRequestBodyEnded(ctx module.EventContext, value modul
 	if capture.requestBodyEnded || ctx.Emitter == nil {
 		return nil
 	}
+	if len(capture.requestPending) > 0 {
+		capture.emitRequestChunk(ctx.Emitter, capture.requestPending)
+		capture.requestPending = nil
+	}
 	capture.requestBodyEnded = true
 	ctx.Emitter.Emit("capture.request.body.end", map[string]any{
 		"total_bytes": value.Total, "sha256": value.SHA256, "complete": value.Complete, "chunks": capture.requestChunks,
 	})
 	return nil
+}
+
+func (capture *instance) emitRequestChunk(emitter module.Emitter, data []byte) {
+	if emitter == nil || len(data) == 0 {
+		return
+	}
+	capture.requestChunks++
+	emitter.EmitBorrowed("capture.request.body.chunk", map[string]any{
+		"chunk_index": capture.requestChunks, "offset": capture.requestOffset, "length": int64(len(data)),
+		"encoding": "binary", "data": data,
+	})
+	capture.requestOffset += int64(len(data))
 }
 
 func (*instance) onAttemptStarted(ctx module.EventContext, value module.AttemptStarted) error {

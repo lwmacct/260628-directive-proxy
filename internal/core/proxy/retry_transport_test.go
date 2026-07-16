@@ -9,9 +9,10 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -45,7 +46,7 @@ func (transformingInstance) Mount(binder *module.Binder) {
 		request.Header.Set("X-Module", "applied")
 		return nil
 	})
-	binder.MutateOutboundBody(module.SyncPolicy(), func(_ module.EventContext, draft *module.BodyDraft) error {
+	binder.MutateOutboundBodyChunk(module.SyncPolicy(), func(_ module.EventContext, draft *module.BodyDraft) error {
 		draft.Data = []byte(strings.ToUpper(string(draft.Data)))
 		return nil
 	})
@@ -112,6 +113,131 @@ func TestRetryTransportAppliesAttemptModuleMutationsBeforeCommit(t *testing.T) {
 	}
 	current.Complete()
 	runtime.Close()
+}
+
+func TestRetryTransportReplaysLiveBodyAfterMidUploadRetry(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	inbound, _ := http.NewRequest(http.MethodPost, "http://proxy.local/chat", nil)
+	inbound.ContentLength = 9
+	inbound.Header.Set("Idempotency-Key", "retry-live-body")
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 2}, nil)
+	current := manager.Start(inbound, retry.Identity{})
+	if err := current.ConfigureRequest(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	source, writer := io.Pipe()
+	controller := bodystore.New(bodystore.Config{
+		MemoryMaxBytes: 64, MemoryPerBodyBytes: 64, DiskMaxBytes: 128,
+		MaxBodyBytes: 64, ChunkBytes: 4, TempDir: t.TempDir(),
+	})
+	store, err := controller.Stream(t.Context(), source, 9, bodystore.Observer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	firstPrefix := make(chan string, 1)
+	var calls atomic.Int32
+	var secondBody string
+	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		defer func() { _ = request.Body.Close() }()
+		if calls.Add(1) == 1 {
+			prefix := make([]byte, 4)
+			if _, err := io.ReadFull(request.Body, prefix); err != nil {
+				return nil, err
+			}
+			firstPrefix <- string(prefix)
+			<-request.Context().Done()
+			return nil, request.Context().Err()
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			return nil, err
+		}
+		secondBody = string(body)
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: request}, nil
+	})
+	transport, err := NewRetryTransport(base, RetryTransportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := staticPrepared{resolution: Resolution{Plan: &Plan{Target: target}}}
+	template := NewRequestTemplate(inbound)
+	inbound.Body = http.NoBody
+	ctx := contextWithPreparedRequest(exchange.ContextWithExchange(inbound.Context(), current), prepared, template, store)
+
+	tail := make(chan struct{})
+	go func() {
+		_, _ = writer.Write([]byte("live"))
+		<-tail
+		_, _ = writer.Write([]byte("-tail"))
+		_ = writer.Close()
+	}()
+	result := make(chan error, 1)
+	go func() {
+		response, roundTripErr := transport.RoundTrip(inbound.Clone(ctx))
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		result <- roundTripErr
+	}()
+	if prefix := <-firstPrefix; prefix != "live" {
+		t.Fatalf("unexpected first attempt prefix: %q", prefix)
+	}
+	if _, err := manager.RetryByTraceID(current.TraceID(), 1, exchange.TriggerAdminAPI); err != nil {
+		t.Fatal(err)
+	}
+	close(tail)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 || secondBody != "live-tail" {
+		t.Fatalf("live body was not replayed: calls=%d body=%q", calls.Load(), secondBody)
+	}
+	current.Complete()
+}
+
+func TestRetryTransportReleasesReplayStoreAtResponseHeaders(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	controller := bodystore.New(bodystore.Config{
+		MemoryMaxBytes: 64, MemoryPerBodyBytes: 64, DiskMaxBytes: 128,
+		MaxBodyBytes: 64, ChunkBytes: 4, TempDir: t.TempDir(),
+	})
+	store, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader("request")), 7, bodystore.Observer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := controller.Snapshot(); snapshot.MemoryUsedBytes != 7 {
+		t.Fatalf("body was not retained for replay: %#v", snapshot)
+	}
+	inbound, _ := http.NewRequest(http.MethodPost, "http://proxy.local/chat", nil)
+	inbound.ContentLength = 7
+	prepared := staticPrepared{resolution: Resolution{Plan: &Plan{Target: target}}}
+	ctx := contextWithPreparedRequest(inbound.Context(), prepared, NewRequestTemplate(inbound), store)
+	transport, err := NewRetryTransport(roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if _, err := io.ReadAll(request.Body); err != nil {
+			return nil, err
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader("long response")), Request: request,
+		}, nil
+	}), RetryTransportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := transport.RoundTrip(inbound.Clone(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := controller.Snapshot(); snapshot.MemoryUsedBytes != 0 || snapshot.DiskUsedBytes != 0 {
+		t.Fatalf("replay storage remained pinned after response headers: %#v", snapshot)
+	}
+	_ = response.Body.Close()
 }
 
 func TestRetryTransportRejectsUnknownAttemptModuleBeforeUpstream(t *testing.T) {
@@ -406,8 +532,15 @@ func retryTestContext(t *testing.T, inbound *http.Request, current *exchange.Exc
 		_ = inbound.Body.Close()
 		inbound.Body = http.NoBody
 	}
-	body := bodymemory.NewBody(data, nil)
-	t.Cleanup(body.Release)
+	controller := bodystore.New(bodystore.Config{
+		MemoryMaxBytes: 1 << 20, MemoryPerBodyBytes: 1 << 20, DiskMaxBytes: 1 << 20,
+		MaxBodyBytes: 1 << 20, ChunkBytes: 4 << 10, TempDir: t.TempDir(),
+	})
+	body, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader(string(data))), int64(len(data)), bodystore.Observer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = body.Close() })
 	ctx := exchange.ContextWithExchange(inbound.Context(), current)
 	return contextWithPreparedRequest(ctx, prepared, NewRequestTemplate(inbound), body)
 }

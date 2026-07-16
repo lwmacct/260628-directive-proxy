@@ -20,8 +20,8 @@ var (
 type Phase string
 
 const (
-	PhaseWaitingBody       Phase = "waiting_body_memory"
-	PhaseReadingBody       Phase = "reading_body"
+	PhaseStartingBody      Phase = "starting_body_stream"
+	PhaseStreamingRequest  Phase = "streaming_request"
 	PhaseResolving         Phase = "resolving_directive"
 	PhaseAwaitingResponse  Phase = "awaiting_response"
 	PhaseRetryRequested    Phase = "retry_requested"

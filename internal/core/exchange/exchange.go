@@ -79,7 +79,7 @@ func newExchange(manager *Manager, req *http.Request, identity retry.Identity, s
 		method:         req.Method,
 		idempotencyKey: strings.TrimSpace(req.Header.Get("Idempotency-Key")),
 		requestURL:     redactURL(requestURL(req)),
-		phase:          PhaseWaitingBody,
+		phase:          PhaseStartingBody,
 		retryResults:   make(map[int]RetryResult),
 		requestStarted: module.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
@@ -97,13 +97,13 @@ func (current *Exchange) TraceID() string {
 	return current.traceID
 }
 
-func (current *Exchange) BeginBodyRead() {
+func (current *Exchange) BeginBodyStream() {
 	if current == nil {
 		return
 	}
 	current.stateMu.Lock()
-	if current.phase == PhaseWaitingBody {
-		current.phase = PhaseReadingBody
+	if current.phase == PhaseStartingBody {
+		current.phase = PhaseStreamingRequest
 	}
 	current.stateMu.Unlock()
 }
