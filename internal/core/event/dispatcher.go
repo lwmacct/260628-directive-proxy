@@ -1,4 +1,4 @@
-package observability
+package event
 
 import (
 	"context"
@@ -15,7 +15,7 @@ type queuedRecord struct {
 	size   int64
 }
 
-type sinkRunner struct {
+type Dispatcher struct {
 	sink         Sink
 	queues       []chan queuedRecord
 	maxRecords   int64
@@ -29,9 +29,9 @@ type sinkRunner struct {
 	wg           sync.WaitGroup
 }
 
-func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error) {
+func NewDispatcher(ctx context.Context, binding Config) (*Dispatcher, error) {
 	if binding.Sink == nil {
-		return nil, fmt.Errorf("observability sink is nil")
+		return nil, fmt.Errorf("event sink is nil")
 	}
 	if binding.Workers <= 0 {
 		binding.Workers = 1
@@ -43,9 +43,9 @@ func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error)
 		binding.QueueMaxBytes = 64 << 20
 	}
 	if err := binding.Sink.Start(ctx); err != nil {
-		return nil, fmt.Errorf("start observability sink: %w", err)
+		return nil, fmt.Errorf("start event sink: %w", err)
 	}
-	runner := &sinkRunner{
+	runner := &Dispatcher{
 		sink: binding.Sink, maxRecords: int64(binding.QueueMaxRecords), maxBytes: binding.QueueMaxBytes,
 		queues: make([]chan queuedRecord, binding.Workers),
 	}
@@ -57,7 +57,7 @@ func newSinkRunner(ctx context.Context, binding SinkConfig) (*sinkRunner, error)
 	return runner, nil
 }
 
-func (r *sinkRunner) enqueue(record Record, copyBorrowed bool) bool {
+func (r *Dispatcher) enqueue(record Record, copyBorrowed bool) bool {
 	if r == nil || r.closed.Load() {
 		return false
 	}
@@ -83,7 +83,7 @@ func (r *sinkRunner) enqueue(record Record, copyBorrowed bool) bool {
 	}
 }
 
-func (r *sinkRunner) reserve(size int64) bool {
+func (r *Dispatcher) reserve(size int64) bool {
 	for {
 		current := r.queuedCount.Load()
 		if current >= r.maxRecords {
@@ -105,7 +105,7 @@ func (r *sinkRunner) reserve(size int64) bool {
 	}
 }
 
-func (r *sinkRunner) run(shardIndex int, queue <-chan queuedRecord) {
+func (r *Dispatcher) run(shardIndex int, queue <-chan queuedRecord) {
 	defer r.wg.Done()
 	for item := range queue {
 		err := r.sink.Write(context.Background(), shardIndex, item.record)
@@ -115,7 +115,7 @@ func (r *sinkRunner) run(shardIndex int, queue <-chan queuedRecord) {
 		if err != nil {
 			r.failed.Store(true)
 			r.lastFailNano.Store(time.Now().UTC().UnixNano())
-			slog.Error("observability sink failed", "error", err)
+			slog.Error("event sink failed", "error", err)
 		} else {
 			r.failed.Store(false)
 		}
@@ -150,7 +150,7 @@ func cloneBorrowedValue(value any) any {
 	}
 }
 
-func (r *sinkRunner) health() HealthStatus {
+func (r *Dispatcher) sinkHealth() Status {
 	status := r.sink.Health()
 	if status.Status == "" {
 		status.Status = "ok"
@@ -170,7 +170,7 @@ func (r *sinkRunner) health() HealthStatus {
 	return status
 }
 
-func (r *sinkRunner) close(ctx context.Context) error {
+func (r *Dispatcher) Close(ctx context.Context) error {
 	if r == nil || !r.closed.CompareAndSwap(false, true) {
 		return nil
 	}

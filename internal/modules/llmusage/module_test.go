@@ -21,7 +21,7 @@ type recordingOutput struct {
 	attempt int
 }
 
-func (factory *recordingFactory) Output(_ string, attempt int) module.Output {
+func (factory *recordingFactory) Emitter(_ string, attempt int) module.Emitter {
 	return recordingOutput{factory: factory, attempt: attempt}
 }
 func (*recordingFactory) ModuleFailed(string) {}

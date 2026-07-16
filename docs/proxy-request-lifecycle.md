@@ -33,4 +33,4 @@ retry 在收到最终响应头前取消当前 attempt。被取消的 attempt 以
 
 外部 Record 使用 `schema_version=dproxy.event.v2`，`producer` 是 directive binding ID，`record_id=<trace_id>:<sequence>`，所有 request/attempt Module 共享单调递增 sequence。
 
-Fluent Sink 与 Module runtime 独立。Fluent 关闭时不创建连接、Queue 或 worker，但 Module 仍会编译和执行；没有 Sink 时 emit 会被丢弃，不影响 mutation。运行阶段 Module panic/错误、Sink 失败和队列溢出通过 `/health.observability.modules` 与 `/health.observability.sink` 分别报告。
+Fluent Sink 与 Module runtime 独立。Fluent 关闭时不创建连接、Queue 或 worker，但 Module 仍会编译和执行；没有 Sink 时 emitter 会丢弃 Record 并正确释放 owned data，不影响 mutation。运行阶段 Module panic/错误通过 `/health` 的 `modules` 报告，Sink 失败和队列溢出通过 `event_output` 报告。

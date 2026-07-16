@@ -98,25 +98,25 @@ func (capture *instance) Mount(binder *module.Binder) {
 }
 
 func (capture *instance) Finish(ctx module.FinishContext) error {
-	capture.finishResponse(ctx.Output)
+	capture.finishResponse(ctx.Emitter)
 	return nil
 }
 
 func (capture *instance) onRequestStarted(ctx module.EventContext, value module.RequestStarted) error {
-	if ctx.Output == nil {
+	if ctx.Emitter == nil {
 		return nil
 	}
-	ctx.Output.Emit("capture.request.started", map[string]any{
+	ctx.Emitter.Emit("capture.request.started", map[string]any{
 		"method": value.Method, "url": redactURL(value.URL, capture.spec.RedactQuery), "host": value.Host,
 	})
-	ctx.Output.Emit("capture.request.headers", map[string]any{
+	ctx.Emitter.Emit("capture.request.headers", map[string]any{
 		"headers": redactHTTPHeaders(value.Header, capture.spec.RedactHeaders),
 	})
 	return nil
 }
 
 func (capture *instance) onRequestBodyAvailable(ctx module.EventContext, value module.RequestBodyAvailable) error {
-	if value.Body == nil || ctx.Output == nil {
+	if value.Body == nil || ctx.Emitter == nil {
 		return nil
 	}
 	for offset := int64(0); offset < value.Body.Size(); offset += int64(capture.spec.BodyChunkBytes) {
@@ -127,7 +127,7 @@ func (capture *instance) onRequestBodyAvailable(ctx module.EventContext, value m
 		length := min(int64(capture.spec.BodyChunkBytes), value.Body.Size()-offset)
 		data := lease.Bytes()[offset : offset+length]
 		capture.requestChunks++
-		ctx.Output.EmitOwned("capture.request.body.chunk", map[string]any{
+		ctx.Emitter.EmitOwned("capture.request.body.chunk", map[string]any{
 			"chunk_index": capture.requestChunks, "offset": offset, "length": length,
 			"encoding": "binary", "data": data,
 		}, func() { _ = lease.Close() })
@@ -136,20 +136,20 @@ func (capture *instance) onRequestBodyAvailable(ctx module.EventContext, value m
 }
 
 func (capture *instance) onRequestBodyEnded(ctx module.EventContext, value module.RequestBodyEnded) error {
-	if capture.requestBodyEnded || ctx.Output == nil {
+	if capture.requestBodyEnded || ctx.Emitter == nil {
 		return nil
 	}
 	capture.requestBodyEnded = true
-	ctx.Output.Emit("capture.request.body.end", map[string]any{
+	ctx.Emitter.Emit("capture.request.body.end", map[string]any{
 		"total_bytes": value.Total, "sha256": value.SHA256, "complete": value.Complete, "chunks": capture.requestChunks,
 	})
 	return nil
 }
 
 func (*instance) onAttemptStarted(ctx module.EventContext, value module.AttemptStarted) error {
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.attempt.started", map[string]any{"attempt": ctx.Attempt})
-		ctx.Output.Emit("capture.directive.resolve.started", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.attempt.started", map[string]any{"attempt": ctx.Attempt})
+		ctx.Emitter.Emit("capture.directive.resolve.started", map[string]any{
 			"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "key": value.Key,
 		})
 	}
@@ -157,14 +157,14 @@ func (*instance) onAttemptStarted(ctx module.EventContext, value module.AttemptS
 }
 
 func (capture *instance) onDirectiveResolved(ctx module.EventContext, value module.DirectiveResolved) error {
-	if ctx.Output == nil {
+	if ctx.Emitter == nil {
 		return nil
 	}
 	target := ""
 	if value.Target != nil {
 		target = redactURL(value.Target.String(), capture.spec.RedactQuery)
 	}
-	ctx.Output.Emit("capture.directive.resolve.finished", map[string]any{
+	ctx.Emitter.Emit("capture.directive.resolve.finished", map[string]any{
 		"duration_millis": value.Duration.Milliseconds(), "payload_sha256": value.PayloadSHA256,
 		"target_url": target, "target_changed": value.TargetChanged, "plan_changed": value.PlanChanged,
 	})
@@ -172,8 +172,8 @@ func (capture *instance) onDirectiveResolved(ctx module.EventContext, value modu
 }
 
 func (*instance) onDirectiveFailed(ctx module.EventContext, value module.DirectiveFailed) error {
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.directive.resolve.failed", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.directive.resolve.failed", map[string]any{
 			"duration_millis": value.Duration.Milliseconds(), "error_code": value.Code,
 		})
 	}
@@ -181,8 +181,8 @@ func (*instance) onDirectiveFailed(ctx module.EventContext, value module.Directi
 }
 
 func (capture *instance) onMetadataBound(ctx module.EventContext, value module.MetadataBound) error {
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.request.metadata.bound", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.request.metadata.bound", map[string]any{
 			"metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
 		})
 	}
@@ -190,8 +190,8 @@ func (capture *instance) onMetadataBound(ctx module.EventContext, value module.M
 }
 
 func (capture *instance) onMetadataChanged(ctx module.EventContext, value module.MetadataChanged) error {
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.request.metadata.changed", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.request.metadata.changed", map[string]any{
 			"bound_metadata":    redactMetadata(value.Bound, capture.spec.RedactHeaders),
 			"observed_metadata": redactMetadata(value.Observed, capture.spec.RedactHeaders),
 		})
@@ -200,8 +200,8 @@ func (capture *instance) onMetadataChanged(ctx module.EventContext, value module
 }
 
 func (capture *instance) onUpstreamStarted(ctx module.EventContext, value module.UpstreamStarted) error {
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.attempt.upstream.started", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.attempt.upstream.started", map[string]any{
 			"target_url": redactURL(value.TargetURL, capture.spec.RedactQuery),
 			"headers":    redactHTTPHeaders(value.Header, capture.spec.RedactHeaders),
 		})
@@ -210,21 +210,21 @@ func (capture *instance) onUpstreamStarted(ctx module.EventContext, value module
 }
 
 func (*instance) onAttemptFinished(ctx module.EventContext, value module.AttemptFinished) error {
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.attempt.finished", map[string]any{"attempt": ctx.Attempt, "outcome": value.Outcome})
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.attempt.finished", map[string]any{"attempt": ctx.Attempt, "outcome": value.Outcome})
 	}
 	return nil
 }
 
 func (capture *instance) onRetryRequested(ctx module.EventContext, value module.RetryRequested) error {
-	if ctx.Output == nil {
+	if ctx.Emitter == nil {
 		return nil
 	}
 	data := map[string]any{"trigger": value.Trigger, "attempt": ctx.Attempt, "next_attempt": value.NextAttempt}
 	if len(value.SelectorMetadata) > 0 {
 		data["selector_metadata"] = redactMetadata(value.SelectorMetadata, capture.spec.RedactHeaders)
 	}
-	ctx.Output.Emit("capture.retry.requested", data)
+	ctx.Emitter.Emit("capture.retry.requested", data)
 	return nil
 }
 
@@ -232,8 +232,8 @@ func (capture *instance) onDownstreamResponseStarted(ctx module.EventContext, va
 	mediaType, _, _ := mime.ParseMediaType(value.Header.Get("Content-Type"))
 	capture.responseIsSSE = strings.EqualFold(mediaType, "text/event-stream")
 	capture.responseStarted = true
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.response.headers", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.response.headers", map[string]any{
 			"status_code": value.StatusCode,
 			"headers":     redactHTTPHeaders(value.Header, capture.spec.RedactHeaders),
 			"sse":         capture.responseIsSSE,
@@ -243,7 +243,7 @@ func (capture *instance) onDownstreamResponseStarted(ctx module.EventContext, va
 }
 
 func (capture *instance) onDownstreamBodyChunk(ctx module.EventContext, value module.BodyChunk) error {
-	if ctx.Output == nil {
+	if ctx.Emitter == nil {
 		return nil
 	}
 	data := value.Data
@@ -254,7 +254,7 @@ func (capture *instance) onDownstreamBodyChunk(ctx module.EventContext, value mo
 		capture.responseOffset += int64(length)
 		capture.responseChunks++
 		_, _ = capture.responseHash.Write(chunk)
-		accepted := ctx.Output.EmitBorrowed("capture.response.body.chunk", map[string]any{
+		accepted := ctx.Emitter.EmitBorrowed("capture.response.body.chunk", map[string]any{
 			"chunk_index": capture.responseChunks, "offset": offset, "length": length,
 			"encoding": "binary", "data": chunk,
 		})
@@ -262,7 +262,7 @@ func (capture *instance) onDownstreamBodyChunk(ctx module.EventContext, value mo
 			capture.responseDroppedBytes += int64(length)
 			if !capture.responseGapEmitted {
 				capture.responseGapEmitted = true
-				ctx.Output.Emit("capture.response.body.gap", map[string]any{"offset": offset, "reason": "output_queue_full"})
+				ctx.Emitter.Emit("capture.response.body.gap", map[string]any{"offset": offset, "reason": "output_queue_full"})
 			}
 		}
 		data = data[length:]
@@ -272,7 +272,7 @@ func (capture *instance) onDownstreamBodyChunk(ctx module.EventContext, value mo
 
 func (capture *instance) onDownstreamSSEData(ctx module.EventContext, value module.SSEData) error {
 	capture.sseEvents++
-	if ctx.Output == nil {
+	if ctx.Emitter == nil {
 		return nil
 	}
 	data := map[string]any{
@@ -282,14 +282,14 @@ func (capture *instance) onDownstreamSSEData(ctx module.EventContext, value modu
 	if value.RetryMillis != nil {
 		data["retry_millis"] = *value.RetryMillis
 	}
-	ctx.Output.Emit("capture.response.sse.event", data)
+	ctx.Emitter.Emit("capture.response.sse.event", data)
 	return nil
 }
 
 func (capture *instance) onDownstreamSSEComment(ctx module.EventContext, value module.SSEComment) error {
 	capture.sseComments++
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.response.sse.comment", map[string]any{
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.response.sse.comment", map[string]any{
 			"comment_sequence": value.Sequence, "comment": value.Comment,
 		})
 	}
@@ -297,21 +297,21 @@ func (capture *instance) onDownstreamSSEComment(ctx module.EventContext, value m
 }
 
 func (capture *instance) onDownstreamBodyEnded(ctx module.EventContext, _ module.BodyEnded) error {
-	capture.finishResponse(ctx.Output)
+	capture.finishResponse(ctx.Emitter)
 	return nil
 }
 
 func (capture *instance) onRequestFinished(ctx module.EventContext, value module.RequestFinished) error {
-	capture.finishResponse(ctx.Output)
-	if ctx.Output != nil {
-		ctx.Output.Emit("capture.request.completed", map[string]any{
+	capture.finishResponse(ctx.Emitter)
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.request.completed", map[string]any{
 			"outcome": value.Outcome, "status_code": value.StatusCode, "duration_millis": value.Duration.Milliseconds(),
 		})
 	}
 	return nil
 }
 
-func (capture *instance) finishResponse(output module.Output) {
+func (capture *instance) finishResponse(output module.Emitter) {
 	if !capture.responseStarted || capture.responseEnded || output == nil {
 		return
 	}

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -22,7 +21,7 @@ type ProxyRequestService struct {
 	terminalByRetryID map[[32]byte]retryTombstone
 	maxAttempts       int
 	commandRetention  time.Duration
-	engine            *observability.Engine
+	moduleRuntime     *module.Runtime
 }
 
 type retryTombstone struct {
@@ -31,7 +30,7 @@ type retryTombstone struct {
 	expires time.Time
 }
 
-func NewProxyRequestService(opts ProxyRequestOptions, engine *observability.Engine) *ProxyRequestService {
+func NewProxyRequestService(opts ProxyRequestOptions, moduleRuntime *module.Runtime) *ProxyRequestService {
 	if opts.MaxAttempts < 1 {
 		opts.MaxAttempts = 1
 	}
@@ -45,7 +44,7 @@ func NewProxyRequestService(opts ProxyRequestOptions, engine *observability.Engi
 		terminalByRetryID: make(map[[32]byte]retryTombstone),
 		maxAttempts:       opts.MaxAttempts,
 		commandRetention:  opts.CommandRetention,
-		engine:            engine,
+		moduleRuntime:     moduleRuntime,
 	}
 }
 
@@ -82,9 +81,9 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 	s.active[session.traceID] = session
 	s.mu.Unlock()
 	go session.runCoordinator()
-	if s.engine != nil {
-		session.engine = s.engine
-		session.run = s.engine.StartRun(session.traceID)
+	if s.moduleRuntime != nil {
+		session.moduleRuntime = s.moduleRuntime
+		session.run = s.moduleRuntime.StartRun(session.traceID)
 	}
 	return session
 }

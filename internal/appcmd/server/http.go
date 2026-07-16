@@ -38,7 +38,7 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
-	services := handler.Services{Requests: rt.requests, Observability: rt.observability}
+	services := handler.Services{Requests: rt.requests, Modules: rt.moduleRuntime, EventOutput: rt.eventOutput}
 	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
 	adminAPI := limitRequestBody(handler.NewAdminEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
 	if rt.adminAuth != nil {

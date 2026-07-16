@@ -66,7 +66,7 @@ func (perf *instance) Mount(binder *module.Binder) {
 
 func (perf *instance) Finish(ctx module.FinishContext) error {
 	if perf.decoder != nil && !perf.finished {
-		perf.finish(perf.lastAt, io.ErrUnexpectedEOF, ctx.Output)
+		perf.finish(perf.lastAt, io.ErrUnexpectedEOF, ctx.Emitter)
 	}
 	return nil
 }
@@ -79,23 +79,23 @@ func (perf *instance) onUpstreamStarted(ctx module.EventContext, _ module.Upstre
 
 func (perf *instance) onResponseStarted(ctx module.EventContext, response module.ResponseStarted) error {
 	perf.lastAt = ctx.ObservedAt
-	perf.start(ctx.ObservedAt, response, ctx.Output)
+	perf.start(ctx.ObservedAt, response, ctx.Emitter)
 	return nil
 }
 
 func (perf *instance) onBodyChunk(ctx module.EventContext, chunk module.BodyChunk) error {
 	perf.lastAt = ctx.ObservedAt
-	perf.feed(ctx.ObservedAt, chunk.Data, ctx.Output)
+	perf.feed(ctx.ObservedAt, chunk.Data, ctx.Emitter)
 	return nil
 }
 
 func (perf *instance) onBodyEnded(ctx module.EventContext, ended module.BodyEnded) error {
 	perf.lastAt = ctx.ObservedAt
-	perf.finish(ctx.ObservedAt, ended.Cause, ctx.Output)
+	perf.finish(ctx.ObservedAt, ended.Cause, ctx.Emitter)
 	return nil
 }
 
-func (perf *instance) start(at time.Time, response module.ResponseStarted, output module.Output) {
+func (perf *instance) start(at time.Time, response module.ResponseStarted, output module.Emitter) {
 	if perf.started || perf.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
@@ -126,7 +126,7 @@ func (perf *instance) start(at time.Time, response module.ResponseStarted, outpu
 	perf.decoder, perf.started = decoder, true
 }
 
-func (perf *instance) feed(at time.Time, data []byte, output module.Output) {
+func (perf *instance) feed(at time.Time, data []byte, output module.Emitter) {
 	if perf.decoder == nil || perf.finished {
 		return
 	}
@@ -146,7 +146,7 @@ func (perf *instance) feed(at time.Time, data []byte, output module.Output) {
 	}
 }
 
-func (perf *instance) finish(at time.Time, cause error, output module.Output) {
+func (perf *instance) finish(at time.Time, cause error, output module.Emitter) {
 	if perf.decoder == nil || perf.finished {
 		return
 	}
@@ -171,7 +171,7 @@ func (perf *instance) finish(at time.Time, cause error, output module.Output) {
 	output.Emit("llm.perf.observed", data)
 }
 
-func (perf *instance) emitFailure(stage string, err error, output module.Output) {
+func (perf *instance) emitFailure(stage string, err error, output module.Emitter) {
 	if output != nil {
 		data := map[string]any{"stage": stage, "error": err.Error()}
 		addLabels(data, perf.spec.Labels)

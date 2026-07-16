@@ -15,7 +15,6 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -30,8 +29,8 @@ type ProxyRequestOptions struct {
 type proxyRequestSession struct {
 	service        *ProxyRequestService
 	ctx            context.Context
-	engine         *observability.Engine
-	run            *observability.Run
+	moduleRuntime  *module.Runtime
+	run            *module.Run
 	requestScope   *module.Scope
 	attemptScope   *module.Scope
 	requestStarted module.RequestStarted
@@ -152,10 +151,10 @@ func (s *proxyRequestSession) ConfigureRequest(specs []module.Spec) error {
 		return fmt.Errorf("request module program is already configured")
 	}
 	s.requestConfigured = true
-	if s.engine == nil || s.run == nil {
+	if s.moduleRuntime == nil || s.run == nil {
 		return nil
 	}
-	compiled, err := s.engine.Compile(module.LifetimeRequest, specs)
+	compiled, err := s.moduleRuntime.Compile(module.LifetimeRequest, specs)
 	if err != nil {
 		return err
 	}
@@ -279,10 +278,10 @@ func (s *proxyRequestSession) ConfigureAttempt(attempt int, specs []module.Spec)
 	if !current {
 		return context.Canceled
 	}
-	if s.engine == nil || s.run == nil {
+	if s.moduleRuntime == nil || s.run == nil {
 		return nil
 	}
-	compiled, err := s.engine.Compile(module.LifetimeAttempt, specs)
+	compiled, err := s.moduleRuntime.Compile(module.LifetimeAttempt, specs)
 	if err != nil {
 		return err
 	}

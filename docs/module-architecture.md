@@ -59,7 +59,7 @@ Module 通过 `Binder` 明确声明端口。未订阅的投影不会创建。例
 
 所有 mutation 自动形成 `before_commit` barrier。异步任务只能观察已经拥有的数据，或产生未来 Command；不能修改已经写给上游/下游的字节。
 
-## 投影与输出
+## 投影、Emitter 与 Event Dispatcher
 
 每个方向只构造一次共享投影：
 
@@ -71,6 +71,10 @@ upstream raw
 └─ downstream committed bytes
 ```
 
-外部 Record 使用 `dproxy.event.v2`，包含 `producer`、`topic`、`record_id`、`trace_id`、`attempt`、单 request `sequence`、`occurred_at` 和 `data`。Module runtime 与 Fluent 解耦：`server.fluent.enabled=false` 只关闭 Sink/Queue/连接，Module 仍注册、编译和执行，因此修改型 Module 不依赖可观测输出开关。
+`core/module.Runtime` 只负责 Definition registry、编译、Run、Scope 和 Module 健康。Module 通过 `EventContext.Emitter` 产生可选外部 Record；Runtime 只依赖抽象 `EmissionProvider`。
 
-Module panic 或回调错误会隔离该 Instance、使 barrier 失败，并将对应 Definition 的健康状态标为 degraded。Sink 只负责不可变 Record 的有界异步输出。
+`core/event.Dispatcher` 实现该 provider，负责 `dproxy.event.v2` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`attempt`、`sequence`、`occurred_at` 和 `data`。
+
+`server.fluent.enabled=false` 时不创建 Dispatcher、Sink、Queue 或连接；Runtime 使用 discard emitter，Module 仍注册、编译和执行，因此修改型 Module 不依赖事件输出。
+
+Module panic 或回调错误会隔离该 Instance、使 barrier 失败，并将对应 Definition 的健康状态标为 degraded。`/health.modules` 与 `/health.event_output` 分别反映两个独立子系统。

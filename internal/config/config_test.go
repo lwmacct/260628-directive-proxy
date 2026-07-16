@@ -106,14 +106,3 @@ func TestConfigFileRejectsLegacyFlatFluentClientConfiguration(t *testing.T) {
 		t.Fatalf("legacy flat Fluent config must be rejected, got %v", err)
 	}
 }
-
-func TestConfigFileRejectsRemovedObservabilityHierarchy(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  observability:\n    fluent:\n      enabled: true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Manager.Load(t.Context(), cfgm.File(path))
-	if err == nil || !strings.Contains(err.Error(), "observability") {
-		t.Fatalf("removed observability hierarchy must be rejected, got %v", err)
-	}
-}

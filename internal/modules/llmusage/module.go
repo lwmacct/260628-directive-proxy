@@ -64,31 +64,31 @@ func (usage *instance) Mount(binder *module.Binder) {
 }
 
 func (usage *instance) Finish(ctx module.FinishContext) error {
-	usage.finish(io.ErrUnexpectedEOF, ctx.Output)
+	usage.finish(io.ErrUnexpectedEOF, ctx.Emitter)
 	return nil
 }
 
 func (usage *instance) onResponseStarted(ctx module.EventContext, response module.ResponseStarted) error {
-	usage.start(response, ctx.Output)
+	usage.start(response, ctx.Emitter)
 	return nil
 }
 
 func (usage *instance) onSSEData(ctx module.EventContext, event module.SSEData) error {
-	usage.feed(encodeSSEData(event), ctx.Output)
+	usage.feed(encodeSSEData(event), ctx.Emitter)
 	return nil
 }
 
 func (usage *instance) onJSONChunk(ctx module.EventContext, chunk module.BodyChunk) error {
-	usage.feed(chunk.Data, ctx.Output)
+	usage.feed(chunk.Data, ctx.Emitter)
 	return nil
 }
 
 func (usage *instance) onBodyEnded(ctx module.EventContext, ended module.BodyEnded) error {
-	usage.finish(ended.Cause, ctx.Output)
+	usage.finish(ended.Cause, ctx.Emitter)
 	return nil
 }
 
-func (usage *instance) start(response module.ResponseStarted, output module.Output) {
+func (usage *instance) start(response module.ResponseStarted, output module.Emitter) {
 	if usage.decoder != nil || usage.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
@@ -117,7 +117,7 @@ func (usage *instance) start(response module.ResponseStarted, output module.Outp
 	usage.format = format
 }
 
-func (usage *instance) feed(data []byte, output module.Output) {
+func (usage *instance) feed(data []byte, output module.Emitter) {
 	if usage.decoder == nil || usage.failed || usage.finished || len(data) == 0 {
 		return
 	}
@@ -129,7 +129,7 @@ func (usage *instance) feed(data []byte, output module.Output) {
 	usage.emitResults(results, output)
 }
 
-func (usage *instance) finish(cause error, output module.Output) {
+func (usage *instance) finish(cause error, output module.Emitter) {
 	if usage.decoder == nil || usage.failed || usage.finished {
 		return
 	}
@@ -152,7 +152,7 @@ func (usage *instance) finish(cause error, output module.Output) {
 	}
 }
 
-func (usage *instance) emitResults(results []llmusage.Result, output module.Output) {
+func (usage *instance) emitResults(results []llmusage.Result, output module.Emitter) {
 	if output == nil {
 		return
 	}
@@ -180,7 +180,7 @@ func (usage *instance) emitResults(results []llmusage.Result, output module.Outp
 	}
 }
 
-func (usage *instance) emitFailure(stage string, err error, output module.Output) {
+func (usage *instance) emitFailure(stage string, err error, output module.Emitter) {
 	if usage.failed {
 		return
 	}

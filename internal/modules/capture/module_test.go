@@ -46,10 +46,10 @@ func (output *captureOutput) EmitBorrowed(topic string, data map[string]any) boo
 	return true
 }
 
-type captureOutputFactory struct{ output *captureOutput }
+type captureRuntime struct{ output *captureOutput }
 
-func (factory captureOutputFactory) Output(string, int) module.Output { return factory.output }
-func (captureOutputFactory) ModuleFailed(string)                      {}
+func (runtime captureRuntime) Emitter(string, int) module.Emitter { return runtime.output }
+func (captureRuntime) ModuleFailed(string)                        {}
 
 func TestRequestCaptureReferencesCanonicalBody(t *testing.T) {
 	controller := bodymemory.New(bodymemory.Config{MaxActiveBytes: 16, MaxBodyBytes: 16})
@@ -118,7 +118,7 @@ func configuredScope(t *testing.T, raw string, output *captureOutput) *module.Sc
 	}
 	scope, err := module.OpenScope(module.OpenContext{TraceID: "trace"}, []module.Compiled{{
 		Spec: module.Spec{ID: "capture", Module: Name, Config: []byte(raw)}, Binding: binding,
-	}}, captureOutputFactory{output: output})
+	}}, captureRuntime{output: output})
 	if err != nil {
 		t.Fatal(err)
 	}

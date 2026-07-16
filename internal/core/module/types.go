@@ -70,10 +70,19 @@ type FinishContext struct {
 	Cause FinishCause
 }
 
-type Output interface {
+type Emitter interface {
 	Emit(topic string, data map[string]any) bool
 	EmitOwned(topic string, data map[string]any, release func()) bool
 	EmitBorrowed(topic string, data map[string]any) bool
+}
+
+type EmissionSession interface {
+	Emitter(producer string, attempt int) Emitter
+	Close()
+}
+
+type EmissionProvider interface {
+	Open(traceID string) EmissionSession
 }
 
 type EventContext struct {
@@ -81,7 +90,7 @@ type EventContext struct {
 	TraceID    string
 	Attempt    int
 	ObservedAt time.Time
-	Output     Output
+	Emitter    Emitter
 }
 
 type Executor string

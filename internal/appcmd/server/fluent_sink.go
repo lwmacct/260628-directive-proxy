@@ -9,10 +9,10 @@ import (
 
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 )
 
-// fluentSink adapts the configured Fluent client to the observability sink
+// fluentSink adapts the configured Fluent client to the event sink
 // port. It is kept in the composition root because no other package consumes
 // this application-specific adapter.
 type fluentSink struct {
@@ -54,7 +54,7 @@ func (s *fluentSink) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *fluentSink) Write(ctx context.Context, _ int, record observability.Record) error {
+func (s *fluentSink) Write(ctx context.Context, _ int, record event.Record) error {
 	if s == nil {
 		return fmt.Errorf("fluent sink is nil")
 	}
@@ -75,17 +75,17 @@ func (s *fluentSink) Write(ctx context.Context, _ int, record observability.Reco
 	return err
 }
 
-func (s *fluentSink) Health() observability.HealthStatus {
+func (s *fluentSink) Health() event.Status {
 	if s == nil {
-		return observability.HealthStatus{Status: "unavailable"}
+		return event.Status{Status: "unavailable"}
 	}
 	s.mu.RLock()
 	available := s.started && !s.closed && s.client != nil
 	s.mu.RUnlock()
 	if !available {
-		return observability.HealthStatus{Status: "unavailable"}
+		return event.Status{Status: "unavailable"}
 	}
-	status := observability.HealthStatus{Status: "ok"}
+	status := event.Status{Status: "ok"}
 	if !s.healthy.Load() {
 		status.Status = "degraded"
 	}

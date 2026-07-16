@@ -14,7 +14,6 @@ import (
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -61,11 +60,11 @@ func (transformingInstance) Mount(binder *module.Binder) {
 }
 
 func TestRetryTransportAppliesAttemptModuleMutationsBeforeCommit(t *testing.T) {
-	engine, err := observability.NewEngine(context.Background(), []module.Definition{transformingDefinition{}}, observability.SinkConfig{})
+	runtime, err := module.NewRuntime([]module.Definition{transformingDefinition{}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 1}, engine)
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 1}, runtime)
 	inbound, _ := http.NewRequest(http.MethodPost, "http://proxy.local/chat", strings.NewReader("request"))
 	session := tracker.Start(inbound, proxyrequest.Identity{})
 	if err := session.ConfigureRequest(nil); err != nil {
@@ -112,15 +111,15 @@ func TestRetryTransportAppliesAttemptModuleMutationsBeforeCommit(t *testing.T) {
 		t.Fatalf("body transform was not committed: %q", body)
 	}
 	session.Complete()
-	_ = engine.Close(context.Background())
+	runtime.Close()
 }
 
 func TestRetryTransportRejectsUnknownAttemptModuleBeforeUpstream(t *testing.T) {
-	engine, err := observability.NewEngine(context.Background(), nil, observability.SinkConfig{})
+	runtime, err := module.NewRuntime(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, engine)
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, runtime)
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	session := tracker.Start(inbound, proxyrequest.Identity{})
 	called := false

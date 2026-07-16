@@ -7,15 +7,17 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 type healthHandler struct {
-	observability observability.HealthProvider
+	modules     module.HealthProvider
+	eventOutput event.HealthProvider
 }
 
-func RegisterHealth(api huma.API, health observability.HealthProvider) {
-	handler := &healthHandler{observability: health}
+func RegisterHealth(api huma.API, modules module.HealthProvider, eventOutput event.HealthProvider) {
+	handler := &healthHandler{modules: modules, eventOutput: eventOutput}
 	huma.Register(api, huma.Operation{
 		OperationID: "get-health",
 		Method:      http.MethodGet,
@@ -24,14 +26,20 @@ func RegisterHealth(api huma.API, health observability.HealthProvider) {
 	}, handler.get)
 }
 
-func (h *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, error) {
-	response := HealthResponseDTO{Status: "ok", Timestamp: time.Now().UTC(), Observability: ObservabilityHealthDTO{
-		Status: "unavailable", Modules: map[string]ModuleHealthDTO{}, Sink: OutputHealthDTO{Type: "fluent", Status: "unavailable"},
-	}}
-	if h != nil && h.observability != nil {
-		health := h.observability.ObservabilityHealth()
-		response.Observability.Enabled = health.Enabled
-		response.Observability.Status = health.Status
+func (handler *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, error) {
+	response := HealthResponseDTO{
+		Status:    "ok",
+		Timestamp: time.Now().UTC(),
+		Modules: ModuleRuntimeHealthDTO{
+			Status: "unavailable", Items: map[string]ModuleHealthDTO{},
+		},
+		EventOutput: EventOutputHealthDTO{
+			Status: "disabled", Sink: OutputHealthDTO{Type: "fluent", Status: "disabled"},
+		},
+	}
+	if handler != nil && handler.modules != nil {
+		health := handler.modules.ModuleHealth()
+		response.Modules.Status = health.Status
 		if health.Status == "degraded" || health.Status == "unavailable" {
 			response.Status = "degraded"
 		}
@@ -40,12 +48,23 @@ func (h *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, e
 			if !status.LastFailureAt.IsZero() {
 				item.LastFailureAt = &status.LastFailureAt
 			}
-			response.Observability.Modules[name] = item
+			response.Modules.Items[name] = item
+		}
+	}
+	if handler != nil && handler.eventOutput != nil {
+		health := handler.eventOutput.EventOutputHealth()
+		response.EventOutput.Enabled = health.Enabled
+		response.EventOutput.Status = health.Status
+		if health.Status == "degraded" || health.Status == "unavailable" {
+			response.Status = "degraded"
 		}
 		status := health.Sink
-		response.Observability.Sink = OutputHealthDTO{Type: "fluent", Status: status.Status, QueuedRecords: status.QueuedRecords, QueuedBytes: status.QueuedBytes, DroppedRecords: status.DroppedRecords}
+		response.EventOutput.Sink = OutputHealthDTO{
+			Type: "fluent", Status: status.Status, QueuedRecords: status.QueuedRecords,
+			QueuedBytes: status.QueuedBytes, DroppedRecords: status.DroppedRecords,
+		}
 		if !status.LastFailureAt.IsZero() {
-			response.Observability.Sink.LastFailureAt = &status.LastFailureAt
+			response.EventOutput.Sink.LastFailureAt = &status.LastFailureAt
 		}
 	}
 	return &HealthOutputDTO{Body: response}, nil

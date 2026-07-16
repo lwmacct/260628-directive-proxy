@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
@@ -18,11 +18,11 @@ import (
 )
 
 func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
-	engine, output := newCaptureEngine(t)
+	runtime, dispatcher, output := newCaptureRuntime(t)
 	captureSpec := []byte(`{"body-chunk-bytes":4,"redact-headers":["authorization"],"redact-query":["token"]}`)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 3,
-	}, engine)
+	}, runtime)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
@@ -88,7 +88,8 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	if recorder.Header().Get("X-Dproxy-Trace-ID") != session.TraceID() {
 		t.Fatalf("tracking response header missing: %#v", recorder.Header())
 	}
-	if err := engine.Close(context.Background()); err != nil {
+	runtime.Close()
+	if err := dispatcher.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	events := output.Records()
@@ -120,8 +121,8 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 }
 
 func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
-	engine, output := newCaptureEngine(t)
-	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, engine)
+	runtime, dispatcher, output := newCaptureRuntime(t)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, runtime)
 	newActive := func(path string, seed byte, canceled *bool) (proxyrequest.Session, proxyrequest.Identity, [32]byte) {
 		identity, digest := testIdentity(t, seed)
 		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/"+path, nil), identity)
@@ -157,7 +158,8 @@ func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
 	if err != nil || repeatedAfterCompletion.NextAttempt != 2 {
 		t.Fatalf("completed retry command tombstone was not idempotent: result=%#v err=%v", repeatedAfterCompletion, err)
 	}
-	if err := engine.Close(context.Background()); err != nil {
+	runtime.Close()
+	if err := dispatcher.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sawRequesterRetry := false
@@ -172,10 +174,10 @@ func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
 }
 
 func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
-	engine, output := newCaptureEngine(t)
+	runtime, dispatcher, output := newCaptureRuntime(t)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 2,
-	}, engine)
+	}, runtime)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
 	if err := session.ConfigureRequest([]module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}}); err != nil {
 		t.Fatal(err)
@@ -189,7 +191,8 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 		"X-Dproxy-Secret-Key": {"secret"},
 	})
 	session.Complete()
-	if err := engine.Close(context.Background()); err != nil {
+	runtime.Close()
+	if err := dispatcher.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for _, event := range output.Records() {
@@ -205,9 +208,9 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	t.Fatal("metadata capture event was not emitted")
 }
 
-func TestModuleEngineRejectsUnknownOrInvalidRequestModules(t *testing.T) {
-	engine, _ := newCaptureEngine(t)
-	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, engine)
+func TestModuleRuntimeRejectsUnknownOrInvalidRequestModules(t *testing.T) {
+	runtime, dispatcher, _ := newCaptureRuntime(t)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, runtime)
 	for _, specs := range [][]module.Spec{
 		{{ID: "missing", Module: "missing.module", Config: []byte(`{}`)}},
 		{{ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":-1}`)}},
@@ -218,7 +221,8 @@ func TestModuleEngineRejectsUnknownOrInvalidRequestModules(t *testing.T) {
 		}
 		session.Complete()
 	}
-	if err := engine.Close(context.Background()); err != nil {
+	runtime.Close()
+	if err := dispatcher.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -277,14 +281,18 @@ func TestProxyRequestTrackerRejectsDuplicateRetryID(t *testing.T) {
 	}
 }
 
-func newCaptureEngine(t *testing.T) (*observability.Engine, *recordoutput.Output) {
+func newCaptureRuntime(t *testing.T) (*module.Runtime, *event.Dispatcher, *recordoutput.Output) {
 	t.Helper()
 	output := recordoutput.New("memory")
-	engine, err := observability.NewEngine(context.Background(), []module.Definition{capture.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
+	dispatcher, err := event.NewDispatcher(context.Background(), event.Config{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return engine, output
+	runtime, err := module.NewRuntime([]module.Definition{capture.New()}, dispatcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtime, dispatcher, output
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {

@@ -17,7 +17,7 @@ type emittedRecord struct {
 type recordingFactory struct{ records []emittedRecord }
 type recordingOutput struct{ factory *recordingFactory }
 
-func (factory *recordingFactory) Output(string, int) module.Output {
+func (factory *recordingFactory) Emitter(string, int) module.Emitter {
 	return recordingOutput{factory: factory}
 }
 func (*recordingFactory) ModuleFailed(string) {}

@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-type OutputFactory interface {
-	Output(producer string, attempt int) Output
-	ModuleFailed(producer string)
+type ScopeRuntime interface {
+	Emitter(producer string, attempt int) Emitter
+	ModuleFailed(moduleName string)
 }
 
 type mountedInstance struct {
@@ -20,7 +20,7 @@ type mountedInstance struct {
 	moduleName string
 	instance   Instance
 	binder     Binder
-	outputs    OutputFactory
+	runtime    ScopeRuntime
 	lane       *orderedLane
 	failed     atomic.Bool
 }
@@ -41,7 +41,7 @@ type orderedLane struct {
 	err   error
 }
 
-func OpenScope(ctx OpenContext, compiled []Compiled, outputs OutputFactory) (*Scope, error) {
+func OpenScope(ctx OpenContext, compiled []Compiled, runtime ScopeRuntime) (*Scope, error) {
 	scope := &Scope{context: ctx}
 	scope.attempt.Store(int64(ctx.Attempt))
 	for _, item := range compiled {
@@ -55,7 +55,7 @@ func OpenScope(ctx OpenContext, compiled []Compiled, outputs OutputFactory) (*Sc
 			return nil, fmt.Errorf("open module %q (%s): nil instance", item.Spec.Module, item.Spec.ID)
 		}
 		mounted := &mountedInstance{producer: item.Spec.ID, moduleName: item.Spec.Module, instance: instance}
-		mounted.outputs = outputs
+		mounted.runtime = runtime
 		instance.Mount(&mounted.binder)
 		if mounted.binder.needsLane() {
 			mounted.lane = newOrderedLane(mounted.binder.laneCapacity())
@@ -315,14 +315,14 @@ func (s *Scope) eventContextAt(ctx context.Context, observedAt time.Time, mounte
 		ctx = context.Background()
 	}
 	attempt := int(s.attempt.Load())
-	var output Output
-	if mounted.outputs != nil {
-		output = mounted.outputs.Output(mounted.producer, attempt)
+	var emitter Emitter
+	if mounted.runtime != nil {
+		emitter = mounted.runtime.Emitter(mounted.producer, attempt)
 	}
 	if observedAt.IsZero() {
 		observedAt = nowUTC()
 	}
-	return EventContext{Context: ctx, TraceID: s.context.TraceID, Attempt: attempt, ObservedAt: observedAt, Output: output}
+	return EventContext{Context: ctx, TraceID: s.context.TraceID, Attempt: attempt, ObservedAt: observedAt, Emitter: emitter}
 }
 
 func (m *mountedInstance) call(run func() error) (err error) {
@@ -332,8 +332,8 @@ func (m *mountedInstance) call(run func() error) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			m.failed.Store(true)
-			if m.outputs != nil {
-				m.outputs.ModuleFailed(m.moduleName)
+			if m.runtime != nil {
+				m.runtime.ModuleFailed(m.moduleName)
 			}
 			err = fmt.Errorf("module %q panicked: %v", m.producer, recovered)
 		}
@@ -341,8 +341,8 @@ func (m *mountedInstance) call(run func() error) (err error) {
 	err = run()
 	if err != nil {
 		m.failed.Store(true)
-		if m.outputs != nil {
-			m.outputs.ModuleFailed(m.moduleName)
+		if m.runtime != nil {
+			m.runtime.ModuleFailed(m.moduleName)
 		}
 	}
 	return err

@@ -13,8 +13,8 @@ import (
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmusage"
@@ -43,20 +43,24 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	defer upstream.Close()
 
 	output := recordoutput.New("memory")
-	engine, err := observability.NewEngine(context.Background(), []module.Definition{capture.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
+	dispatcher, err := event.NewDispatcher(context.Background(), event.Config{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = engine.Close(context.Background()) })
+	moduleRuntime, err := module.NewRuntime([]module.Definition{capture.New()}, dispatcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
 	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		MaxAttempts: 3,
-	}, engine)
+	}, moduleRuntime)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: engine}
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -153,17 +157,17 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	}))
 	defer upstream.Close()
 
-	engine, err := observability.NewEngine(context.Background(), []module.Definition{capture.New()}, observability.SinkConfig{})
+	moduleRuntime, err := module.NewRuntime([]module.Definition{capture.New()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, engine)
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, moduleRuntime)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: engine}
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime}
 	token, err := directive.Encode(directive.Payload{
 		Target:  directive.TargetSection{URL: upstream.URL},
 		Program: module.Program{Request: []module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
@@ -178,23 +182,30 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	newHTTPServer(&cfg, rt).Handler.ServeHTTP(recorder, req)
 
 	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("disabled observability affected proxying: status=%d body=%s", recorder.Code, recorder.Body.String())
+		t.Fatalf("disabled event output affected proxying: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	health := engine.ObservabilityHealth()
-	if !health.Enabled || health.Status != "ok" || health.Sink.Status != "disabled" || health.Modules[capture.Name].Status != "ok" {
+	health := moduleRuntime.ModuleHealth()
+	if health.Status != "ok" || health.Modules[capture.Name].Status != "ok" {
 		t.Fatalf("unexpected module runtime health: %#v", health)
+	}
+	if outputHealth := (*event.Dispatcher)(nil).EventOutputHealth(); outputHealth.Status != "disabled" {
+		t.Fatalf("unexpected disabled event output health: %#v", outputHealth)
 	}
 }
 
-func TestDisabledFluentModuleEngineDoesNotConnect(t *testing.T) {
+func TestDisabledFluentKeepsModuleRuntimeWithoutCreatingDispatcher(t *testing.T) {
 	cfg := config.DefaultConfig().Server.Fluent
 	cfg.Endpoint = "tcp://127.0.0.1:1"
-	engine, err := newModuleEngine(t.Context(), cfg)
+	dispatcher, err := newEventDispatcher(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("disabled Fluent attempted startup: %v", err)
 	}
-	if !engine.Enabled() || engine.ObservabilityHealth().Sink.Status != "disabled" {
-		t.Fatal("disabled Fluent disabled the module runtime")
+	moduleRuntime, err := newModuleRuntime(dispatcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatcher != nil || moduleRuntime.ModuleHealth().Status != "ok" {
+		t.Fatal("disabled Fluent affected the module runtime")
 	}
 }
 
@@ -206,18 +217,22 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	defer upstream.Close()
 
 	output := recordoutput.New("memory")
-	engine, err := observability.NewEngine(context.Background(), []module.Definition{llmusage.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 128, QueueMaxBytes: 1 << 20})
+	dispatcher, err := event.NewDispatcher(context.Background(), event.Config{Sink: output, QueueMaxRecords: 128, QueueMaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = engine.Close(context.Background()) })
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, engine)
+	moduleRuntime, err := module.NewRuntime([]module.Definition{llmusage.New()}, dispatcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, moduleRuntime)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, observability: engine}
+	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{

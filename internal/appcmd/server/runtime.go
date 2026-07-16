@@ -20,8 +20,8 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmperf"
@@ -34,7 +34,8 @@ type runtime struct {
 	requests        *proxyrequestadapter.ProxyRequestService
 	bodyMemory      *bodymemory.Controller
 	proxyTransport  http.RoundTripper
-	observability   *observability.Engine
+	moduleRuntime   *module.Runtime
+	eventOutput     *event.Dispatcher
 	adminAuth       *authme.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
@@ -64,18 +65,29 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
-	moduleEngine, err := newModuleEngine(ctx, cfg.Fluent)
+	eventOutput, err := newEventDispatcher(ctx, cfg.Fluent)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
 		_ = tlsRuntime.Close()
-		return nil, fmt.Errorf("configure observability: %w", err)
+		return nil, fmt.Errorf("configure event output: %w", err)
+	}
+	moduleRuntime, err := newModuleRuntime(eventOutput)
+	if err != nil {
+		if eventOutput != nil {
+			_ = eventOutput.Close(context.Background())
+		}
+		if sourceEngine != nil {
+			sourceEngine.Close()
+		}
+		_ = tlsRuntime.Close()
+		return nil, fmt.Errorf("configure module runtime: %w", err)
 	}
 	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
 		CommandRetention: cfg.Proxy.Retry.CommandRetention,
-	}, moduleEngine)
+	}, moduleRuntime)
 	bodyMemory := bodymemory.New(bodymemory.Config{
 		MaxActiveBytes: cfg.Proxy.BodyMemory.MaxActiveBytes,
 		MaxBodyBytes:   cfg.Proxy.BodyMemory.MaxBodyBytes,
@@ -91,7 +103,10 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	})
 	retryTransport, err := proxy.NewRetryTransport(baseTransport, proxy.RetryTransportOptions{})
 	if err != nil {
-		_ = moduleEngine.Close(context.Background())
+		moduleRuntime.Close()
+		if eventOutput != nil {
+			_ = eventOutput.Close(context.Background())
+		}
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
@@ -104,7 +119,8 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		requests:        requests,
 		bodyMemory:      bodyMemory,
 		proxyTransport:  retryTransport,
-		observability:   moduleEngine,
+		moduleRuntime:   moduleRuntime,
+		eventOutput:     eventOutput,
 		adminAuth:       adminAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
@@ -113,17 +129,20 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}, nil
 }
 
-func newModuleEngine(ctx context.Context, fluentConfig fluent.Config) (*observability.Engine, error) {
+func newModuleRuntime(emission module.EmissionProvider) (*module.Runtime, error) {
 	definitions := []module.Definition{capture.New(), llmusage.New(), llmperf.New()}
-	config := observability.SinkConfig{}
-	if fluentConfig.Enabled {
-		config = observability.SinkConfig{
-			Sink:            newFluentSink(fluentConfig),
-			QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
-			QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
-		}
+	return module.NewRuntime(definitions, emission)
+}
+
+func newEventDispatcher(ctx context.Context, fluentConfig fluent.Config) (*event.Dispatcher, error) {
+	if !fluentConfig.Enabled {
+		return nil, nil
 	}
-	return observability.NewEngine(ctx, definitions, config)
+	return event.NewDispatcher(ctx, event.Config{
+		Sink:            newFluentSink(fluentConfig),
+		QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
+		QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
+	})
 }
 
 func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, error) {
@@ -220,11 +239,15 @@ func (rt *runtime) Close(ctx context.Context) error {
 		}
 		rt.directiveReader = nil
 	}
-	if rt.observability != nil {
-		if err := rt.observability.Close(ctx); err != nil {
+	if rt.moduleRuntime != nil {
+		rt.moduleRuntime.Close()
+		rt.moduleRuntime = nil
+	}
+	if rt.eventOutput != nil {
+		if err := rt.eventOutput.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
-		rt.observability = nil
+		rt.eventOutput = nil
 	}
 	return errors.Join(errs...)
 }
