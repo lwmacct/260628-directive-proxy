@@ -137,7 +137,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, err
 		methods = append(methods, tokenMethod)
 	}
 	if cfg.AuthMe.DexGitHub.Enabled {
-		oidcMethod, err := dexgithub.New(ctx, cfg.AuthMe.DexGitHub, dexgithub.WithLogger(slog.Default()))
+		oidcMethod, err := dexgithub.New(ctx, cfg.AuthMe.DexGitHub)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +148,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, err
 		authorizers = append(authorizers, authorizer)
 		methods = append(methods, oidcMethod)
 	}
-	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)), authme.WithLogger(slog.Default()))
+	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
 func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {
