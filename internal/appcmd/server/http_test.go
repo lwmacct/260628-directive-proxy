@@ -109,9 +109,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 	}
 	cfg.HTTP.Auth.Origins = []string{"http://localhost"}
 	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
-	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
-		"admin": {Name: "Administrator", TokenSHA256: digest},
-	}
+	cfg.HTTP.Auth.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: digest}}
 	adminAuth, err := newAdminAuth(t.Context(), cfg.HTTP)
 	if err != nil {
 		t.Fatal(err)
@@ -508,9 +506,7 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	cfg.HTTP.Auth.Origins = []string{"http://localhost"}
 	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
-		"admin": {Name: "Administrator", TokenSHA256: digest},
-	}
+	cfg.HTTP.Auth.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: digest}}
 	auth, err := newAdminAuth(t.Context(), cfg.HTTP)
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)

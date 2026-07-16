@@ -40,32 +40,35 @@ server:
         ttl: 24h0m0s # Maximum browser session lifetime
         cookie-name: "" # Optional browser session cookie name
 
-      # 启用的认证方式，可选 token、oidc
+      # 启用的认证方式，可选 statictoken,dexgithub
       methods:
-        - token
+        - statictoken
 
-      # Token 认证配置
-      token:
-        id: "" # Authentication method ID
-        label: "" # Authentication method display label
+      # Static token 认证配置
+      statictoken:
+        id: "token" # Authentication method ID
+        label: "Access token" # Authentication method display label
         namespace: "dpctl" # Token namespace
 
-        # Static access tokens keyed by credential ID
+        # Static access token credentials
         credentials:
-          admin:
+          - id: "admin" # Credential ID
             name: "Administrator" # Display name
             token-sha256: "${AUTH_TOKEN_SHA256}" # Lowercase hexadecimal SHA-256 digest of the complete access token
 
-      # OIDC 认证配置
-      oidc:
-        issuer: "https://2008.s.lwmacct.com:20088" # Dex issuer URL
-        client-id: "dproxy" # Dex OIDC client ID
-        client-secret: "" # Dex confidential client secret；public client 留空
+      # Dex GitHub OIDC 认证配置
+      dexgithub:
+        id: "github" # Authentication method ID
+        label: "GitHub" # Authentication method display label
+        issuer: "https://2008.s.lwmacct.com:20088" # Dex OIDC issuer URL
+        client-id: "dproxy" # OIDC client ID
+        client-secret: "" # OIDC client secret
+        session-ttl: 24h0m0s # Maximum browser session lifetime
+        flow-ttl: 5m0s # Login flow lifetime
 
-        # 允许访问应用的 GitHub 用户名
-        allowed-users:
-          - lwmacct
-        session-ttl: 24h0m0s # OIDC 身份 Session 最长有效时间
+      # 允许访问应用的 GitHub 用户名
+      allowed-github-users:
+        - lwmacct
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间
@@ -188,4 +191,4 @@ server:
     websocket:
 
       # Static HTTP headers sent during the WebSocket upgrade
-      header: {}
+      header: []

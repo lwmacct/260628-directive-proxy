@@ -131,20 +131,20 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, e
 	var authorizers []httpauth.Authorizer
 	for _, configured := range cfg.Auth.Methods {
 		switch configured {
-		case config.AuthMethodToken:
-			tokenConfig := cfg.Auth.Token
+		case config.AuthMethodStaticToken:
+			tokenConfig := cfg.Auth.StaticToken
 			tokenConfig.Namespace = types.AdminTokenNamespace
 			tokenMethod, err := statictoken.New(tokenConfig)
 			if err != nil {
 				return nil, err
 			}
 			methods = append(methods, tokenMethod)
-		case config.AuthMethodOIDC:
-			oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig())
+		case config.AuthMethodDexGitHub:
+			oidcMethod, err := dexgithub.New(ctx, cfg.Auth.DexGitHub)
 			if err != nil {
 				return nil, err
 			}
-			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.OIDC.AllowedUsers)
+			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.AllowedGitHubUsers)
 			if err != nil {
 				return nil, err
 			}

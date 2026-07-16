@@ -122,10 +122,10 @@ server:
   http:
     auth:
       methods:
-        - token
-      token:
+        - statictoken
+      statictoken:
         credentials:
-          admin:
+          - id: admin
             name: Administrator
             token-sha256: "${AUTH_TOKEN_SHA256}"
 ```
@@ -138,7 +138,7 @@ server:
 Authorization: Bearer <access-token>
 ```
 
-配置使用 credential ID 到摘要的映射，支持多个凭据以便审计和轮换。ID 最长 56 字节，只接受小写字母、数字、`-` 和 `_`，并且必须以字母或数字开头、结尾。
+配置使用带显式 ID 的 credential 列表，支持多个凭据以便审计和轮换。ID 最长 56 字节，只接受小写字母、数字、`-` 和 `_`，并且必须以字母或数字开头、结尾。
 
 ### OIDC 模式
 
@@ -149,22 +149,22 @@ server:
   http:
     auth:
       methods:
-        - oidc
-      external-urls:
+        - dexgithub
+      origins:
         - http://localhost:23199
-      oidc:
+      dexgithub:
         issuer: https://2008.s.lwmacct.com:20088
         client-id: dproxy
-        allowed-users:
-          - lwmacct
         session-ttl: 24h
+      allowed-github-users:
+        - lwmacct
 ```
 
-`allowed-users` 对 Dex `preferred_username` 中的 GitHub 用户名执行忽略大小写的精确匹配。服务仍验证 `federated_claims.connector_id == github` 并保留 GitHub 数字用户 ID，用于身份响应、头像和审计日志；数字 ID 不参与本地授权配置。
+`allowed-github-users` 对 Dex `preferred_username` 中的 GitHub 用户名执行忽略大小写的精确匹配。服务仍验证 `federated_claims.connector_id == github` 并保留 GitHub 数字用户 ID，用于身份响应、头像和审计日志；数字 ID 不参与本地授权配置。
 
 登录回调验证 issuer、audience、签名、有效期、nonce、PKCE 和 GitHub connector 后签发本地 AES-256-GCM Session；Cookie 不保存 Dex ID Token 或 GitHub access token。本地管理员策略在每次请求时重新执行。
 
-生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定为 `<external-url>/auth/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
+生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `origins`。OIDC callback 固定为 `<origin>/auth/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
 
 当前服务只通过 Dex GitHub connector 使用标准 OIDC：provider 必须提供 OIDC discovery 和可验证的 ID Token，GitHub 身份由 Dex 转换为 OIDC claims。
 
@@ -175,21 +175,21 @@ server:
   http:
     auth:
       methods:
-        - token
-        - oidc
-      external-urls:
+        - statictoken
+        - dexgithub
+      origins:
         - https://proxy.example.com
-      token:
+      statictoken:
         credentials:
-          admin:
+          - id: admin
             name: Administrator
             token-sha256: "${AUTH_TOKEN_SHA256}"
-      oidc:
+      dexgithub:
         issuer: https://auth.example.com
         client-id: dproxy
-        allowed-users:
-          - octocat
         session-ttl: 24h
+      allowed-github-users:
+        - octocat
 ```
 
 ## Directive 来源白名单

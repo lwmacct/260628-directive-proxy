@@ -47,8 +47,8 @@ func Validate(cfg Server) (Server, error) {
 		}
 		seen[method] = struct{}{}
 		switch method {
-		case AuthMethodToken:
-			tokenConfig := cfg.HTTP.Auth.Token
+		case AuthMethodStaticToken:
+			tokenConfig := cfg.HTTP.Auth.StaticToken
 			if tokenConfig.Namespace == "" {
 				tokenConfig.Namespace = types.AdminTokenNamespace
 			}
@@ -56,27 +56,23 @@ func Validate(cfg Server) (Server, error) {
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
-			cfg.HTTP.Auth.Token = validatedToken
-		case AuthMethodOIDC:
-			if cfg.HTTP.Auth.OIDC.SessionTTL <= 0 {
+			cfg.HTTP.Auth.StaticToken = validatedToken
+		case AuthMethodDexGitHub:
+			if cfg.HTTP.Auth.DexGitHub.SessionTTL <= 0 {
 				return cfg, ErrInvalidAuth
 			}
-			oidcConfig := cfg.HTTP.Auth.OIDC.MethodConfig()
-			validatedAuth, err := oidcConfig.Normalize()
+			validatedAuth, err := cfg.HTTP.Auth.DexGitHub.Normalize()
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
-			cfg.HTTP.Auth.OIDC.Issuer = validatedAuth.Issuer
-			cfg.HTTP.Auth.OIDC.ClientID = validatedAuth.ClientID
-			cfg.HTTP.Auth.OIDC.ClientSecret = validatedAuth.ClientSecret
-			cfg.HTTP.Auth.OIDC.SessionTTL = validatedAuth.SessionTTL
-			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.HTTP.Auth.OIDC.AllowedUsers)
+			cfg.HTTP.Auth.DexGitHub = validatedAuth
+			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.HTTP.Auth.AllowedGitHubUsers)
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
 			_ = authorizer
-			for index, username := range cfg.HTTP.Auth.OIDC.AllowedUsers {
-				cfg.HTTP.Auth.OIDC.AllowedUsers[index] = strings.ToLower(strings.TrimSpace(username))
+			for index, username := range cfg.HTTP.Auth.AllowedGitHubUsers {
+				cfg.HTTP.Auth.AllowedGitHubUsers[index] = strings.ToLower(strings.TrimSpace(username))
 			}
 		default:
 			return cfg, ErrInvalidAuth

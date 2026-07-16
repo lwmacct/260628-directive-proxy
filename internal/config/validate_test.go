@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
@@ -14,25 +15,23 @@ import (
 func validDefaultConfig() Server {
 	cfg := DefaultConfig().Server
 	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
-		"admin": {Name: "Administrator", TokenSHA256: strings.Repeat("a", 64)},
-	}
+	cfg.HTTP.Auth.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: strings.Repeat("a", 64)}}
 	return cfg
 }
 
 func oidcConfig() Server {
 	cfg := validDefaultConfig()
-	cfg.HTTP.Auth.Methods = []AuthMethod{AuthMethodOIDC}
-	cfg.HTTP.Auth.OIDC = testOIDCAuth()
+	cfg.HTTP.Auth.Methods = []AuthMethod{AuthMethodDexGitHub}
+	cfg.HTTP.Auth.DexGitHub = testOIDCAuth()
+	cfg.HTTP.Auth.AllowedGitHubUsers = []string{"lwmacct"}
 	return cfg
 }
 
-func testOIDCAuth() OIDCAuth {
-	return OIDCAuth{
-		Issuer:       "https://2008.s.lwmacct.com:20088",
-		ClientID:     "dproxy",
-		AllowedUsers: []string{"lwmacct"},
-		SessionTTL:   24 * time.Hour,
+func testOIDCAuth() dexgithub.Config {
+	return dexgithub.Config{
+		Issuer:     "https://2008.s.lwmacct.com:20088",
+		ClientID:   "dproxy",
+		SessionTTL: 24 * time.Hour,
 	}
 }
 
@@ -93,19 +92,27 @@ func TestValidateSkipsTLSConfigurationWhenDisabled(t *testing.T) {
 func TestValidateRejectsInvalidAuth(t *testing.T) {
 	tests := []struct {
 		name   string
-		mutate func(*OIDCAuth)
+		mutate func(*dexgithub.Config)
 	}{
-		{name: "http issuer", mutate: func(cfg *OIDCAuth) { cfg.Issuer = "http://auth.example.com" }},
-		{name: "missing client", mutate: func(cfg *OIDCAuth) { cfg.ClientID = "" }},
-		{name: "missing users", mutate: func(cfg *OIDCAuth) { cfg.AllowedUsers = nil }},
-		{name: "empty user", mutate: func(cfg *OIDCAuth) { cfg.AllowedUsers = []string{" "} }},
-		{name: "duplicate users", mutate: func(cfg *OIDCAuth) { cfg.AllowedUsers = []string{"lwmacct", " LwMacct "} }},
-		{name: "invalid session TTL", mutate: func(cfg *OIDCAuth) { cfg.SessionTTL = 0 }},
+		{name: "http issuer", mutate: func(cfg *dexgithub.Config) { cfg.Issuer = "http://auth.example.com" }},
+		{name: "missing client", mutate: func(cfg *dexgithub.Config) { cfg.ClientID = "" }},
+		{name: "missing users", mutate: func(*dexgithub.Config) {}},
+		{name: "empty user", mutate: func(*dexgithub.Config) {}},
+		{name: "duplicate users", mutate: func(*dexgithub.Config) {}},
+		{name: "invalid session TTL", mutate: func(cfg *dexgithub.Config) { cfg.SessionTTL = 0 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := oidcConfig()
-			test.mutate(&cfg.HTTP.Auth.OIDC)
+			test.mutate(&cfg.HTTP.Auth.DexGitHub)
+			switch test.name {
+			case "missing users":
+				cfg.HTTP.Auth.AllowedGitHubUsers = nil
+			case "empty user":
+				cfg.HTTP.Auth.AllowedGitHubUsers = []string{" "}
+			case "duplicate users":
+				cfg.HTTP.Auth.AllowedGitHubUsers = []string{"lwmacct", " LwMacct "}
+			}
 			if _, err := Validate(cfg); err != ErrInvalidAuth {
 				t.Fatalf("expected invalid auth config, got %v", err)
 			}
@@ -115,18 +122,18 @@ func TestValidateRejectsInvalidAuth(t *testing.T) {
 
 func TestValidateNormalizesAuth(t *testing.T) {
 	cfg := oidcConfig()
-	cfg.HTTP.Auth.OIDC.Issuer += "/"
-	cfg.HTTP.Auth.OIDC.AllowedUsers = []string{" LwMacct "}
+	cfg.HTTP.Auth.DexGitHub.Issuer += "/"
+	cfg.HTTP.Auth.AllowedGitHubUsers = []string{" LwMacct "}
 
 	validated, err := Validate(cfg)
 	if err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	if validated.HTTP.Auth.OIDC.Issuer != "https://2008.s.lwmacct.com:20088" {
-		t.Fatalf("unexpected issuer: %q", validated.HTTP.Auth.OIDC.Issuer)
+	if validated.HTTP.Auth.DexGitHub.Issuer != "https://2008.s.lwmacct.com:20088" {
+		t.Fatalf("unexpected issuer: %q", validated.HTTP.Auth.DexGitHub.Issuer)
 	}
-	if validated.HTTP.Auth.OIDC.AllowedUsers[0] != "lwmacct" {
-		t.Fatalf("unexpected username: %q", validated.HTTP.Auth.OIDC.AllowedUsers[0])
+	if validated.HTTP.Auth.AllowedGitHubUsers[0] != "lwmacct" {
+		t.Fatalf("unexpected username: %q", validated.HTTP.Auth.AllowedGitHubUsers[0])
 	}
 }
 
@@ -136,9 +143,7 @@ func TestValidateTokenAuth(t *testing.T) {
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
-	cfg.HTTP.Auth.Token.Credentials["admin"] = statictoken.Credential{
-		Name: "Administrator", TokenSHA256: strings.Repeat("A", 64),
-	}
+	cfg.HTTP.Auth.StaticToken.Credentials[0].TokenSHA256 = strings.Repeat("A", 64)
 	if _, err := Validate(cfg); err != ErrInvalidAuth {
 		t.Fatalf("uppercase token digest was accepted: %v", err)
 	}
@@ -146,8 +151,9 @@ func TestValidateTokenAuth(t *testing.T) {
 
 func TestValidateOIDCAndTokenAuth(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.HTTP.Auth.Methods = []AuthMethod{AuthMethodToken, AuthMethodOIDC}
-	cfg.HTTP.Auth.OIDC = testOIDCAuth()
+	cfg.HTTP.Auth.Methods = []AuthMethod{AuthMethodStaticToken, AuthMethodDexGitHub}
+	cfg.HTTP.Auth.DexGitHub = testOIDCAuth()
+	cfg.HTTP.Auth.AllowedGitHubUsers = []string{"lwmacct"}
 
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("validate combined auth config: %v", err)
@@ -158,10 +164,10 @@ func TestValidateRejectsInvalidAuthMethods(t *testing.T) {
 	for _, mutate := range []func(*Auth){
 		func(cfg *Auth) { cfg.Methods = nil },
 		func(cfg *Auth) { cfg.Methods = []AuthMethod{"unknown"} },
-		func(cfg *Auth) { cfg.Methods = []AuthMethod{AuthMethodToken, AuthMethodToken} },
+		func(cfg *Auth) { cfg.Methods = []AuthMethod{AuthMethodStaticToken, AuthMethodStaticToken} },
 		func(cfg *Auth) {
-			cfg.Methods = []AuthMethod{AuthMethodToken}
-			cfg.Token.Credentials = nil
+			cfg.Methods = []AuthMethod{AuthMethodStaticToken}
+			cfg.StaticToken.Credentials = nil
 		},
 	} {
 		cfg := validDefaultConfig()

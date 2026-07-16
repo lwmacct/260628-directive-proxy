@@ -49,28 +49,17 @@ type ServerHTTP struct {
 type AuthMethod string
 
 const (
-	AuthMethodOIDC  AuthMethod = "oidc"
-	AuthMethodToken AuthMethod = "token"
+	AuthMethodDexGitHub   AuthMethod = "dexgithub"
+	AuthMethodStaticToken AuthMethod = "statictoken"
 )
 
 type Auth struct {
-	Origins []string               `json:"origins"       desc:"允许浏览器访问应用的可信 origin"`
-	Session httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
-	Methods []AuthMethod           `json:"methods"       desc:"启用的认证方式，可选 token、oidc"`
-	Token   statictoken.Config     `json:"token"         desc:"Token 认证配置"`
-	OIDC    OIDCAuth               `json:"oidc"          desc:"OIDC 认证配置"`
-}
-
-type OIDCAuth struct {
-	Issuer       string        `json:"issuer"        desc:"Dex issuer URL"`
-	ClientID     string        `json:"client-id"     desc:"Dex OIDC client ID"`
-	ClientSecret string        `json:"client-secret" desc:"Dex confidential client secret；public client 留空"`
-	AllowedUsers []string      `json:"allowed-users" desc:"允许访问应用的 GitHub 用户名"`
-	SessionTTL   time.Duration `json:"session-ttl"   desc:"OIDC 身份 Session 最长有效时间"`
-}
-
-func (c OIDCAuth) MethodConfig() dexgithub.Config {
-	return dexgithub.Config{ID: "github", Label: "GitHub", Issuer: c.Issuer, ClientID: c.ClientID, ClientSecret: c.ClientSecret, SessionTTL: c.SessionTTL}
+	Origins            []string               `json:"origins"       desc:"允许浏览器访问应用的可信 origin"`
+	Session            httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
+	Methods            []AuthMethod           `json:"methods"       desc:"启用的认证方式，可选 statictoken,dexgithub"`
+	StaticToken        statictoken.Config     `json:"statictoken" desc:"Static token 认证配置"`
+	DexGitHub          dexgithub.Config       `json:"dexgithub" desc:"Dex GitHub OIDC 认证配置"`
+	AllowedGitHubUsers []string               `json:"allowed-github-users" desc:"允许访问应用的 GitHub 用户名"`
 }
 
 type Proxy struct {
@@ -136,24 +125,25 @@ func DefaultConfig() Config {
 			HTTP: ServerHTTP{
 				Listen: ":23198",
 				Auth: Auth{
-					Methods: []AuthMethod{AuthMethodToken},
+					Methods: []AuthMethod{AuthMethodStaticToken},
 					Origins: []string{"http://localhost:23199"},
 					Session: httpauth.SessionConfig{
 						Keys: []httpauth.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
 						TTL:  24 * time.Hour,
 					},
-					Token: statictoken.Config{
-						Namespace: types.AdminTokenNamespace,
-						Credentials: map[string]statictoken.Credential{
-							"admin": {Name: "Administrator", TokenSHA256: "${AUTH_TOKEN_SHA256}"},
-						},
-					},
-					OIDC: OIDCAuth{
-						Issuer:       "https://2008.s.lwmacct.com:20088",
-						ClientID:     "dproxy",
-						AllowedUsers: []string{"lwmacct"},
-						SessionTTL:   24 * time.Hour,
-					},
+					StaticToken: func() statictoken.Config {
+						config := statictoken.DefaultConfig()
+						config.Namespace = types.AdminTokenNamespace
+						config.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: "${AUTH_TOKEN_SHA256}"}}
+						return config
+					}(),
+					DexGitHub: func() dexgithub.Config {
+						config := dexgithub.DefaultConfig()
+						config.Issuer = "https://2008.s.lwmacct.com:20088"
+						config.ClientID = "dproxy"
+						return config
+					}(),
+					AllowedGitHubUsers: []string{"lwmacct"},
 				},
 				ReadTimeout:     30 * time.Second,
 				WriteTimeout:    0,
