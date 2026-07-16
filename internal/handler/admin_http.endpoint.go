@@ -22,5 +22,5 @@ func (e *AdminEndpoint) Handler() http.Handler {
 
 func (e *AdminEndpoint) Register(api huma.API) {
 	RegisterDirective(api)
-	RegisterProxyRequest(api, e.services.Requests)
+	RegisterProxyRequest(api, e.services.ExchangeQuery, e.services.ExchangeCommands)
 }

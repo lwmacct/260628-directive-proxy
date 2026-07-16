@@ -29,12 +29,23 @@ directive 使用有序数组声明程序：
 
 `id` 在同一数组内唯一，并作为 Record 的 `producer`；`module` 选择进程级 Definition。数组顺序就是 mutation 和事件提交顺序，不使用 map，也不存在隐式优先级。
 
+## 与 Exchange 生命周期的关系
+
+`core/exchange` 是生命周期拥有者，`core/module` 是被生命周期调用的通用执行机制，两者不互相替代：
+
+- `Manager` 只维护活动 Exchange 索引、retry command 和短期 tombstone，不调度单个请求的生命周期；
+- `Exchange` 拥有入站请求、canonical body、request scope、下游响应和当前 Attempt；
+- `Attempt` 是 Exchange 创建的强类型子对象，拥有一次 directive 解析、上游访问和 attempt scope；
+- `Runtime` 只注册 Definition、编译 directive program、创建 Run/Scope 和汇总 Module 健康。
+
+生命周期方法直接接收 `*Attempt`，不传递裸 attempt 整数，也没有每请求 coordinator goroutine/channel。状态转换与 Module 事件提交分别由明确的 mutex 串行化。
+
 ## Scope
 
-- request scope 在读取请求正文前打开，跨越全部 retry attempt；
+- request scope 由 Exchange 在读取请求正文前打开，跨越全部 retry Attempt 和下游响应；
 - attempt scope 在每次 directive plan 解析后打开，retry、transport error 或响应 body 结束时关闭；
 - request Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
-- scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`。
+- scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`；客户端取消只改变 Finish cause，不跳过 drain。
 
 ## 类型化端口
 

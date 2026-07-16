@@ -17,9 +17,9 @@ import (
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 
-	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
@@ -109,7 +109,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
+	manager := exchange.NewManager(exchange.ManagerOptions{
 		MaxAttempts: 3,
 	}, nil)
 	base := proxy.NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))
@@ -145,7 +145,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: retryTransport, adminAuth: adminAuth}
+	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: retryTransport, adminAuth: adminAuth}
 	handler := newHTTPServer(&cfg, rt).Handler
 	proxyReq := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", strings.NewReader("payload"))
 	proxyReq.Header.Set("Authorization", "Bearer "+token)

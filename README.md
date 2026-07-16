@@ -14,20 +14,20 @@
 
 `/api/public/*` 和 `/api/admin/*` 是系统保留前缀，优先于 dproxy token 分流；其他路径（包括普通 `/api/...`）携带 dproxy token 时仍可进入代理。代理流量不经过 Huma，避免流式响应、请求体和上游 header 被 API 框架额外处理。
 
-## 等待响应请求与外部介入重试
+## Exchange 与外部介入重试
 
-代理为每个进入 data plane 的逻辑请求生成 canonical UUIDv7 `trace_id`，并通过响应头 `X-Dproxy-Trace-ID` 返回。一次逻辑请求可以包含多个上游 attempt；外部 API 介入会取消当前尚未收到最终响应头的 attempt，并从同一份不可变内存正文启动下一次 attempt。Remote directive 在每个 attempt 都重新读取和编译，不合并或回退旧 plan。
+代理把每个进入 data plane 的入站请求及其完整下游响应建模为一个 `Exchange`，生成 canonical UUIDv7 `trace_id` 并通过响应头 `X-Dproxy-Trace-ID` 返回。一个 Exchange 可以包含多个上游 `Attempt`；外部 API 介入会取消当前尚未收到最终响应头的 Attempt，并从同一份不可变内存正文启动下一次 Attempt。Remote directive 在每个 Attempt 都重新读取和编译，不合并或回退旧 plan。
 
-Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retry identity 即可正常转发。需要通过 Public API 介入自己的请求时，调用方携带一个 canonical UUIDv7 `Dproxy-Retry-ID`。该 header 是 bearer retry credential，代理在任何日志、插件或上游处理前移除它，只保存 SHA-256 verifier：
+Proxy Retry 是每个 Exchange 的固有能力；入站请求无需携带 retry identity 即可正常转发。需要通过 Public API 介入自己的 Exchange 时，调用方携带一个 canonical UUIDv7 `Dproxy-Retry-ID`。该 header 是 bearer retry credential，代理在任何 Module、日志或上游处理前移除它，只保存 SHA-256 verifier：
 
 - `PUT /api/public/retry`：无需 Control Auth，但必须携带 `Dproxy-Retry-ID: <uuidv7>` 和 `If-Match: "attempt:<current_attempt>"`；服务端自动计算下一 attempt。
 - `GET /api/admin/proxy-requests`：认证后列出活动请求。
 - `GET /api/admin/proxy-requests/{trace_id}`：认证后读取一个活动请求。
 - `PUT /api/admin/proxy-requests/{trace_id}/retry`：认证后按 trace ID 介入，并携带 `If-Match: "attempt:<current_attempt>"`。
 
-重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 attempt 强制保留原值，但上游仍需正确实现幂等语义。
+重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 Attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，Exchange 立即退出可重试索引，但仍继续拥有流式响应生命周期，直到下游结束。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 Attempt 强制保留原值，但上游仍需正确实现幂等语义。
 
-带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由逻辑请求、重试 attempt 和异步 Capture Module 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；Module 的 mutation 在提交前形成 barrier，异步观察端口只处理自己拥有的投影视图。
+带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由 Exchange、重试 Attempt 和异步 Capture Module 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；Module 的 mutation 在提交前形成 barrier，异步观察端口只处理自己拥有的投影视图。
 
 活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Admin API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
 
@@ -62,9 +62,9 @@ server:
 
 完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，Module 架构见 [`docs/module-architecture.md`](docs/module-architecture.md)。
 
-完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
+完整生命周期、并发边界与事件契约见 [Exchange lifecycle](docs/exchange-lifecycle.md)。
 
-Admin API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/admin/*` 必须通过当前模式认证；`/api/public/proxy-requests/*`、`/health` 和 Web UI 不要求 Admin Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
+Admin API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/admin/*` 必须通过当前模式认证；`/api/public/*`、`/health` 和 Web UI 不要求 Admin Auth。dproxy 代理流量在解析 token 或访问远端 resolver 前先执行来源校验。
 
 ## Admin API 登录
 

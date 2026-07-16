@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
@@ -52,7 +52,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
+	manager := exchange.NewManager(exchange.ManagerOptions{
 		MaxAttempts: 3,
 	}, moduleRuntime)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
@@ -60,7 +60,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -98,7 +98,7 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	case <-time.After(time.Second):
 		t.Fatal("SSE event was not sent")
 	}
-	if active := tracker.ListActive(); len(active) != 0 {
+	if active := manager.ListActive(); len(active) != 0 {
 		t.Fatalf("SSE remained retryable after response headers: %#v", active)
 	}
 	if response.Header.Get("X-Upstream") != "" || response.Header.Get("X-Downstream") != "rewritten" {
@@ -161,13 +161,13 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 3}, moduleRuntime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 3}, moduleRuntime)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime}
+	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime}
 	token, err := directive.Encode(directive.Payload{
 		Target:  directive.TargetSection{URL: upstream.URL},
 		Program: module.Program{Request: []module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
@@ -226,13 +226,13 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, moduleRuntime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 2}, moduleRuntime)
 	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{requests: tracker, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchanges: manager, bodyMemory: newTestBodyMemory(cfg.Proxy.BodyMemory), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{

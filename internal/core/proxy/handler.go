@@ -13,13 +13,18 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/retry"
 )
+
+type exchangeStarter interface {
+	Start(*http.Request, retry.Identity) *exchange.Exchange
+}
 
 type Handler struct {
 	resolver           Resolver
 	proxy              *httputil.ReverseProxy
-	tracker            proxyrequest.Tracker
+	exchanges          exchangeStarter
 	trackBeforeResolve bool
 	bodyMemory         *bodymemory.Controller
 	bodyReadTimeout    time.Duration
@@ -27,7 +32,7 @@ type Handler struct {
 }
 
 type HandlerOptions struct {
-	Tracker            proxyrequest.Tracker
+	Exchanges          exchangeStarter
 	TrackBeforeResolve bool
 	BodyMemory         *bodymemory.Controller
 	BodyReadTimeout    time.Duration
@@ -56,7 +61,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 	return &Handler{
 		resolver:           resolver,
 		proxy:              proxy,
-		tracker:            opts.Tracker,
+		exchanges:          opts.Exchanges,
 		trackBeforeResolve: opts.TrackBeforeResolve,
 		bodyMemory:         opts.BodyMemory,
 		bodyReadTimeout:    opts.BodyReadTimeout,
@@ -91,10 +96,6 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_memory_unavailable", "proxy: request body memory is unavailable")
 		return
 	}
-	if errors.Is(err, ErrActiveCapacity) {
-		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "active_request_capacity_unavailable", "proxy: active request capacity is unavailable")
-		return
-	}
 	if errors.Is(err, ErrResolverFailed) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
@@ -126,22 +127,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	identity, identityErr := proxyrequest.TakeIdentity(r)
+	identity, identityErr := retry.TakeIdentity(r)
 	if identityErr != nil {
 		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_retry_identity", "proxy: Dproxy-Retry-ID must be a canonical UUIDv7")
 		return
 	}
-	var session proxyrequest.Session
-	if h.trackBeforeResolve && h.tracker != nil {
-		session = h.tracker.Start(r, identity)
-		if session == nil && identity.Valid() {
+	var current *exchange.Exchange
+	if h.trackBeforeResolve && h.exchanges != nil {
+		current = h.exchanges.Start(r, identity)
+		if current == nil && identity.Valid() {
 			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_retry_id", "proxy: retry ID is already active")
 			return
 		}
-		if session != nil {
-			r = r.WithContext(proxyrequest.ContextWithSession(r.Context(), session))
-			w = session.WrapResponseWriter(w)
-			defer session.Complete()
+		if current != nil {
+			r = r.WithContext(exchange.ContextWithExchange(r.Context(), current))
+			w = current.WrapResponseWriter(w)
+			defer current.Complete()
 		}
 	}
 	prepared, err := h.resolver.Prepare(r)
@@ -153,16 +154,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if session == nil && h.tracker != nil {
-		session = h.tracker.Start(r, identity)
-		if session == nil && identity.Valid() {
+	if current == nil && h.exchanges != nil {
+		current = h.exchanges.Start(r, identity)
+		if current == nil && identity.Valid() {
 			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_retry_id", "proxy: retry ID is already active")
 			return
 		}
-		if session != nil {
-			r = r.WithContext(proxyrequest.ContextWithSession(r.Context(), session))
-			w = session.WrapResponseWriter(w)
-			defer session.Complete()
+		if current != nil {
+			r = r.WithContext(exchange.ContextWithExchange(r.Context(), current))
+			w = current.WrapResponseWriter(w)
+			defer current.Complete()
 		}
 	}
 
@@ -177,8 +178,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
-	if session != nil {
-		if configureErr := session.ConfigureRequest(prepared.RequestProgram()); configureErr != nil {
+	if current != nil {
+		if configureErr := current.ConfigureRequest(prepared.RequestProgram()); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if prepared.Kind() == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
@@ -187,7 +188,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	body, bodyErr := h.readRequestBody(w, r, session)
+	body, bodyErr := h.readRequestBody(w, r, current)
 	if bodyErr != nil {
 		handleProxyError(w, r, bodyErr)
 		return
@@ -198,11 +199,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
-func (h *Handler) readRequestBody(w http.ResponseWriter, r *http.Request, session proxyrequest.Session) (*bodymemory.Body, error) {
+func (h *Handler) readRequestBody(w http.ResponseWriter, r *http.Request, current *exchange.Exchange) (*bodymemory.Body, error) {
 	if r == nil || r.Body == nil || r.Body == http.NoBody {
-		if session != nil {
+		if current != nil {
 			digest := sha256.Sum256(nil)
-			session.RequestBodyEnd(0, fmt.Sprintf("%x", digest), true)
+			current.RequestBodyEnd(0, fmt.Sprintf("%x", digest), true)
 		}
 		return bodymemory.NewBody(nil, nil), nil
 	}
@@ -225,13 +226,13 @@ func (h *Handler) readRequestBody(w http.ResponseWriter, r *http.Request, sessio
 	if h.bodyReadTimeout > 0 {
 		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(h.bodyReadTimeout))
 	}
-	if session != nil {
-		session.BeginBodyRead()
+	if current != nil {
+		current.BeginBodyRead()
 	}
 	data := make([]byte, int(r.ContentLength))
 	if _, err = io.ReadFull(r.Body, data); err != nil {
-		if session != nil {
-			session.RequestBodyEnd(0, "", false)
+		if current != nil {
+			current.RequestBodyEnd(0, "", false)
 		}
 		return nil, fmt.Errorf("read request body: %w", err)
 	}
@@ -239,9 +240,9 @@ func (h *Handler) readRequestBody(w http.ResponseWriter, r *http.Request, sessio
 	r.Body = http.NoBody
 	body := bodymemory.NewBody(data, reservation)
 	completed = true
-	if session != nil {
-		session.RequestBodyAvailable(body)
-		session.RequestBodyEnd(int64(len(data)), fmt.Sprintf("%x", body.Digest()), true)
+	if current != nil {
+		current.RequestBodyAvailable(body)
+		current.RequestBodyEnd(int64(len(data)), fmt.Sprintf("%x", body.Digest()), true)
 	}
 	return body, nil
 }

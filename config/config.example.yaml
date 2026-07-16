@@ -86,13 +86,13 @@ server:
 
     # 等待上游响应时的外部介入重试配置
     retry:
-      max-attempts: 3 # 单个逻辑请求允许的最大上游尝试次数，包含首次请求
+      max-attempts: 3 # 单个 Exchange 允许的最大上游 Attempt 数，包含首次请求
       command-retention: 1m0s # 已接受重试命令终态的保留时间
 
     # 可重放请求正文的内存与等待队列配置
     body-memory:
-      max-active-bytes: 2147483648 # 所有活动可重放请求正文占用的最大逻辑字节数
-      max-body-bytes: 33554432 # 单个可重放请求正文最大字节数
+      max-active-bytes: 2147483648 # 所有活动 Exchange 的可重放正文占用的最大逻辑字节数
+      max-body-bytes: 33554432 # 单个 Exchange 可重放正文的最大字节数
       queue-max-requests: 512 # 等待正文内存的最大请求数
       queue-max-wait: 15s # 请求等待正文内存的最长时间
       body-read-timeout: 30s # 获得内存后读取完整请求正文的最长时间
@@ -144,7 +144,7 @@ server:
           client-idle-timeout: 10m0s # 动态 Redis client 空闲回收时间
           pool-size: 4 # 每个动态 Redis client 的连接池容量
 
-  # Fluent Forward 观测输出配置；关闭时禁用所有观测插件
+  # Fluent Forward 事件输出配置；关闭时不创建 Sink、Queue 或连接
   fluent:
     enabled: false # Enable Fluent client in the calling application
     endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent endpoint using tcp, tls, unix, ws, or wss

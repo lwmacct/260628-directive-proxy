@@ -9,7 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/apierror"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 )
 
 func utilNowUTC() time.Time { return time.Now().UTC() }
@@ -34,15 +34,15 @@ func utilNewAPIError(status int, code, message string) *apierror.Error {
 
 func utilRetryAPIError(err error) error {
 	switch {
-	case errors.Is(err, proxyrequest.ErrNotFound):
+	case errors.Is(err, exchange.ErrNotFound):
 		return utilNewAPIError(http.StatusNotFound, "proxy_request_not_found", "proxy request was not found")
-	case errors.Is(err, proxyrequest.ErrAttemptChanged):
+	case errors.Is(err, exchange.ErrAttemptChanged):
 		return utilNewAPIError(http.StatusConflict, "attempt_changed", "proxy request attempt changed")
-	case errors.Is(err, proxyrequest.ErrRetryNotReady):
+	case errors.Is(err, exchange.ErrRetryNotReady):
 		return utilNewAPIError(http.StatusConflict, "retry_not_ready", "proxy request is not ready for retry")
-	case errors.Is(err, proxyrequest.ErrMaxAttempts):
+	case errors.Is(err, exchange.ErrMaxAttempts):
 		return utilNewAPIError(http.StatusTooManyRequests, "max_attempts_reached", "proxy request maximum attempts reached")
-	case errors.Is(err, proxyrequest.ErrIdempotencyKeyRequired):
+	case errors.Is(err, exchange.ErrIdempotencyKeyRequired):
 		return utilNewAPIError(http.StatusUnprocessableEntity, "idempotency_key_required", "Idempotency-Key is required to retry POST or PATCH requests")
 	default:
 		return utilNewAPIError(http.StatusConflict, "request_state_changed", "proxy request state changed")

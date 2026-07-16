@@ -6,13 +6,14 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/retry"
 )
 
-type requestRetryHandler struct{ tracker proxyrequest.Tracker }
+type requestRetryHandler struct{ commands ExchangeCommands }
 
-func RegisterRequestRetry(api huma.API, tracker proxyrequest.Tracker) {
-	handler := &requestRetryHandler{tracker: tracker}
+func RegisterRequestRetry(api huma.API, commands ExchangeCommands) {
+	handler := &requestRetryHandler{commands: commands}
 	huma.Register(api, huma.Operation{
 		OperationID: "request-proxy-retry",
 		Method:      http.MethodPut,
@@ -22,29 +23,29 @@ func RegisterRequestRetry(api huma.API, tracker proxyrequest.Tracker) {
 }
 
 func (h *requestRetryHandler) retry(_ context.Context, input *RequestRetryInputDTO) (*RequestRetryOutputDTO, error) {
-	if h == nil || h.tracker == nil || input == nil {
-		return nil, utilNewAPIError(http.StatusServiceUnavailable, "request_tracker_unavailable", "proxy request tracker is unavailable")
+	if h == nil || h.commands == nil || input == nil {
+		return nil, utilNewAPIError(http.StatusServiceUnavailable, "exchange_manager_unavailable", "exchange manager is unavailable")
 	}
 	currentAttempt, err := utilParseAttemptETag(input.IfMatch)
 	if err != nil {
 		return nil, utilNewAPIError(http.StatusBadRequest, "invalid_retry_precondition", "If-Match must identify the current attempt")
 	}
-	digest, err := proxyrequest.RetryIDDigest(input.RetryID)
+	digest, err := retry.IDDigest(input.RetryID)
 	if err != nil {
 		return nil, utilNewAPIError(http.StatusNotFound, "proxy_request_not_found", "proxy request was not found")
 	}
-	result, err := h.tracker.RetryByRetryID(digest, currentAttempt, proxyrequest.RetryTriggerRequesterAPI)
+	result, err := h.commands.RetryByRetryID(digest, currentAttempt, exchange.TriggerRequesterAPI)
 	if err != nil {
 		return nil, utilRetryAPIError(err)
 	}
 	return &RequestRetryOutputDTO{
 		Status: http.StatusAccepted,
 		Body: RequestRetryResponseDTO{
-			TraceID:        result.Request.TraceID,
+			TraceID:        result.Exchange.TraceID,
 			RetryID:        input.RetryID,
 			CurrentAttempt: currentAttempt,
 			NextAttempt:    result.NextAttempt,
-			State:          string(result.Request.State),
+			State:          string(result.Exchange.Phase),
 		},
 	}, nil
 }

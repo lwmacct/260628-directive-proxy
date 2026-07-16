@@ -19,5 +19,5 @@ func (e *PublicEndpoint) Handler() http.Handler {
 }
 
 func (e *PublicEndpoint) Register(api huma.API) {
-	RegisterRequestRetry(api, e.services.Requests)
+	RegisterRequestRetry(api, e.services.ExchangeCommands)
 }

@@ -14,13 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 var (
-	ErrActiveCapacity        = errors.New("proxy active request capacity is full")
 	ErrResolverFailed        = errors.New("proxy directive resolver failed")
 	ErrContentLengthRequired = errors.New("proxy request Content-Length is required")
 	ErrBodyMemoryUnavailable = errors.New("proxy request body memory is unavailable")
@@ -48,8 +47,8 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !ok {
 		return t.base.RoundTrip(req)
 	}
-	session, tracked := proxyrequest.SessionFromContext(req.Context())
-	if !tracked || session == nil {
+	current, tracked := exchange.FromContext(req.Context())
+	if !tracked || current == nil {
 		return t.roundTripOnce(req, prepared)
 	}
 
@@ -69,41 +68,44 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		attemptCtx, cancel := context.WithCancel(req.Context())
 		source := prepared.directive.Source()
-		attempt := session.BeginAttempt(cancel, source.Mode, source.Backend, source.Endpoint, source.Key)
-		if attempt == 0 {
+		attempt, beginErr := current.BeginAttempt(cancel, exchange.AttemptSource{
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Key: source.Key,
+		})
+		if beginErr != nil {
 			cancel()
-			return nil, ErrActiveCapacity
+			return nil, beginErr
 		}
+		attemptNumber := attempt.Number()
 		resolveStartedAt := time.Now()
-		resolution, resolveErr := prepared.directive.ResolveAttempt(attemptCtx, attempt)
+		resolution, resolveErr := prepared.directive.ResolveAttempt(attemptCtx, attemptNumber)
 		resolveDuration := time.Since(resolveStartedAt)
 		if resolveErr != nil {
-			session.DirectiveFailed(attempt, resolveDuration, directiveErrorCode(resolveErr))
-			session.FinishAttempt(attempt, false, resolveErr)
+			attempt.DirectiveFailed(resolveDuration, directiveErrorCode(resolveErr))
+			attempt.FinishRoundTrip(false, resolveErr)
 			cancel()
 			return nil, resolveErr
 		}
 		if resolution.Plan == nil || resolution.Plan.Target == nil {
-			session.DirectiveFailed(attempt, resolveDuration, "resolver_failed")
-			session.FinishAttempt(attempt, false, ErrResolverFailed)
+			attempt.DirectiveFailed(resolveDuration, "resolver_failed")
+			attempt.FinishRoundTrip(false, ErrResolverFailed)
 			cancel()
 			return nil, ErrResolverFailed
 		}
 		normalizedMetadata, metadataErr := requestmeta.Normalize(resolution.Plan.Metadata)
 		if metadataErr != nil {
-			session.DirectiveFailed(attempt, resolveDuration, "resolver_failed")
-			session.FinishAttempt(attempt, false, ErrResolverFailed)
+			attempt.DirectiveFailed(resolveDuration, "resolver_failed")
+			attempt.FinishRoundTrip(false, ErrResolverFailed)
 			cancel()
 			return nil, ErrResolverFailed
 		}
 		resolution.Plan.Metadata = normalizedMetadata
-		if configureErr := session.ConfigureAttempt(attempt, resolution.Plan.Modules); configureErr != nil {
+		if configureErr := attempt.ConfigureModules(resolution.Plan.Modules); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if source.Mode == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
 			}
-			session.DirectiveFailed(attempt, resolveDuration, "invalid_module_config")
-			session.FinishAttempt(attempt, false, moduleErr)
+			attempt.DirectiveFailed(resolveDuration, "invalid_module_config")
+			attempt.FinishRoundTrip(false, moduleErr)
 			cancel()
 			return nil, moduleErr
 		}
@@ -114,27 +116,27 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		targetValue := urlString(target)
 		targetChanged := previousTarget != "" && previousTarget != targetValue
 		previousTarget = targetValue
-		session.BindMetadata(attempt, resolution.Plan.Metadata)
-		session.DirectiveResolved(attempt, target, resolveDuration, resolution.Source.PayloadSHA256, targetChanged, planChanged)
+		attempt.BindMetadata(resolution.Plan.Metadata)
+		attempt.DirectiveResolved(target, resolveDuration, resolution.Source.PayloadSHA256, targetChanged, planChanged)
 
 		body := bodyLease.Reader()
 		attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, attemptCtx, body)
 		if attemptRequest == nil {
 			_ = body.Close()
-			session.FinishAttempt(attempt, false, ErrResolverFailed)
+			attempt.FinishRoundTrip(false, ErrResolverFailed)
 			cancel()
 			return nil, ErrResolverFailed
 		}
-		if mutationErr := session.MutateOutboundRequest(attempt, attemptRequest); mutationErr != nil {
+		if mutationErr := attempt.MutateOutboundRequest(attemptRequest); mutationErr != nil {
 			_ = body.Close()
-			session.FinishAttempt(attempt, false, mutationErr)
+			attempt.FinishRoundTrip(false, mutationErr)
 			cancel()
 			return nil, fmt.Errorf("%w: outbound request: %v", ErrModuleFailed, mutationErr)
 		}
-		bodyData, mutationErr := session.MutateOutboundBody(attempt, bodyLease.Bytes())
+		bodyData, mutationErr := attempt.MutateOutboundBody(bodyLease.Bytes())
 		if mutationErr != nil {
 			_ = body.Close()
-			session.FinishAttempt(attempt, false, mutationErr)
+			attempt.FinishRoundTrip(false, mutationErr)
 			cancel()
 			return nil, fmt.Errorf("%w: outbound body: %v", ErrModuleFailed, mutationErr)
 		}
@@ -145,7 +147,7 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		attemptRequest.ContentLength = int64(len(bodyData))
 		attemptRequest.TransferEncoding = nil
-		if !session.BeginUpstream(attempt, attemptRequest) {
+		if !attempt.BeginUpstream(attemptRequest) {
 			_ = body.Close()
 			cancel()
 			if err := req.Context().Err(); err != nil {
@@ -155,17 +157,17 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		response, roundTripErr := t.base.RoundTrip(attemptRequest)
 		if roundTripErr == nil && response != nil {
-			if mutationErr := session.MutateUpstreamResponse(attempt, response); mutationErr != nil {
+			if mutationErr := attempt.MutateUpstreamResponse(response); mutationErr != nil {
 				if response.Body != nil {
 					_ = response.Body.Close()
 				}
-				session.FinishAttempt(attempt, false, mutationErr)
+				attempt.FinishRoundTrip(false, mutationErr)
 				cancel()
 				return nil, fmt.Errorf("%w: upstream response: %v", ErrModuleFailed, mutationErr)
 			}
 		}
-		action := session.FinishAttempt(attempt, response != nil && roundTripErr == nil, roundTripErr)
-		if action == proxyrequest.AttemptRetry && req.Context().Err() == nil {
+		decision := attempt.FinishRoundTrip(response != nil && roundTripErr == nil, roundTripErr)
+		if decision == exchange.DecisionRetry && req.Context().Err() == nil {
 			cancel()
 			if response != nil && response.Body != nil {
 				_ = response.Body.Close()
@@ -176,7 +178,7 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			cancel()
 			return response, roundTripErr
 		}
-		session.ObserveUpstreamResponse(attempt, response)
+		attempt.ObserveUpstreamResponse(response)
 		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
 		response.Body = wrapCancelOnCloseBody(response, cancel)
 		return response, roundTripErr

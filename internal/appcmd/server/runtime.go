@@ -16,11 +16,11 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
-	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
@@ -31,7 +31,7 @@ import (
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	requests        *proxyrequestadapter.ProxyRequestService
+	exchanges       *exchange.Manager
 	bodyMemory      *bodymemory.Controller
 	proxyTransport  http.RoundTripper
 	moduleRuntime   *module.Runtime
@@ -84,7 +84,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure module runtime: %w", err)
 	}
-	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
+	exchanges := exchange.NewManager(exchange.ManagerOptions{
 		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
 		CommandRetention: cfg.Proxy.Retry.CommandRetention,
 	}, moduleRuntime)
@@ -116,7 +116,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	directiveReader := newDirectiveRemoteReader(remoteConfig)
 	return &runtime{
-		requests:        requests,
+		exchanges:       exchanges,
 		bodyMemory:      bodyMemory,
 		proxyTransport:  retryTransport,
 		moduleRuntime:   moduleRuntime,
@@ -199,14 +199,14 @@ func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAcc
 	return guard, engine, nil
 }
 
-func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, tracker *proxyrequestadapter.ProxyRequestService, bodyMemory *bodymemory.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, exchanges *exchange.Manager, bodyMemory *bodymemory.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
 		BodyMemory:      bodyMemory,
 		BodyReadTimeout: cfg.Proxy.BodyMemory.ReadTimeout,
 	}
-	if tracker != nil {
-		options.Tracker = tracker
+	if exchanges != nil {
+		options.Exchanges = exchanges
 		options.TrackBeforeResolve = true
 	}
 	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{

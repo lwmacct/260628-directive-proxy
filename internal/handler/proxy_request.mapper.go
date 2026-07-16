@@ -3,10 +3,10 @@ package handler
 import (
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 )
 
-func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) ActiveProxyRequestDTO {
+func ToActiveProxyRequestDTO(item exchange.Snapshot, now time.Time) ActiveProxyRequestDTO {
 	waitStartedAt := item.AttemptStartedAt
 	if waitStartedAt.IsZero() {
 		waitStartedAt = item.StartedAt
@@ -25,7 +25,7 @@ func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) Act
 		TraceID:           item.TraceID,
 		HasRetryID:        item.HasRetryID,
 		Metadata:          map[string][]string(item.Metadata),
-		State:             string(item.State),
+		State:             string(item.Phase),
 		Method:            item.Method,
 		URL:               item.URL,
 		TargetURL:         item.TargetURL,
@@ -34,7 +34,7 @@ func ToActiveProxyRequestDTO(item proxyrequest.ActiveRequest, now time.Time) Act
 		AttemptStartedAt:  item.AttemptStartedAt,
 		UpstreamStartedAt: upstreamStartedAt,
 		WaitingMillis:     waiting,
-		Retryable:         item.State == proxyrequest.StateAwaitingResponse && item.Attempt < item.MaxAttempts,
+		Retryable:         item.Phase == exchange.PhaseAwaitingResponse && item.Attempt < item.MaxAttempts,
 		MaxAttempts:       item.MaxAttempts,
 	}
 }

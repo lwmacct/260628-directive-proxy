@@ -6,15 +6,16 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 )
 
 type proxyRequestHandler struct {
-	tracker proxyrequest.Tracker
+	query    ExchangeQuery
+	commands ExchangeCommands
 }
 
-func RegisterProxyRequest(api huma.API, tracker proxyrequest.Tracker) {
-	handler := &proxyRequestHandler{tracker: tracker}
+func RegisterProxyRequest(api huma.API, query ExchangeQuery, commands ExchangeCommands) {
+	handler := &proxyRequestHandler{query: query, commands: commands}
 	huma.Register(api, huma.Operation{
 		OperationID: "list-active-proxy-requests",
 		Method:      http.MethodGet,
@@ -37,10 +38,10 @@ func RegisterProxyRequest(api huma.API, tracker proxyrequest.Tracker) {
 
 func (h *proxyRequestHandler) list(_ context.Context, _ *struct{}) (*ListActiveProxyRequestsOutputDTO, error) {
 	now := utilNowUTC()
-	if h == nil || h.tracker == nil {
+	if h == nil || h.query == nil {
 		return &ListActiveProxyRequestsOutputDTO{Body: ActiveProxyRequestSnapshotDTO{ServerTime: now, Items: []ActiveProxyRequestDTO{}}}, nil
 	}
-	items := h.tracker.ListActive()
+	items := h.query.ListActive()
 	result := make([]ActiveProxyRequestDTO, 0, len(items))
 	for _, item := range items {
 		result = append(result, ToActiveProxyRequestDTO(item, now))
@@ -49,10 +50,10 @@ func (h *proxyRequestHandler) list(_ context.Context, _ *struct{}) (*ListActiveP
 }
 
 func (h *proxyRequestHandler) get(_ context.Context, input *GetActiveProxyRequestInputDTO) (*GetActiveProxyRequestOutputDTO, error) {
-	if h == nil || h.tracker == nil || input == nil {
+	if h == nil || h.query == nil || input == nil {
 		return nil, huma.Error404NotFound("proxy request not found")
 	}
-	item, ok := h.tracker.GetActive(input.TraceID)
+	item, ok := h.query.GetActive(input.TraceID)
 	if !ok {
 		return nil, huma.Error404NotFound("proxy request not found")
 	}
@@ -60,21 +61,21 @@ func (h *proxyRequestHandler) get(_ context.Context, input *GetActiveProxyReques
 }
 
 func (h *proxyRequestHandler) retry(_ context.Context, input *RetryActiveProxyRequestInputDTO) (*RetryActiveProxyRequestOutputDTO, error) {
-	if h == nil || h.tracker == nil || input == nil {
+	if h == nil || h.commands == nil || input == nil {
 		return nil, huma.Error404NotFound("proxy request not found")
 	}
 	currentAttempt, err := utilParseAttemptETag(input.IfMatch)
 	if err != nil {
 		return nil, utilNewAPIError(http.StatusBadRequest, "invalid_retry_precondition", "If-Match must identify the current attempt")
 	}
-	result, err := h.tracker.RetryByTraceID(input.TraceID, currentAttempt, proxyrequest.RetryTriggerAdminAPI)
+	result, err := h.commands.RetryByTraceID(input.TraceID, currentAttempt, exchange.TriggerAdminAPI)
 	if err != nil {
 		return nil, utilRetryAPIError(err)
 	}
 	return &RetryActiveProxyRequestOutputDTO{
 		Status: http.StatusAccepted,
 		Body: RetryActiveProxyRequestResponseDTO{
-			Request: ToActiveProxyRequestDTO(result.Request, utilNowUTC()),
+			Request: ToActiveProxyRequestDTO(result.Exchange, utilNowUTC()),
 		},
 	}, nil
 }

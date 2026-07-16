@@ -30,7 +30,7 @@ type Config struct {
 type Server struct {
 	HTTP   ServerHTTP    `json:"http"   desc:"HTTP 服务配置"`
 	Proxy  Proxy         `json:"proxy"  desc:"代理配置"`
-	Fluent fluent.Config `json:"fluent" desc:"Fluent Forward 观测输出配置；关闭时禁用所有观测插件"`
+	Fluent fluent.Config `json:"fluent" desc:"Fluent Forward 事件输出配置；关闭时不创建 Sink、Queue 或连接"`
 }
 
 type ServerHTTP struct {
@@ -61,13 +61,13 @@ type Proxy struct {
 }
 
 type ProxyRetry struct {
-	MaxAttempts      int           `json:"max-attempts"       desc:"单个逻辑请求允许的最大上游尝试次数，包含首次请求"`
+	MaxAttempts      int           `json:"max-attempts"       desc:"单个 Exchange 允许的最大上游 Attempt 数，包含首次请求"`
 	CommandRetention time.Duration `json:"command-retention"  desc:"已接受重试命令终态的保留时间"`
 }
 
 type ProxyBodyMemory struct {
-	MaxActiveBytes int64         `json:"max-active-bytes" desc:"所有活动可重放请求正文占用的最大逻辑字节数"`
-	MaxBodyBytes   int64         `json:"max-body-bytes"   desc:"单个可重放请求正文最大字节数"`
+	MaxActiveBytes int64         `json:"max-active-bytes" desc:"所有活动 Exchange 的可重放正文占用的最大逻辑字节数"`
+	MaxBodyBytes   int64         `json:"max-body-bytes"   desc:"单个 Exchange 可重放正文的最大字节数"`
 	QueueMax       int           `json:"queue-max-requests" desc:"等待正文内存的最大请求数"`
 	QueueWait      time.Duration `json:"queue-max-wait" desc:"请求等待正文内存的最长时间"`
 	ReadTimeout    time.Duration `json:"body-read-timeout" desc:"获得内存后读取完整请求正文的最长时间"`

@@ -38,14 +38,14 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
-	services := handler.Services{Requests: rt.requests, Modules: rt.moduleRuntime, EventOutput: rt.eventOutput}
+	services := handler.Services{ExchangeQuery: rt.exchanges, ExchangeCommands: rt.exchanges, Modules: rt.moduleRuntime, EventOutput: rt.eventOutput}
 	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
 	adminAPI := limitRequestBody(handler.NewAdminEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
 	if rt.adminAuth != nil {
 		adminAPI = rt.adminAuth.RequireAccess(adminAPI)
 	}
 	fallback := newFallbackHTTPHandler(rt, handler.NewSystemEndpoint(services).Handler())
-	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.requests, rt.bodyMemory, rt.proxyTransport)
+	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.exchanges, rt.bodyMemory, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
 		return routeHTTPRequests(publicAPI, adminAPI, directiveProxy, fallback)
 	}
