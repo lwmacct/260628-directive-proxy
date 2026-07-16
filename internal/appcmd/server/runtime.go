@@ -9,9 +9,9 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
@@ -35,7 +35,7 @@ type runtime struct {
 	bodyMemory      *bodymemory.Controller
 	proxyTransport  http.RoundTripper
 	observability   *observability.Pipeline
-	adminAuth       *httpauth.Auth
+	adminAuth       *authme.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
 	tls             *tlsRuntime
@@ -126,9 +126,9 @@ func newObservabilityPipeline(ctx context.Context, fluentConfig fluent.Config) (
 	})
 }
 
-func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, error) {
-	methods := make([]httpauth.Method, 0, len(cfg.Auth.Methods))
-	var authorizers []httpauth.Authorizer
+func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, error) {
+	methods := make([]authme.Method, 0, len(cfg.Auth.Methods))
+	var authorizers []authme.Authorizer
 	for _, configured := range cfg.Auth.Methods {
 		switch configured {
 		case config.AuthMethodStaticToken:
@@ -152,7 +152,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, e
 			methods = append(methods, oidcMethod)
 		}
 	}
-	return httpauth.New(httpauth.Config{Origins: cfg.Auth.Origins, Session: cfg.Auth.Session}, httpauth.WithMethods(methods...), httpauth.WithAuthorizer(httpauth.Chain(authorizers...)))
+	return authme.New(authme.Config{Origins: cfg.Auth.Origins, Session: cfg.Auth.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
 func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {

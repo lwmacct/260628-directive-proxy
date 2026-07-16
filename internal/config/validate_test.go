@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 

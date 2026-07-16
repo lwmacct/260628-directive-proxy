@@ -8,9 +8,9 @@ import (
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
@@ -54,12 +54,12 @@ const (
 )
 
 type Auth struct {
-	Origins            []string               `json:"origins"       desc:"允许浏览器访问应用的可信 origin"`
-	Session            httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
-	Methods            []AuthMethod           `json:"methods"       desc:"启用的认证方式，可选 statictoken,dexgithub"`
-	StaticToken        statictoken.Config     `json:"statictoken" desc:"Static token 认证配置"`
-	DexGitHub          dexgithub.Config       `json:"dexgithub" desc:"Dex GitHub OIDC 认证配置"`
-	AllowedGitHubUsers []string               `json:"allowed-github-users" desc:"允许访问应用的 GitHub 用户名"`
+	Origins            []string             `json:"origins"       desc:"允许浏览器访问应用的可信 origin"`
+	Session            authme.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
+	Methods            []AuthMethod         `json:"methods"       desc:"启用的认证方式，可选 statictoken,dexgithub"`
+	StaticToken        statictoken.Config   `json:"statictoken" desc:"Static token 认证配置"`
+	DexGitHub          dexgithub.Config     `json:"dexgithub" desc:"Dex GitHub OIDC 认证配置"`
+	AllowedGitHubUsers []string             `json:"allowed-github-users" desc:"允许访问应用的 GitHub 用户名"`
 }
 
 type Proxy struct {
@@ -127,8 +127,8 @@ func DefaultConfig() Config {
 				Auth: Auth{
 					Methods: []AuthMethod{AuthMethodStaticToken},
 					Origins: []string{"http://localhost:23199"},
-					Session: httpauth.SessionConfig{
-						Keys: []httpauth.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
+					Session: authme.SessionConfig{
+						Keys: []authme.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
 						TTL:  24 * time.Hour,
 					},
 					StaticToken: func() statictoken.Config {

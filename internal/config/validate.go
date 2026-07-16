@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/types"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
+	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
@@ -33,7 +33,7 @@ func Validate(cfg Server) (Server, error) {
 	if len(cfg.HTTP.Auth.Methods) == 0 {
 		return cfg, ErrInvalidAuth
 	}
-	coreConfig := httpauth.Config{Origins: cfg.HTTP.Auth.Origins, Session: cfg.HTTP.Auth.Session}
+	coreConfig := authme.Config{Origins: cfg.HTTP.Auth.Origins, Session: cfg.HTTP.Auth.Session}
 	validatedCore, err := coreConfig.Normalize()
 	if err != nil {
 		return cfg, ErrInvalidAuth
