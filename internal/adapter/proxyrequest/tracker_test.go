@@ -9,23 +9,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
-	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
 
 func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
-	pipeline, output := newCapturePipeline(t)
-	captureSpec := []byte(`{"body-chunk-bytes":4,"max-sse-event-bytes":1024,"redact-headers":["authorization"],"redact-query":["token"]}`)
+	engine, output := newCaptureEngine(t)
+	captureSpec := []byte(`{"body-chunk-bytes":4,"redact-headers":["authorization"],"redact-query":["token"]}`)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 3,
-	}, pipeline)
+	}, engine)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
 	session := tracker.Start(req, proxyrequest.Identity{})
+	if err := session.ConfigureRequest([]module.Spec{{ID: "capture", Module: capture.Name, Config: captureSpec}}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := proxyrequest.ParseRetryID(session.TraceID()); err != nil {
 		t.Fatalf("unexpected trace ID: %q", session.TraceID())
 	}
@@ -34,7 +38,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 
 	canceled := false
 	attempt := session.BeginAttempt(func() { canceled = true }, "inline", "", "", "")
-	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": captureSpec}); err != nil {
+	if err := session.ConfigureAttempt(attempt, nil); err != nil {
 		t.Fatal(err)
 	}
 	session.BindMetadata(attempt, requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}})
@@ -54,7 +58,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 		t.Fatalf("unexpected attempt action: %v", action)
 	}
 	attempt = session.BeginAttempt(func() {}, "inline", "", "", "")
-	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": captureSpec}); err != nil {
+	if err := session.ConfigureAttempt(attempt, nil); err != nil {
 		t.Fatal(err)
 	}
 	if attempt != 2 {
@@ -84,7 +88,7 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 	if recorder.Header().Get("X-Dproxy-Trace-ID") != session.TraceID() {
 		t.Fatalf("tracking response header missing: %#v", recorder.Header())
 	}
-	if err := pipeline.Close(context.Background()); err != nil {
+	if err := engine.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	events := output.Records()
@@ -116,13 +120,16 @@ func TestProxyRequestLifecycleTracksRetryAndEmitsSSEEvents(t *testing.T) {
 }
 
 func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
-	pipeline, output := newCapturePipeline(t)
-	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, pipeline)
+	engine, output := newCaptureEngine(t)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 3}, engine)
 	newActive := func(path string, seed byte, canceled *bool) (proxyrequest.Session, proxyrequest.Identity, [32]byte) {
 		identity, digest := testIdentity(t, seed)
 		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/"+path, nil), identity)
+		if err := session.ConfigureRequest([]module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}); err != nil {
+			t.Fatal(err)
+		}
 		attempt := session.BeginAttempt(func() { *canceled = true }, "inline", "", "", "")
-		if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{}`)}); err != nil {
+		if err := session.ConfigureAttempt(attempt, nil); err != nil {
 			t.Fatal(err)
 		}
 		session.DirectiveResolved(attempt, mustURL(t, "https://upstream.example"), 0, "", false, false)
@@ -150,7 +157,7 @@ func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
 	if err != nil || repeatedAfterCompletion.NextAttempt != 2 {
 		t.Fatalf("completed retry command tombstone was not idempotent: result=%#v err=%v", repeatedAfterCompletion, err)
 	}
-	if err := pipeline.Close(context.Background()); err != nil {
+	if err := engine.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	sawRequesterRetry := false
@@ -165,13 +172,16 @@ func TestProxyRequestRetryByRetryIDUsesProofAndCAS(t *testing.T) {
 }
 
 func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
-	pipeline, output := newCapturePipeline(t)
+	engine, output := newCaptureEngine(t)
 	tracker := NewProxyRequestService(ProxyRequestOptions{
 		MaxAttempts: 2,
-	}, pipeline)
+	}, engine)
 	session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
+	if err := session.ConfigureRequest([]module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}}); err != nil {
+		t.Fatal(err)
+	}
 	attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
-	if err := session.ConfigureAttempt(attempt, map[string][]byte{"capture": []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}); err != nil {
+	if err := session.ConfigureAttempt(attempt, nil); err != nil {
 		t.Fatal(err)
 	}
 	session.BindMetadata(attempt, requestmeta.Metadata{
@@ -179,7 +189,7 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 		"X-Dproxy-Secret-Key": {"secret"},
 	})
 	session.Complete()
-	if err := pipeline.Close(context.Background()); err != nil {
+	if err := engine.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	for _, event := range output.Records() {
@@ -195,21 +205,20 @@ func TestProxyRequestMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	t.Fatal("metadata capture event was not emitted")
 }
 
-func TestEnabledObservabilityRejectsUnknownOrInvalidDirectivePlugins(t *testing.T) {
-	pipeline, _ := newCapturePipeline(t)
-	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, pipeline)
-	for _, specs := range []map[string][]byte{
-		{"missing-plugin": []byte(`{}`)},
-		{"capture": []byte(`{"body-chunk-bytes":-1}`)},
+func TestModuleEngineRejectsUnknownOrInvalidRequestModules(t *testing.T) {
+	engine, _ := newCaptureEngine(t)
+	tracker := NewProxyRequestService(ProxyRequestOptions{MaxAttempts: 2}, engine)
+	for _, specs := range [][]module.Spec{
+		{{ID: "missing", Module: "missing.module", Config: []byte(`{}`)}},
+		{{ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":-1}`)}},
 	} {
 		session := tracker.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), proxyrequest.Identity{})
-		attempt := session.BeginAttempt(func() {}, "inline", "", "", "")
-		if err := session.ConfigureAttempt(attempt, specs); err == nil {
-			t.Fatalf("invalid directive plugin was accepted: %#v", specs)
+		if err := session.ConfigureRequest(specs); err == nil {
+			t.Fatalf("invalid request module was accepted: %#v", specs)
 		}
 		session.Complete()
 	}
-	if err := pipeline.Close(context.Background()); err != nil {
+	if err := engine.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -268,14 +277,14 @@ func TestProxyRequestTrackerRejectsDuplicateRetryID(t *testing.T) {
 	}
 }
 
-func newCapturePipeline(t *testing.T) (*observability.Pipeline, *recordoutput.Output) {
+func newCaptureEngine(t *testing.T) (*observability.Engine, *recordoutput.Output) {
 	t.Helper()
 	output := recordoutput.New("memory")
-	pipeline, err := observability.NewPipeline(context.Background(), []observability.Plugin{captureplugin.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
+	engine, err := observability.NewEngine(context.Background(), []module.Definition{capture.New()}, observability.SinkConfig{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return pipeline, output
+	return engine, output
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {

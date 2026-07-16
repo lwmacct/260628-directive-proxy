@@ -1,50 +1,36 @@
-# Proxy request lifecycle and observability
+# Proxy request lifecycle
 
-## Identity
+一个逻辑请求拥有一个 `trace_id` 和 request scope；每次 directive 解析与上游访问拥有独立 attempt scope。
 
-- `trace_id`：服务端生成的 canonical UUIDv7，标识一个逻辑代理请求，所有 retry attempt 共用。
-- `retry_id`：调用方生成的 canonical UUIDv7 bearer retry credential；服务端只保存其 SHA-256 verifier。
-- `record_id`：`<trace_id>:<sequence>`，输出重试时保持不变，接收端应据此幂等。
-- `sequence`：单个 trace 内从 1 开始严格递增；所有观测插件共享同一序列。
-- `attempt`：产生该 Record 的上游尝试序号；请求级 Record 可以省略。
-
-每条外部 Record 包含 `schema_version=dproxy.event.v1`、`plugin`、`topic`、`record_id`、`trace_id`、可选 `attempt`、`sequence`、RFC3339Nano `occurred_at` 和 `data`。
-
-## Signal pipeline
-
-Proxy、RetryTransport 和 downstream ResponseWriter 只产生进程内 Signal。流式响应 Signal 中的 body slice 是 borrowed memory，只在插件回调期间有效；协议插件同步解析，Capture 通过 borrowed emission 让 Pipeline 在 Queue admission 成功后复制。请求正文例外：`RequestBodyAvailable` 暴露连续、不可变的 canonical body，异步 Record 必须取得 lease，sink 完成或丢弃后执行 release。
-
-请求正文准入流程为：验证 `Content-Length` -> 进入严格 FIFO 字节预算队列 -> 获得 reservation -> 设置 body read deadline -> 一次性读取准确长度 -> 发布不可变 body。排队阶段不会调用 `Body.Read`。未知长度返回 411，单体超限返回 413，队列满或等待超时返回 503。正文只驻留内存，不写临时文件，也不做分段存储。
-
-响应有两套明确边界：
-
-- `UpstreamBodyChunk`：代理从上游读取到的字节，供 LLM Usage 等协议观测插件使用。
-- `DownstreamBodyChunk`：成功写给客户端的字节，供 Capture 审计使用。
-
-所有上游请求强制 `Accept-Encoding: identity`。非 identity 编码的 LLM 响应不会被解析。
-
-## Retry protocol
-
-Proxy Retry 是每个代理请求的固有能力。初始请求无需携带 retry identity；只有需要使用 Public retry API 时才携带 canonical UUIDv7 `Dproxy-Retry-ID`。它在 observability、resolver 和 upstream 看到请求前即被移除。公开重试端点为：
-
-```http
-PUT /api/public/retry
-Dproxy-Retry-ID: <uuidv7>
-If-Match: "attempt:<current_attempt>"
+```text
+Prepare token
+  -> open request modules
+  -> RequestStarted
+  -> request body available/end
+  -> attempt N: resolve plan
+       -> open attempt modules
+       -> AttemptStarted / DirectiveResolved
+       -> outbound request + body mutation barriers
+       -> UpstreamStarted
+       -> upstream response mutation barrier
+       -> raw chunks -> transforms -> SSE/JSON projection
+       -> body end -> AttemptFinished -> close attempt scope
+  -> downstream facts/projection
+  -> RequestFinished -> close request scope
 ```
 
-Admin API 使用 `PUT /api/admin/proxy-requests/{trace_id}/retry` 和相同的 `If-Match`。服务端自动计算下一 attempt；每个逻辑请求由单一 coordinator event loop 串行处理响应到达和重试命令；重复 PUT 返回首次接受的结果。POST/PATCH 缺少初始 `Idempotency-Key` 时返回 422。
+retry 在收到最终响应头前取消当前 attempt。被取消的 attempt 以 `replaced` 结束，下一次远端 directive 会重新读取和编译；request Module 保留状态，attempt Module 全部重新创建。成功响应不会在响应头处结束 attempt scope，而是在 upstream body EOF/Close 时结束。
 
-Header 和 URL query 按插件配置的大小写不敏感 glob 脱敏。Body 默认不脱敏。SSE parser 支持 BOM、LF、CRLF、CR、多行 data、event、id、retry 和 comment；超过单事件上限时语义事件标记为 truncated，原始 downstream body 仍可重组。
+请求正文经过 `Content-Length` 验证和 FIFO 内存预算后成为不可变 canonical body。request Module 必须在 `RequestBodyAvailable` 的提交 barrier 内取得 lease，不能异步保留裸指针。
 
-各内置插件的 directive spec 和 topic 见 [`docs/plugin-capture.md`](plugin-capture.md)、[`docs/plugin-llmusage.md`](plugin-llmusage.md) 和 [`docs/plugin-llmperf.md`](plugin-llmperf.md)。插件没有部署级参数。
+响应流边界：
 
-## Fluent sink and delivery
+- `UpstreamBodyChunk`：上游 raw 切片；
+- `MutateUpstreamBodyChunk`：有序、提交前流 transform；
+- `UpstreamSSEData` / `UpstreamJSONChunk`：transform 后的共享派生投影；
+- `DownstreamBodyChunk`：已经写给客户端的字节；
+- `DownstreamSSEData` / `DownstreamSSEComment`：下游共享投影。
 
-`server.fluent.enabled` 是整个观测子系统的总开关，默认关闭。关闭时不创建插件、Queue、worker 或 Fluent 连接；directive 中的插件配置被忽略，代理、重试和 trace ID 功能保持正常。`/health` 将 Observability 报告为 `disabled`，不会降低服务整体健康状态。
+外部 Record 使用 `schema_version=dproxy.event.v2`，`producer` 是 directive binding ID，`record_id=<trace_id>:<sequence>`，所有 request/attempt Module 共享单调递增 sequence。
 
-开启后，唯一 Fluent sink 接收所有 Record，`connections` 个内部 worker 按 `trace_id` 分片并分别绑定一个 Fluent client，以保持单 trace 顺序并允许跨 trace 并行。唯一 Queue 同时限制所有连接合计的记录数和总字节数。队列满时非阻塞丢弃新 Record 并将 sink health 标记为 degraded，代理请求继续执行；不存在观测 backpressure 模式。
-
-Fluent sink 将 Record topic 作为 tag suffix，支持 MessagePack、亚秒时间戳和 `unconfirmed`/`at-least-once`。推荐本机 Fluentd Unix socket 配合文件 buffer。Forward ACK 丢失可能产生重复记录，接收端必须按 `record_id` 去重。
-
-仅当 Fluent 开启时，启动阶段无法连接才会导致服务启动失败。运行阶段 sink 失败、队列溢出、插件 panic 会反映在 `/health.observability`；单个 LLM payload 的解析失败属于数据事件，不会把插件全局健康状态标成 degraded。
+Fluent Sink 与 Module runtime 独立。Fluent 关闭时不创建连接、Queue 或 worker，但 Module 仍会编译和执行；没有 Sink 时 emit 会被丢弃，不影响 mutation。运行阶段 Module panic/错误、Sink 失败和队列溢出通过 `/health.observability.modules` 与 `/health.observability.sink` 分别报告。

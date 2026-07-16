@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 var (
@@ -26,5 +28,6 @@ type Resolver interface {
 type PreparedDirective interface {
 	Kind() string
 	Source() SourceMetadata
+	RequestProgram() []module.Spec
 	ResolveAttempt(context.Context, int) (Resolution, error)
 }

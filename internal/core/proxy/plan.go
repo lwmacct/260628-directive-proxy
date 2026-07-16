@@ -4,16 +4,17 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type Plan struct {
-	Target      *url.URL
-	Proxy       *url.URL
-	Headers     HeaderPlan
-	Metadata    requestmeta.Metadata
-	PluginSpecs map[string][]byte
-	JoinPath    bool
+	Target   *url.URL
+	Proxy    *url.URL
+	Headers  HeaderPlan
+	Metadata requestmeta.Metadata
+	Modules  []module.Spec
+	JoinPath bool
 }
 
 type Resolution struct {
@@ -39,7 +40,7 @@ func ClonePlan(in *Plan) *Plan {
 	out.Proxy = cloneURL(in.Proxy)
 	out.Headers = cloneHeaderPlan(in.Headers)
 	out.Metadata = requestmeta.Clone(in.Metadata)
-	out.PluginSpecs = clonePluginSpecs(in.PluginSpecs)
+	out.Modules = cloneModuleSpecs(in.Modules)
 	return &out
 }
 
@@ -60,13 +61,11 @@ func cloneHeaderOps(in []HeaderOp) []HeaderOp {
 	return out
 }
 
-func clonePluginSpecs(in map[string][]byte) map[string][]byte {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string][]byte, len(in))
-	for name, raw := range in {
-		out[name] = append([]byte(nil), raw...)
+func cloneModuleSpecs(in []module.Spec) []module.Spec {
+	out := make([]module.Spec, len(in))
+	for index, spec := range in {
+		out[index] = spec
+		out[index].Config = append([]byte(nil), spec.Config...)
 	}
 	return out
 }

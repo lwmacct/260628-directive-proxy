@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-const SchemaVersion = "dproxy.event.v1"
+const SchemaVersion = "dproxy.event.v2"
 
 type Record struct {
 	SchemaVersion string         `msg:"schema_version"`
-	Plugin        string         `msg:"plugin"`
+	Producer      string         `msg:"producer"`
 	Topic         string         `msg:"topic"`
 	RecordID      string         `msg:"record_id"`
 	TraceID       string         `msg:"trace_id"`
@@ -53,7 +53,7 @@ func (r Record) release() {
 func (r Record) Map() map[string]any {
 	record := map[string]any{
 		"schema_version": r.SchemaVersion,
-		"plugin":         r.Plugin,
+		"producer":       r.Producer,
 		"topic":          r.Topic,
 		"record_id":      r.RecordID,
 		"trace_id":       r.TraceID,

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -21,7 +22,7 @@ type ProxyRequestService struct {
 	terminalByRetryID map[[32]byte]retryTombstone
 	maxAttempts       int
 	commandRetention  time.Duration
-	pipeline          *observability.Pipeline
+	engine            *observability.Engine
 }
 
 type retryTombstone struct {
@@ -30,7 +31,7 @@ type retryTombstone struct {
 	expires time.Time
 }
 
-func NewProxyRequestService(opts ProxyRequestOptions, pipeline *observability.Pipeline) *ProxyRequestService {
+func NewProxyRequestService(opts ProxyRequestOptions, engine *observability.Engine) *ProxyRequestService {
 	if opts.MaxAttempts < 1 {
 		opts.MaxAttempts = 1
 	}
@@ -44,7 +45,7 @@ func NewProxyRequestService(opts ProxyRequestOptions, pipeline *observability.Pi
 		terminalByRetryID: make(map[[32]byte]retryTombstone),
 		maxAttempts:       opts.MaxAttempts,
 		commandRetention:  opts.CommandRetention,
-		pipeline:          pipeline,
+		engine:            engine,
 	}
 }
 
@@ -66,7 +67,7 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 		retryResults:   make(map[int]proxyrequest.RetryResult),
 		events:         make(chan coordinatorEvent),
 		done:           make(chan struct{}),
-		requestStarted: observability.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
+		requestStarted: module.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
 	s.mu.Lock()
 	s.pruneTerminalLocked(now)
@@ -80,9 +81,10 @@ func (s *ProxyRequestService) Start(req *http.Request, identity proxyrequest.Ide
 	}
 	s.active[session.traceID] = session
 	s.mu.Unlock()
-	go session.run()
-	if s.pipeline != nil {
-		session.trace = s.pipeline.StartRequestTrace(observability.TraceContext{TraceID: session.traceID})
+	go session.runCoordinator()
+	if s.engine != nil {
+		session.engine = s.engine
+		session.run = s.engine.StartRun(session.traceID)
 	}
 	return session
 }
@@ -264,7 +266,7 @@ func (s *proxyRequestSession) requestRetry(expectedAttempt int, trigger proxyreq
 		return proxyrequest.RetryResult{}, retryErr
 	}
 	if accepted {
-		s.observe(expectedAttempt, observability.RetryRequested{Trigger: string(trigger), NextAttempt: result.NextAttempt})
+		s.observeRetryRequested(expectedAttempt, module.RetryRequested{Trigger: string(trigger), NextAttempt: result.NextAttempt})
 		if cancel != nil {
 			cancel()
 		}

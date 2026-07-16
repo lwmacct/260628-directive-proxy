@@ -20,11 +20,12 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
-	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
-	llmperfplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmperf"
-	llmusageplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmusage"
+	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
+	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmperf"
+	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmusage"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12
@@ -33,7 +34,7 @@ type runtime struct {
 	requests        *proxyrequestadapter.ProxyRequestService
 	bodyMemory      *bodymemory.Controller
 	proxyTransport  http.RoundTripper
-	observability   *observability.Pipeline
+	observability   *observability.Engine
 	adminAuth       *authme.Auth
 	sourceAccess    *sourcehttp.Guard
 	sourceEngine    *sourceaccess.Engine
@@ -63,7 +64,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
-	observationPipeline, err := newObservabilityPipeline(ctx, cfg.Fluent)
+	moduleEngine, err := newModuleEngine(ctx, cfg.Fluent)
 	if err != nil {
 		if sourceEngine != nil {
 			sourceEngine.Close()
@@ -74,7 +75,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	requests := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{
 		MaxAttempts:      cfg.Proxy.Retry.MaxAttempts,
 		CommandRetention: cfg.Proxy.Retry.CommandRetention,
-	}, observationPipeline)
+	}, moduleEngine)
 	bodyMemory := bodymemory.New(bodymemory.Config{
 		MaxActiveBytes: cfg.Proxy.BodyMemory.MaxActiveBytes,
 		MaxBodyBytes:   cfg.Proxy.BodyMemory.MaxBodyBytes,
@@ -90,7 +91,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	})
 	retryTransport, err := proxy.NewRetryTransport(baseTransport, proxy.RetryTransportOptions{})
 	if err != nil {
-		_ = observationPipeline.Close(context.Background())
+		_ = moduleEngine.Close(context.Background())
 		if sourceEngine != nil {
 			sourceEngine.Close()
 		}
@@ -103,7 +104,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		requests:        requests,
 		bodyMemory:      bodyMemory,
 		proxyTransport:  retryTransport,
-		observability:   observationPipeline,
+		observability:   moduleEngine,
 		adminAuth:       adminAuth,
 		sourceAccess:    sourceAccess,
 		sourceEngine:    sourceEngine,
@@ -112,17 +113,17 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}, nil
 }
 
-func newObservabilityPipeline(ctx context.Context, fluentConfig fluent.Config) (*observability.Pipeline, error) {
-	if !fluentConfig.Enabled {
-		return observability.NewDisabledPipeline(), nil
+func newModuleEngine(ctx context.Context, fluentConfig fluent.Config) (*observability.Engine, error) {
+	definitions := []module.Definition{capture.New(), llmusage.New(), llmperf.New()}
+	config := observability.SinkConfig{}
+	if fluentConfig.Enabled {
+		config = observability.SinkConfig{
+			Sink:            newFluentSink(fluentConfig),
+			QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
+			QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
+		}
 	}
-	plugins := []observability.Plugin{captureplugin.New(), llmusageplugin.New(), llmperfplugin.New()}
-	sink := newFluentSink(fluentConfig)
-	return observability.NewPipeline(ctx, plugins, observability.SinkConfig{
-		Sink:            sink,
-		QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
-		QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
-	})
+	return observability.NewEngine(ctx, definitions, config)
 }
 
 func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, error) {

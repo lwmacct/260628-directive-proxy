@@ -99,6 +99,10 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
+	if errors.Is(err, ErrModuleFailed) {
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "module_failed", "module: request lifecycle execution failed")
+		return
+	}
 	if writeDirectiveError(w, err) {
 		return
 	}
@@ -172,6 +176,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Error("resolve proxy plan failed", "error", err, "path", r.URL.Path)
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
+	}
+	if session != nil {
+		if configureErr := session.ConfigureRequest(prepared.RequestProgram()); configureErr != nil {
+			moduleErr := error(ErrInvalidDirective)
+			if prepared.Kind() == "remote" {
+				moduleErr = ErrRemoteDirectiveInvalid
+			}
+			writeDirectiveError(w, moduleErr)
+			return
+		}
 	}
 	body, bodyErr := h.readRequestBody(w, r, session)
 	if bodyErr != nil {

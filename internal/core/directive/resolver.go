@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
@@ -40,14 +41,16 @@ type Resolver struct {
 }
 
 type inlinePrepared struct {
-	plan *proxy.Plan
+	plan           *proxy.Plan
+	requestProgram []module.Spec
 }
 
 type remotePrepared struct {
-	reader        RemoteReader
-	lookupTimeout time.Duration
-	spec          RemoteSpec
-	request       *http.Request
+	reader         RemoteReader
+	lookupTimeout  time.Duration
+	spec           RemoteSpec
+	requestProgram []module.Spec
+	request        *http.Request
 }
 
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
@@ -91,10 +94,11 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 			return nil, proxy.ErrRemoteDirectiveUnavailable
 		}
 		return &remotePrepared{
-			reader:        r.remoteReader,
-			lookupTimeout: r.lookupTimeout,
-			spec:          cloneRemoteSpec(*document.Remote),
-			request:       snapshotResolveRequest(req),
+			reader:         r.remoteReader,
+			lookupTimeout:  r.lookupTimeout,
+			spec:           cloneRemoteSpec(document.Remote.Source),
+			requestProgram: cloneModuleSpecs(document.Remote.Program.Request),
+			request:        snapshotResolveRequest(req),
 		}, nil
 	}
 
@@ -102,10 +106,17 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if err != nil {
 		return nil, proxy.ErrInvalidDirective
 	}
-	return &inlinePrepared{plan: proxy.ClonePlan(plan)}, nil
+	return &inlinePrepared{plan: proxy.ClonePlan(plan), requestProgram: cloneModuleSpecs(document.Payload.Program.Request)}, nil
 }
 
 func (*inlinePrepared) Kind() string { return KindInline }
+
+func (p *inlinePrepared) RequestProgram() []module.Spec {
+	if p == nil {
+		return nil
+	}
+	return cloneModuleSpecs(p.requestProgram)
+}
 
 func (*inlinePrepared) Source() proxy.SourceMetadata {
 	return proxy.SourceMetadata{Mode: KindInline}
@@ -122,6 +133,13 @@ func (p *inlinePrepared) ResolveAttempt(context.Context, int) (proxy.Resolution,
 }
 
 func (*remotePrepared) Kind() string { return KindRemote }
+
+func (p *remotePrepared) RequestProgram() []module.Spec {
+	if p == nil {
+		return nil
+	}
+	return cloneModuleSpecs(p.requestProgram)
+}
 
 func (p *remotePrepared) Source() proxy.SourceMetadata {
 	if p == nil {
@@ -164,6 +182,9 @@ func (p *remotePrepared) ResolveAttempt(ctx context.Context, _ int) (proxy.Resol
 		slog.Error("decode remote directive", "directive_backend", p.spec.Type, "directive_key", p.spec.Key, "error", decodeErr)
 		return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
 	}
+	if len(decoded.Program.Request) > 0 {
+		return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
+	}
 	plan, err := ToPlan(decoded, AssembleOptions{StripHeaders: []string{"Authorization"}})
 	if err != nil {
 		slog.Error("compile remote directive", "directive_backend", p.spec.Type, "directive_key", p.spec.Key, "error", err)
@@ -181,6 +202,15 @@ func (p *remotePrepared) ResolveAttempt(ctx context.Context, _ int) (proxy.Resol
 			PayloadSHA256: hex.EncodeToString(digest[:]),
 		},
 	}, nil
+}
+
+func cloneModuleSpecs(in []module.Spec) []module.Spec {
+	out := make([]module.Spec, len(in))
+	for index, spec := range in {
+		out[index] = spec
+		out[index].Config = append([]byte(nil), spec.Config...)
+	}
+	return out
 }
 
 func snapshotResolveRequest(req *http.Request) *http.Request {

@@ -35,4 +35,6 @@ export const initialEditor: EditorState = {
     newHeaderOp("=", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
   ],
   responseHeaderOps: [],
+  requestProgram: [{ id: "capture", module: "builtin.capture", config: {} }],
+  attemptProgram: [],
 };

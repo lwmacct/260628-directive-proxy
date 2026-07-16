@@ -1,0 +1,76 @@
+# Directive Module architecture
+
+Module 是 directive 驱动的请求生命周期执行单元，不局限于可观测性。Module 可以观察类型化事件，也可以在数据提交前修改请求、响应或流切片。
+
+```text
+Module Definition（进程级注册）
+  -> Compile(config)
+Module Binding（directive 中的不可变、有序计划）
+  -> Open(scope)
+Module Instance（request 或 attempt 作用域）
+  -> Mount(Binder)
+类型化 lifecycle ports
+```
+
+directive 使用有序数组声明程序：
+
+```json
+{
+  "program": {
+    "request": [
+      {"id":"capture","module":"builtin.capture","config":{}}
+    ],
+    "attempt": [
+      {"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}
+    ]
+  }
+}
+```
+
+`id` 在同一数组内唯一，并作为 Record 的 `producer`；`module` 选择进程级 Definition。数组顺序就是 mutation 和事件提交顺序，不使用 map，也不存在隐式优先级。
+
+## Scope
+
+- request scope 在读取请求正文前打开，跨越全部 retry attempt；
+- attempt scope 在每次 directive plan 解析后打开，retry、transport error 或响应 body 结束时关闭；
+- request Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
+- scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`。
+
+## 类型化端口
+
+- Hook：提交前可变 Draft，例如 outbound request/body、upstream response/body chunk；
+- Transform：按 directive 顺序修改流数据；
+- Stream：只读数据或派生投影，例如 raw chunk、JSON chunk、SSE data/comment；
+- Fact：不可变生命周期事实，例如 request started、directive resolved、retry requested、body ended；
+- Command：预留给异步影响未来状态的控制消息，不允许异步任务反向修改已经提交的数据。
+
+Module 通过 `Binder` 明确声明端口。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。
+
+## 执行策略
+
+执行策略属于每个 binding，而不是整个 Module：
+
+- `executor=caller`：在调用线程执行；
+- `executor=ordered_lane`：进入该 Instance 的有序异步 lane；
+- `barrier=before_commit`：必须等待此前 lane 工作和当前回调完成后才能提交数据；
+- `barrier=scope_end`：请求路径可继续，scope 结束前必须 drain；
+- `barrier=none`：为未来独立 Command executor 预留；当前 scope scheduler 仍会在结束时 drain，内置 Module 不使用它；
+- overflow 支持 `block`、`drop`、`fail_request`。
+
+所有 mutation 自动形成 `before_commit` barrier。异步任务只能观察已经拥有的数据，或产生未来 Command；不能修改已经写给上游/下游的字节。
+
+## 投影与输出
+
+每个方向只构造一次共享投影：
+
+```text
+upstream raw
+├─ raw subscribers
+├─ ordered body transforms
+├─ SSE / JSON projection（按订阅按需创建）
+└─ downstream committed bytes
+```
+
+外部 Record 使用 `dproxy.event.v2`，包含 `producer`、`topic`、`record_id`、`trace_id`、`attempt`、单 request `sequence`、`occurred_at` 和 `data`。Module runtime 与 Fluent 解耦：`server.fluent.enabled=false` 只关闭 Sink/Queue/连接，Module 仍注册、编译和执行，因此修改型 Module 不依赖可观测输出开关。
+
+Module panic 或回调错误会隔离该 Instance、使 barrier 失败，并将对应 Definition 的健康状态标为 degraded。Sink 只负责不可变 Record 的有界异步输出。

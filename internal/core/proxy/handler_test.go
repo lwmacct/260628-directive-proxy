@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 type resolverFunc func(*http.Request) (Resolution, error)
@@ -45,6 +46,8 @@ func (r preparedResolver) Prepare(*http.Request) (PreparedDirective, error) { re
 func (p staticPrepared) Kind() string { return p.resolution.Source.Mode }
 
 func (p staticPrepared) Source() SourceMetadata { return p.resolution.Source }
+
+func (p staticPrepared) RequestProgram() []module.Spec { return nil }
 
 func (p staticPrepared) ResolveAttempt(context.Context, int) (Resolution, error) {
 	return Resolution{Plan: ClonePlan(p.resolution.Plan), Source: p.resolution.Source}, p.err

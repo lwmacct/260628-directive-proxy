@@ -1,8 +1,6 @@
 package directive
 
 import (
-	"bytes"
-	"encoding/json"
 	"net/url"
 	"path"
 	"strings"
@@ -17,9 +15,9 @@ type AssembleOptions struct {
 }
 
 const (
-	maxPluginSpecs     = 16
-	maxPluginNameBytes = 64
-	maxPluginSpecBytes = 64 << 10
+	maxModuleSpecs     = 16
+	maxModuleNameBytes = 64
+	maxModuleSpecBytes = 64 << 10
 )
 
 func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
@@ -56,7 +54,7 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	pluginSpecs, err := parsePluginSpecs(payload.Plugins)
+	program, err := normalizeProgram(payload.Program, true, true)
 	if err != nil {
 		return nil, err
 	}
@@ -86,37 +84,15 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 			},
 			Response: proxy.ResponseHeaderPlan{Ops: responseOps},
 		},
-		Metadata:    metadata,
-		PluginSpecs: pluginSpecs,
-		JoinPath:    joinPath,
+		Metadata: metadata,
+		Modules:  program.Attempt,
+		JoinPath: joinPath,
 	}, nil
 }
 
-func parsePluginSpecs(raw map[string]json.RawMessage) (map[string][]byte, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	if len(raw) > maxPluginSpecs {
-		return nil, ErrInvalidPayload
-	}
-	result := make(map[string][]byte, len(raw))
-	for rawName, spec := range raw {
-		name := strings.TrimSpace(rawName)
-		if name == "" || name != rawName || len(name) > maxPluginNameBytes || !isPluginName(name) || len(spec) == 0 || len(spec) > maxPluginSpecBytes || !json.Valid(spec) {
-			return nil, ErrInvalidPayload
-		}
-		compact := bytes.NewBuffer(make([]byte, 0, len(spec)))
-		if err := json.Compact(compact, spec); err != nil {
-			return nil, ErrInvalidPayload
-		}
-		result[name] = append([]byte(nil), compact.Bytes()...)
-	}
-	return result, nil
-}
-
-func isPluginName(value string) bool {
+func isModuleName(value string) bool {
 	for index, char := range value {
-		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-' && index > 0 && index < len(value)-1 {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || (char == '-' || char == '.') && index > 0 && index < len(value)-1 {
 			continue
 		}
 		return false

@@ -1,4 +1,4 @@
-package llmusageplugin
+package llmusage
 
 import (
 	"bytes"
@@ -11,13 +11,10 @@ import (
 
 	"github.com/lwmacct/260714-go-pkg-llmusage/pkg/llmusage"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
-const (
-	Name          = "builtin.llmusage"
-	DirectiveName = "llmusage"
-)
+const Name = "builtin.llmusage"
 
 type Spec struct {
 	Protocol            llmusage.Protocol `json:"protocol"`
@@ -27,133 +24,143 @@ type Spec struct {
 	MaxNestingDepth     int               `json:"max-nesting-depth,omitempty"`
 }
 
-type Plugin struct {
-	spec Spec
-}
+type Module struct{}
 
-type traceObserver struct {
+type binding struct{ spec Spec }
+
+type instance struct {
 	decoder  *llmusage.Decoder
 	spec     Spec
 	format   llmusage.Format
-	attempt  int
 	results  int
 	failed   bool
 	finished bool
 }
 
-func New() *Plugin { return &Plugin{} }
+func New() *Module { return &Module{} }
 
-func (p *Plugin) Name() string {
-	return Name
-}
-func (*Plugin) DirectiveName() string { return DirectiveName }
+func (*Module) Name() string { return Name }
 
-func (*Plugin) ConfigureSpec(raw []byte) (observability.Plugin, error) {
+func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
 	spec, err := decodeSpec(raw)
 	if err != nil {
 		return nil, err
 	}
-	return &Plugin{spec: spec}, nil
+	return binding{spec: spec}, nil
 }
 
-func (p *Plugin) ValidateSpec(raw []byte) error {
-	_, err := p.ConfigureSpec(raw)
-	return err
+func (binding binding) Lifetime() module.Lifetime { return module.LifetimeAttempt }
+
+func (binding binding) Open(module.OpenContext) (module.Instance, error) {
+	return &instance{spec: binding.spec}, nil
 }
 
-func (p *Plugin) NewTrace(observability.TraceContext) observability.TraceObserver {
-	if p == nil {
-		return nil
-	}
-	return &traceObserver{spec: p.spec}
+func (usage *instance) Mount(binder *module.Binder) {
+	async := module.AsyncPolicy(module.OverflowBlock)
+	binder.OnUpstreamResponseStarted(async, usage.onResponseStarted)
+	binder.OnUpstreamSSEData(async, usage.onSSEData)
+	binder.OnUpstreamJSONChunk(async, usage.onJSONChunk)
+	binder.OnUpstreamBodyEnded(async, usage.onBodyEnded)
 }
 
-func (t *traceObserver) Observe(signal observability.Signal, emitter observability.Emitter) {
-	switch value := signal.Value.(type) {
-	case observability.UpstreamResponseStarted:
-		t.start(signal.Attempt, value, emitter)
-	case observability.UpstreamBodyChunk:
-		t.feed(value.Data, emitter)
-	case observability.UpstreamBodyEnded:
-		t.finish(value.Cause, emitter)
-	}
+func (usage *instance) Finish(ctx module.FinishContext) error {
+	usage.finish(io.ErrUnexpectedEOF, ctx.Output)
+	return nil
 }
 
-func (t *traceObserver) Close(emitter observability.Emitter) {
-	t.finish(io.ErrUnexpectedEOF, emitter)
+func (usage *instance) onResponseStarted(ctx module.EventContext, response module.ResponseStarted) error {
+	usage.start(response, ctx.Output)
+	return nil
 }
 
-func (t *traceObserver) start(attempt int, response observability.UpstreamResponseStarted, emitter observability.Emitter) {
-	if t.decoder != nil || t.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
+func (usage *instance) onSSEData(ctx module.EventContext, event module.SSEData) error {
+	usage.feed(encodeSSEData(event), ctx.Output)
+	return nil
+}
+
+func (usage *instance) onJSONChunk(ctx module.EventContext, chunk module.BodyChunk) error {
+	usage.feed(chunk.Data, ctx.Output)
+	return nil
+}
+
+func (usage *instance) onBodyEnded(ctx module.EventContext, ended module.BodyEnded) error {
+	usage.finish(ended.Cause, ctx.Output)
+	return nil
+}
+
+func (usage *instance) start(response module.ResponseStarted, output module.Output) {
+	if usage.decoder != nil || usage.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
-	t.attempt = attempt
 	contentEncoding := strings.TrimSpace(response.Header.Get("Content-Encoding"))
 	if contentEncoding != "" && !strings.EqualFold(contentEncoding, "identity") {
-		t.emitFailure(attempt, "content_encoding", fmt.Errorf("unsupported content encoding %q", contentEncoding), emitter)
+		usage.emitFailure("content_encoding", fmt.Errorf("unsupported content encoding %q", contentEncoding), output)
 		return
 	}
 	format, ok := responseFormat(response.Header.Get("Content-Type"))
 	if !ok {
-		t.emitFailure(attempt, "content_type", fmt.Errorf("unsupported content type %q", response.Header.Get("Content-Type")), emitter)
+		usage.emitFailure("content_type", fmt.Errorf("unsupported content type %q", response.Header.Get("Content-Type")), output)
 		return
 	}
 	decoder, err := llmusage.NewDecoder(llmusage.Options{
-		Protocol:            t.spec.Protocol,
+		Protocol:            usage.spec.Protocol,
 		Format:              format,
-		MaxSSEMetadataBytes: t.spec.MaxSSEMetadataBytes,
-		MaxResultBytes:      t.spec.MaxResultBytes,
-		MaxNestingDepth:     t.spec.MaxNestingDepth,
+		MaxSSEMetadataBytes: usage.spec.MaxSSEMetadataBytes,
+		MaxResultBytes:      usage.spec.MaxResultBytes,
+		MaxNestingDepth:     usage.spec.MaxNestingDepth,
 	})
 	if err != nil {
-		t.emitFailure(attempt, "decoder", err, emitter)
+		usage.emitFailure("decoder", err, output)
 		return
 	}
-	t.decoder = decoder
-	t.format = format
+	usage.decoder = decoder
+	usage.format = format
 }
 
-func (t *traceObserver) feed(data []byte, emitter observability.Emitter) {
-	if t.decoder == nil || t.failed || t.finished || len(data) == 0 {
+func (usage *instance) feed(data []byte, output module.Output) {
+	if usage.decoder == nil || usage.failed || usage.finished || len(data) == 0 {
 		return
 	}
-	results, err := t.decoder.Feed(data)
+	results, err := usage.decoder.Feed(data)
 	if err != nil {
-		t.emitFailure(t.attempt, "feed", err, emitter)
+		usage.emitFailure("feed", err, output)
 		return
 	}
-	t.emitResults(results, emitter)
+	usage.emitResults(results, output)
 }
 
-func (t *traceObserver) finish(cause error, emitter observability.Emitter) {
-	if t.decoder == nil || t.failed || t.finished {
+func (usage *instance) finish(cause error, output module.Output) {
+	if usage.decoder == nil || usage.failed || usage.finished {
 		return
 	}
-	t.finished = true
-	results, err := t.decoder.Finish()
+	usage.finished = true
+	results, err := usage.decoder.Finish()
 	if err != nil {
-		t.emitFailure(t.attempt, "finish", err, emitter)
+		usage.emitFailure("finish", err, output)
 		return
 	}
-	t.emitResults(results, emitter)
-	if t.results == 0 {
+	usage.emitResults(results, output)
+	if usage.results == 0 && output != nil {
 		data := map[string]any{
-			"protocol": string(t.spec.Protocol), "format": string(t.format), "reason": "usage_not_reported",
+			"protocol": string(usage.spec.Protocol), "format": string(usage.format), "reason": "usage_not_reported",
 		}
 		if cause != nil && !errors.Is(cause, io.EOF) {
 			data["stream_error"] = cause.Error()
 		}
-		addLabels(data, t.spec.Labels)
-		emitter.Emit("llm.usage.not_observed", t.attempt, data)
+		addLabels(data, usage.spec.Labels)
+		output.Emit("llm.usage.not_observed", data)
 	}
 }
 
-func (t *traceObserver) emitResults(results []llmusage.Result, emitter observability.Emitter) {
+func (usage *instance) emitResults(results []llmusage.Result, output module.Output) {
+	if output == nil {
+		return
+	}
 	for _, result := range results {
-		t.results++
+		usage.results++
 		data := map[string]any{
 			"protocol":       string(result.Protocol),
-			"format":         string(t.format),
+			"format":         string(usage.format),
 			"response_id":    result.ResponseID,
 			"model":          result.Model,
 			"usage_sequence": result.Sequence,
@@ -168,25 +175,46 @@ func (t *traceObserver) emitResults(results []llmusage.Result, emitter observabi
 			"total_source":   string(result.TotalSource),
 			"raw_usage_json": string(result.RawUsage),
 		}
-		addLabels(data, t.spec.Labels)
-		emitter.Emit("llm.usage.observed", t.attempt, data)
+		addLabels(data, usage.spec.Labels)
+		output.Emit("llm.usage.observed", data)
 	}
 }
 
-func (t *traceObserver) emitFailure(attempt int, stage string, err error, emitter observability.Emitter) {
-	if t.failed {
+func (usage *instance) emitFailure(stage string, err error, output module.Output) {
+	if usage.failed {
 		return
 	}
-	t.failed = true
+	usage.failed = true
+	if output == nil {
+		return
+	}
 	data := map[string]any{"stage": stage, "error": err.Error()}
-	if t.spec.Protocol != "" {
-		data["protocol"] = string(t.spec.Protocol)
+	if usage.spec.Protocol != "" {
+		data["protocol"] = string(usage.spec.Protocol)
 	}
-	if t.format != "" {
-		data["format"] = string(t.format)
+	if usage.format != "" {
+		data["format"] = string(usage.format)
 	}
-	addLabels(data, t.spec.Labels)
-	emitter.Emit("llm.usage.failed", attempt, data)
+	addLabels(data, usage.spec.Labels)
+	output.Emit("llm.usage.failed", data)
+}
+
+func encodeSSEData(event module.SSEData) []byte {
+	var encoded bytes.Buffer
+	if event.Event != "" {
+		fmt.Fprintf(&encoded, "event: %s\n", event.Event)
+	}
+	if event.ID != "" {
+		fmt.Fprintf(&encoded, "id: %s\n", event.ID)
+	}
+	if event.RetryMillis != nil {
+		fmt.Fprintf(&encoded, "retry: %d\n", *event.RetryMillis)
+	}
+	for _, line := range strings.Split(string(event.Data), "\n") {
+		fmt.Fprintf(&encoded, "data: %s\n", line)
+	}
+	encoded.WriteByte('\n')
+	return encoded.Bytes()
 }
 
 func decodeSpec(raw []byte) (Spec, error) {

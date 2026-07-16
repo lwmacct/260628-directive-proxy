@@ -27,7 +27,7 @@ Proxy Retry 是每个代理请求的固有能力；入站请求无需携带 retr
 
 重复提交同一个已接受的 PUT 会返回原结果，不会再次取消 attempt；终态结果按 `command-retention` 短期保留。收到最终响应头后，请求立即退出可重试集合。`text/event-stream` 响应因此只在建立 SSE 之前可重试；已经开始传输的 SSE 不会被透明拼接或重连。POST/PATCH 只有在初始请求携带 `Idempotency-Key` 时才允许重试；代理会在所有 attempt 强制保留原值，但上游仍需正确实现幂等语义。
 
-带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由逻辑请求、重试 attempt 和异步 Capture 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；同步插件借用当前响应 buffer，异步 Capture 只复制固定大小 chunk，并受独立内存预算限制。
+带正文的请求必须提供 `Content-Length`。代理先按字节预算进入严格 FIFO 等待队列，获得额度前不会调用 `Body.Read`；获得额度后一次性分配准确长度的连续 `[]byte`。正文由逻辑请求、重试 attempt 和异步 Capture Module 通过 lease 共享，最后一个引用结束时归还额度，不写本地磁盘。响应继续流式转发；Module 的 mutation 在提交前形成 barrier，异步观察端口只处理自己拥有的投影视图。
 
 活动控制器和 cancel 句柄属于当前进程；多实例部署必须让 Admin API 命中持有原请求连接的实例，例如使用实例级管理地址或粘性路由。
 
@@ -50,17 +50,17 @@ server:
       max-bytes: 67108864
 ```
 
-## 可观测插件与输出
+## Directive Module 与输出
 
-内置插件固定随程序注册，由 directive token 按 attempt 选择并提供全部插件参数；部署配置只控制 Fluent 输出：
+内置 Module 固定随程序注册，由 directive token 通过有序 `program.request` / `program.attempt` 选择并提供配置：
 
-- [`builtin.capture`](docs/plugin-capture.md)：请求、响应和生命周期审计；
-- [`builtin.llmusage`](docs/plugin-llmusage.md)：LLM token usage 提取；
-- [`builtin.llmperf`](docs/plugin-llmperf.md)：LLM 响应性能测量；
-- Fluent 是整个 Observability 子系统的总开关；关闭时不创建插件、队列或连接，directive 中的插件配置被忽略且不影响正常代理。
-- 开启后通过内部有界队列投递统一 `dproxy.event.v1` Record，容量由 `fluent.buffer` 控制。
+- [`builtin.capture`](docs/module-capture.md)：request-scope 请求、响应和生命周期审计；
+- [`builtin.llmusage`](docs/module-llmusage.md)：attempt-scope LLM token usage 提取；
+- [`builtin.llmperf`](docs/module-llmperf.md)：attempt-scope LLM 响应性能测量；
+- Fluent 只控制 Sink、Queue 和连接；关闭时 Module 仍会注册、校验和执行，因此修改型 Module 不依赖可观测输出。
+- 开启后通过内部有界队列投递统一 `dproxy.event.v2` Record，容量由 `fluent.buffer` 控制。
 
-完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，扩展架构见 [`docs/observability-plugins.md`](docs/observability-plugins.md)。
+完整部署配置见 [`config/config.example.yaml`](config/config.example.yaml)，Module 架构见 [`docs/module-architecture.md`](docs/module-architecture.md)。
 
 完整事件契约与部署约束见 [Proxy request lifecycle](docs/proxy-request-lifecycle.md)。
 
@@ -264,11 +264,18 @@ payload schema：
       ]
     }
   },
-  "plugins": {}
+  "program": {
+    "request": [
+      {"id": "capture", "module": "builtin.capture", "config": {}}
+    ],
+    "attempt": [
+      {"id": "usage", "module": "builtin.llmusage", "config": {"protocol": "openai.responses"}}
+    ]
+  }
 }
 ```
 
-插件 directive 配置示例见 [`docs/plugin-capture.md`](docs/plugin-capture.md)、[`docs/plugin-llmusage.md`](docs/plugin-llmusage.md) 和 [`docs/plugin-llmperf.md`](docs/plugin-llmperf.md)。
+Module 配置示例见 [`docs/module-capture.md`](docs/module-capture.md)、[`docs/module-llmusage.md`](docs/module-llmusage.md) 和 [`docs/module-llmperf.md`](docs/module-llmperf.md)。
 
 使用 `directive.Encode` 生成 inline token，使用 `directive.EncodeRemote` 生成 remote token。
 
@@ -282,19 +289,22 @@ payload schema：
 - 响应不支持 `mode`。响应 ops 只应用于最终上游响应；被重试丢弃的响应、100/103 informational response、trailer 和 dproxy 本地错误不受影响。连接级、framing、Upgrade 与 dproxy 系统 header 不允许修改。
 - 两侧 ops 都按数组顺序执行。Glob 只匹配操作执行时已经存在的普通 header。
 
-HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并可由 Capture 插件输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。directive 的 `plugins` 按 attempt 生效，具体配置见各 [`plugin-*.md`](docs/plugin-capture.md)。携带 dproxy token 的入站 `Authorization` 会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
+HTTP hop-by-hop header 始终按代理传输规则移除，不受 directive 控制。精确名称的 `X-Dproxy-*` header op 会被消费为请求 Metadata，支持 `=`、`+`、`-` 的顺序语义，并可由 Capture Module 输出；它们不会发送给上游。`X-Dproxy-Trace-ID` 为系统保留字段。`program.request` 跨 retry，`program.attempt` 每次重新创建；数组顺序就是执行顺序。携带 dproxy token 的入站 `Authorization` 会被消费；如果上游需要自己的 `Authorization`，需要通过后续 header op 显式写入。
 
-HTTP RemoteSpec：
+Remote token document（request program 属于稳定 token；远端 payload 只允许 attempt program）：
 
 ```json
 {
-  "type": "http",
-  "url": "https://policy.example.com/v1/resolve",
-  "key": "team-a/service-a",
-  "headers": {
-    "Authorization": "Bearer policy-token"
+  "source": {
+    "type": "http",
+    "url": "https://policy.example.com/v1/resolve",
+    "key": "team-a/service-a",
+    "headers": {"Authorization": "Bearer policy-token"},
+    "request_headers": ["Content-Type", "X-Tenant", "X-Region-*"]
   },
-  "request_headers": ["Content-Type", "X-Tenant", "X-Region-*"]
+  "program": {
+    "request": [{"id":"capture","module":"builtin.capture","config":{}}]
+  }
 }
 ```
 
@@ -315,13 +325,15 @@ HTTP RemoteSpec：
 
 `request_headers` 使用大小写不敏感的精确名称或 glob。默认不向 resolver 披露任何原请求 header；dproxy `Authorization` 与 hop-by-hop headers 即使被选择也不会发送。HTTP resolver 使用独立直连 transport，不读取环境代理、不跟随重定向；`200` body 是完整 directive，`204/404` 表示未找到。
 
-Redis RemoteSpec：
+Redis remote token document：
 
 ```json
 {
-  "type": "redis",
-  "url": "redis://user:password@redis.example.com:6379/1",
-  "key": "dproxy:directive:team-a/service-a"
+  "source": {
+    "type": "redis",
+    "url": "redis://user:password@redis.example.com:6379/1",
+    "key": "dproxy:directive:team-a/service-a"
+  }
 }
 ```
 

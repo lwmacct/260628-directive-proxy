@@ -36,6 +36,6 @@ type HealthProvider interface {
 type HealthSnapshot struct {
 	Enabled bool                    `json:"enabled"`
 	Status  string                  `json:"status"`
-	Plugins map[string]HealthStatus `json:"plugins"`
+	Modules map[string]HealthStatus `json:"modules"`
 	Sink    HealthStatus            `json:"sink"`
 }

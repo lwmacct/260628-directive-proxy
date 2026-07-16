@@ -11,11 +11,11 @@ type HealthResponseDTO struct {
 type ObservabilityHealthDTO struct {
 	Enabled bool                       `json:"enabled"`
 	Status  string                     `json:"status"`
-	Plugins map[string]PluginHealthDTO `json:"plugins"`
+	Modules map[string]ModuleHealthDTO `json:"modules"`
 	Sink    OutputHealthDTO            `json:"sink"`
 }
 
-type PluginHealthDTO struct {
+type ModuleHealthDTO struct {
 	Status        string     `json:"status"`
 	LastFailureAt *time.Time `json:"last_failure_at,omitempty"`
 }

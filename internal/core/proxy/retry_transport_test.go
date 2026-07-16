@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/observability"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -23,12 +25,102 @@ type rotatingPrepared struct {
 	calls int
 }
 
-func TestRetryTransportRejectsDirectiveSpecForDisabledPluginBeforeUpstream(t *testing.T) {
-	pipeline, err := observability.NewPipeline(context.Background(), nil, observability.SinkConfig{})
+type transformingDefinition struct{}
+
+func (transformingDefinition) Name() string { return "test.transform" }
+func (transformingDefinition) Compile(json.RawMessage) (module.Binding, error) {
+	return transformingBinding{}, nil
+}
+
+type transformingBinding struct{}
+
+func (transformingBinding) Lifetime() module.Lifetime { return module.LifetimeAttempt }
+func (transformingBinding) Open(module.OpenContext) (module.Instance, error) {
+	return transformingInstance{}, nil
+}
+
+type transformingInstance struct{ module.NopInstance }
+
+func (transformingInstance) Mount(binder *module.Binder) {
+	binder.MutateOutboundRequest(module.SyncPolicy(), func(_ module.EventContext, request *http.Request) error {
+		request.Header.Set("X-Module", "applied")
+		return nil
+	})
+	binder.MutateOutboundBody(module.SyncPolicy(), func(_ module.EventContext, draft *module.BodyDraft) error {
+		draft.Data = []byte(strings.ToUpper(string(draft.Data)))
+		return nil
+	})
+	binder.MutateUpstreamResponse(module.SyncPolicy(), func(_ module.EventContext, draft *module.ResponseDraft) error {
+		draft.Response.Header.Set("X-Module-Response", "applied")
+		return nil
+	})
+	binder.MutateUpstreamBodyChunk(module.SyncPolicy(), func(_ module.EventContext, draft *module.BodyDraft) error {
+		draft.Data = []byte(strings.ReplaceAll(string(draft.Data), "raw", "transformed"))
+		return nil
+	})
+}
+
+func TestRetryTransportAppliesAttemptModuleMutationsBeforeCommit(t *testing.T) {
+	engine, err := observability.NewEngine(context.Background(), []module.Definition{transformingDefinition{}}, observability.SinkConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, pipeline)
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 1}, engine)
+	inbound, _ := http.NewRequest(http.MethodPost, "http://proxy.local/chat", strings.NewReader("request"))
+	session := tracker.Start(inbound, proxyrequest.Identity{})
+	if err := session.ConfigureRequest(nil); err != nil {
+		t.Fatal(err)
+	}
+	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, readErr := io.ReadAll(request.Body)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if request.Header.Get("X-Module") != "applied" || string(body) != "REQUEST" {
+			t.Fatalf("outbound mutations were not committed: headers=%#v body=%q", request.Header, body)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("raw response")),
+			Request:    request,
+		}, nil
+	})
+	transport, err := NewRetryTransport(base, RetryTransportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := url.Parse("https://upstream.example")
+	prepared := staticPrepared{resolution: Resolution{Plan: &Plan{
+		Target:  target,
+		Modules: []module.Spec{{ID: "transform", Module: "test.transform", Config: []byte(`{}`)}},
+	}}}
+	ctx := retryTestContext(t, inbound, session, prepared)
+	response, err := transport.RoundTrip(inbound.Clone(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Header.Get("X-Module-Response") != "applied" {
+		t.Fatalf("response mutation was not committed: %#v", response.Header)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if string(body) != "transformed response" {
+		t.Fatalf("body transform was not committed: %q", body)
+	}
+	session.Complete()
+	_ = engine.Close(context.Background())
+}
+
+func TestRetryTransportRejectsUnknownAttemptModuleBeforeUpstream(t *testing.T) {
+	engine, err := observability.NewEngine(context.Background(), nil, observability.SinkConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker := proxyrequestadapter.NewProxyRequestService(proxyrequestadapter.ProxyRequestOptions{MaxAttempts: 2}, engine)
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	session := tracker.Start(inbound, proxyrequest.Identity{})
 	called := false
@@ -41,13 +133,13 @@ func TestRetryTransportRejectsDirectiveSpecForDisabledPluginBeforeUpstream(t *te
 	}
 	target, _ := url.Parse("https://upstream.example")
 	ctx := retryTestContext(t, inbound, session, staticPrepared{resolution: Resolution{Plan: &Plan{
-		Target: target, PluginSpecs: map[string][]byte{"llmusage": []byte(`{"protocol":"openai.responses"}`)},
+		Target: target, Modules: []module.Spec{{ID: "usage", Module: "builtin.llmusage", Config: []byte(`{"protocol":"openai.responses"}`)}},
 	}}})
 	if _, err = transport.RoundTrip(inbound.Clone(ctx)); !errors.Is(err, ErrInvalidDirective) {
-		t.Fatalf("unexpected plugin configuration error: %v", err)
+		t.Fatalf("unexpected module configuration error: %v", err)
 	}
 	if called {
-		t.Fatal("upstream was called for a disabled directive plugin")
+		t.Fatal("upstream was called for an unknown directive module")
 	}
 	session.Complete()
 }
@@ -57,6 +149,8 @@ func (*rotatingPrepared) Kind() string { return "remote" }
 func (*rotatingPrepared) Source() SourceMetadata {
 	return SourceMetadata{Mode: "remote", Backend: "http", Endpoint: "https://resolver.example/resolve", Key: "routing"}
 }
+
+func (*rotatingPrepared) RequestProgram() []module.Spec { return nil }
 
 func (p *rotatingPrepared) ResolveAttempt(context.Context, int) (Resolution, error) {
 	index := p.calls

@@ -1,17 +1,20 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sync/atomic"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -21,6 +24,7 @@ var (
 	ErrResolverFailed        = errors.New("proxy directive resolver failed")
 	ErrContentLengthRequired = errors.New("proxy request Content-Length is required")
 	ErrBodyMemoryUnavailable = errors.New("proxy request body memory is unavailable")
+	ErrModuleFailed          = errors.New("proxy module failed")
 )
 
 type RetryTransportOptions struct{}
@@ -93,15 +97,15 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, ErrResolverFailed
 		}
 		resolution.Plan.Metadata = normalizedMetadata
-		if configureErr := session.ConfigureAttempt(attempt, resolution.Plan.PluginSpecs); configureErr != nil {
-			pluginErr := error(ErrInvalidDirective)
+		if configureErr := session.ConfigureAttempt(attempt, resolution.Plan.Modules); configureErr != nil {
+			moduleErr := error(ErrInvalidDirective)
 			if source.Mode == "remote" {
-				pluginErr = ErrRemoteDirectiveInvalid
+				moduleErr = ErrRemoteDirectiveInvalid
 			}
-			session.DirectiveFailed(attempt, resolveDuration, "invalid_plugin_config")
-			session.FinishAttempt(attempt, false, pluginErr)
+			session.DirectiveFailed(attempt, resolveDuration, "invalid_module_config")
+			session.FinishAttempt(attempt, false, moduleErr)
 			cancel()
-			return nil, pluginErr
+			return nil, moduleErr
 		}
 		fingerprint := planFingerprint(resolution.Plan)
 		planChanged := previousFingerprint != "" && previousFingerprint != fingerprint
@@ -121,9 +125,25 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			cancel()
 			return nil, ErrResolverFailed
 		}
-		attemptRequest.Body = body
-		attemptRequest.GetBody = func() (io.ReadCloser, error) { return bodyLease.Reader(), nil }
-		attemptRequest.ContentLength = bodyLease.Size()
+		if mutationErr := session.MutateOutboundRequest(attempt, attemptRequest); mutationErr != nil {
+			_ = body.Close()
+			session.FinishAttempt(attempt, false, mutationErr)
+			cancel()
+			return nil, fmt.Errorf("%w: outbound request: %v", ErrModuleFailed, mutationErr)
+		}
+		bodyData, mutationErr := session.MutateOutboundBody(attempt, bodyLease.Bytes())
+		if mutationErr != nil {
+			_ = body.Close()
+			session.FinishAttempt(attempt, false, mutationErr)
+			cancel()
+			return nil, fmt.Errorf("%w: outbound body: %v", ErrModuleFailed, mutationErr)
+		}
+		_ = body.Close()
+		attemptRequest.Body = io.NopCloser(bytes.NewReader(bodyData))
+		attemptRequest.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(bodyData)), nil
+		}
+		attemptRequest.ContentLength = int64(len(bodyData))
 		attemptRequest.TransferEncoding = nil
 		if !session.BeginUpstream(attempt, attemptRequest) {
 			_ = body.Close()
@@ -134,6 +154,16 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, context.Canceled
 		}
 		response, roundTripErr := t.base.RoundTrip(attemptRequest)
+		if roundTripErr == nil && response != nil {
+			if mutationErr := session.MutateUpstreamResponse(attempt, response); mutationErr != nil {
+				if response.Body != nil {
+					_ = response.Body.Close()
+				}
+				session.FinishAttempt(attempt, false, mutationErr)
+				cancel()
+				return nil, fmt.Errorf("%w: upstream response: %v", ErrModuleFailed, mutationErr)
+			}
+		}
 		action := session.FinishAttempt(attempt, response != nil && roundTripErr == nil, roundTripErr)
 		if action == proxyrequest.AttemptRetry && req.Context().Err() == nil {
 			cancel()
@@ -213,19 +243,19 @@ func planFingerprint(plan *Plan) string {
 		return ""
 	}
 	data, err := json.Marshal(struct {
-		Target      string
-		Proxy       string
-		Headers     HeaderPlan
-		Metadata    map[string][]string
-		PluginSpecs map[string][]byte
-		JoinPath    bool
+		Target   string
+		Proxy    string
+		Headers  HeaderPlan
+		Metadata map[string][]string
+		Modules  []module.Spec
+		JoinPath bool
 	}{
-		Target:      urlString(plan.Target),
-		Proxy:       urlString(plan.Proxy),
-		Headers:     plan.Headers,
-		Metadata:    plan.Metadata,
-		PluginSpecs: plan.PluginSpecs,
-		JoinPath:    plan.JoinPath,
+		Target:   urlString(plan.Target),
+		Proxy:    urlString(plan.Proxy),
+		Headers:  plan.Headers,
+		Metadata: plan.Metadata,
+		Modules:  plan.Modules,
+		JoinPath: plan.JoinPath,
 	})
 	if err != nil {
 		return ""

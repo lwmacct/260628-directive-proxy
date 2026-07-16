@@ -26,7 +26,7 @@ func RegisterHealth(api huma.API, health observability.HealthProvider) {
 
 func (h *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, error) {
 	response := HealthResponseDTO{Status: "ok", Timestamp: time.Now().UTC(), Observability: ObservabilityHealthDTO{
-		Status: "unavailable", Plugins: map[string]PluginHealthDTO{}, Sink: OutputHealthDTO{Type: "fluent", Status: "unavailable"},
+		Status: "unavailable", Modules: map[string]ModuleHealthDTO{}, Sink: OutputHealthDTO{Type: "fluent", Status: "unavailable"},
 	}}
 	if h != nil && h.observability != nil {
 		health := h.observability.ObservabilityHealth()
@@ -35,12 +35,12 @@ func (h *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, e
 		if health.Status == "degraded" || health.Status == "unavailable" {
 			response.Status = "degraded"
 		}
-		for name, status := range health.Plugins {
-			item := PluginHealthDTO{Status: status.Status}
+		for name, status := range health.Modules {
+			item := ModuleHealthDTO{Status: status.Status}
 			if !status.LastFailureAt.IsZero() {
 				item.LastFailureAt = &status.LastFailureAt
 			}
-			response.Observability.Plugins[name] = item
+			response.Observability.Modules[name] = item
 		}
 		status := health.Sink
 		response.Observability.Sink = OutputHealthDTO{Type: "fluent", Status: status.Status, QueuedRecords: status.QueuedRecords, QueuedBytes: status.QueuedBytes, DroppedRecords: status.DroppedRecords}

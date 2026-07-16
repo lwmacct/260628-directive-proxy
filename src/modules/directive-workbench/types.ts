@@ -28,6 +28,19 @@ export type EditorState = {
   preserveProxyDisclosure: boolean;
   requestHeaderOps: HeaderOp[];
   responseHeaderOps: HeaderOp[];
+  requestProgram: ModuleSpec[];
+  attemptProgram: ModuleSpec[];
+};
+
+export type ModuleSpec = {
+  id: string;
+  module: string;
+  config?: unknown;
+};
+
+export type DirectiveProgram = {
+  request?: ModuleSpec[];
+  attempt?: ModuleSpec[];
 };
 
 export type DirectivePayload = {
@@ -41,6 +54,7 @@ export type DirectivePayload = {
     };
     response?: { ops?: DirectiveHeaderOp[] };
   };
+  program?: DirectiveProgram;
 };
 
 export type DirectiveHeaderOp = {
@@ -58,9 +72,14 @@ export type RemoteSpec = {
   request_headers?: string[];
 };
 
+export type RemoteDocument = {
+  source: RemoteSpec;
+  program?: Pick<DirectiveProgram, "request">;
+};
+
 export type DirectiveDocument =
   | { kind: "inline"; payload: DirectivePayload }
-  | { kind: "remote"; remote: RemoteSpec };
+  | { kind: "remote"; remote: RemoteDocument };
 
 export type DirectiveCodecResponse = {
   token: string;

@@ -11,7 +11,7 @@ import (
 
 func TestDirectiveCodecEndpoints(t *testing.T) {
 	handler := NewAdminEndpoint(Services{}).Handler()
-	encodeBody := []byte(`{"kind":"remote","remote":{"type":"http","url":"https://policy.example.com/v1/resolve","key":"team-a/service-a","headers":{"authorization":"Bearer secret"},"request_headers":["Content-Type","X-Tenant-*"]}}`)
+	encodeBody := []byte(`{"kind":"remote","remote":{"source":{"type":"http","url":"https://policy.example.com/v1/resolve","key":"team-a/service-a","headers":{"authorization":"Bearer secret"},"request_headers":["Content-Type","X-Tenant-*"]}}}`)
 	encodeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(encodeResponse, httptest.NewRequest(http.MethodPost, "/api/admin/directives/encode", bytes.NewReader(encodeBody)))
 	if encodeResponse.Code != http.StatusOK {
@@ -21,8 +21,8 @@ func TestDirectiveCodecEndpoints(t *testing.T) {
 	if err := json.Unmarshal(encodeResponse.Body.Bytes(), &encoded); err != nil {
 		t.Fatalf("decode encode response: %v", err)
 	}
-	if !strings.HasPrefix(encoded.Token, "dproxy.16.r.") || encoded.Document.Remote == nil ||
-		encoded.Document.Remote.Headers["Authorization"] != "Bearer secret" || len(encoded.Document.Remote.RequestHeaders) != 2 {
+	if !strings.HasPrefix(encoded.Token, "dproxy.17.r.") || encoded.Document.Remote == nil ||
+		encoded.Document.Remote.Source.Headers["Authorization"] != "Bearer secret" || len(encoded.Document.Remote.Source.RequestHeaders) != 2 {
 		t.Fatalf("unexpected encoded document: %#v", encoded)
 	}
 

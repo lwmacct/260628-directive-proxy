@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Text } from "../../../shared/i18n";
 import { directiveCodecRequest } from "../codec";
 import { initialEditor } from "../constants";
-import { buildPayload, encodeDocument, errorMessage, formatPayload, payloadToEditor, remoteSpecToEditor } from "../utils";
+import { buildPayload, encodeDocument, errorMessage, formatPayload, payloadToEditor, remoteDocumentToEditor } from "../utils";
 import type { DirectivePayload, EditorState } from "../types";
 
 export function useDirectiveEditor(text: Text["authConsole"]) {
@@ -63,7 +63,7 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
       if (decoded.document.kind === "inline") {
         applyPayload(decoded.document.payload);
       } else {
-        setEditor(remoteSpecToEditor(editor, decoded.document.remote));
+        setEditor(remoteDocumentToEditor(editor, decoded.document.remote));
         setActiveSource("token");
         setError(null);
       }

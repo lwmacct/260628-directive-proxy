@@ -1,10 +1,10 @@
 package directive
 
-import "encoding/json"
+import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "16"
+	TokenVersion = "17"
 	TokenInline  = "i"
 	TokenRemote  = "r"
 )
@@ -15,9 +15,14 @@ const (
 )
 
 type Document struct {
-	Kind    string      `json:"kind" enum:"inline,remote"`
-	Payload *Payload    `json:"payload,omitempty"`
-	Remote  *RemoteSpec `json:"remote,omitempty"`
+	Kind    string          `json:"kind" enum:"inline,remote"`
+	Payload *Payload        `json:"payload,omitempty"`
+	Remote  *RemoteDocument `json:"remote,omitempty"`
+}
+
+type RemoteDocument struct {
+	Source  RemoteSpec     `json:"source"`
+	Program module.Program `json:"program,omitempty"`
 }
 
 const (
@@ -34,10 +39,10 @@ type RemoteSpec struct {
 }
 
 type Payload struct {
-	Target  TargetSection              `json:"target"`
-	Proxy   string                     `json:"proxy,omitempty"`
-	Headers *HeaderSection             `json:"headers,omitempty"`
-	Plugins map[string]json.RawMessage `json:"plugins,omitempty"`
+	Target  TargetSection  `json:"target"`
+	Proxy   string         `json:"proxy,omitempty"`
+	Headers *HeaderSection `json:"headers,omitempty"`
+	Program module.Program `json:"program,omitempty"`
 }
 
 type TargetSection struct {

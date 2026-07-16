@@ -78,9 +78,9 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode remote failed: %v", err)
 	}
-	if token.Kind != KindRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
-		token.Remote.Key != input.Key || token.Remote.Headers["Authorization"] != "Bearer policy-token" ||
-		len(token.Remote.RequestHeaders) != 2 {
+	if token.Kind != KindRemote || token.Remote.Source.Type != RemoteTypeHTTP || token.Remote.Source.URL != input.URL ||
+		token.Remote.Source.Key != input.Key || token.Remote.Source.Headers["Authorization"] != "Bearer policy-token" ||
+		len(token.Remote.Source.RequestHeaders) != 2 {
 		t.Fatalf("unexpected decoded token: %#v", token)
 	}
 }

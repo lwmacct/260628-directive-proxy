@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodymemory"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -73,6 +74,7 @@ type Tracker interface {
 type Session interface {
 	TraceID() string
 	WrapResponseWriter(http.ResponseWriter) http.ResponseWriter
+	ConfigureRequest([]module.Spec) error
 	BeginBodyRead()
 	RequestBodyAvailable(*bodymemory.Body)
 	RequestBodyEnd(int64, string, bool)
@@ -80,7 +82,10 @@ type Session interface {
 	BindMetadata(int, requestmeta.Metadata) bool
 	DirectiveResolved(int, *url.URL, time.Duration, string, bool, bool)
 	DirectiveFailed(int, time.Duration, string)
-	ConfigureAttempt(int, map[string][]byte) error
+	ConfigureAttempt(int, []module.Spec) error
+	MutateOutboundRequest(int, *http.Request) error
+	MutateOutboundBody(int, []byte) ([]byte, error)
+	MutateUpstreamResponse(int, *http.Response) error
 	BeginUpstream(int, *http.Request) bool
 	FinishAttempt(int, bool, error) AttemptAction
 	ObserveUpstreamResponse(int, *http.Response)

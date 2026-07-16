@@ -92,12 +92,12 @@ func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) 
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dproxy.16.i.payload", want: true},
+		{name: "current version", authorization: "Bearer dproxy.17.i.payload", want: true},
 		{name: "unsupported version", authorization: "Bearer dproxy.12.payload", want: true},
 		{name: "malformed family token", authorization: "Bearer dproxy.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dproxy.16.i.payload", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dproxy.17.i.payload", want: true},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dproxy.16.i.payload", want: false},
+		{name: "other scheme", authorization: "Basic dproxy.17.i.payload", want: false},
 		{name: "missing", want: false},
 	}
 

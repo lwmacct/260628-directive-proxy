@@ -1,6 +1,6 @@
 import type { Text } from "../../shared/i18n";
 import { newHeaderOp, newResolverHeader } from "./constants";
-import type { DirectiveDocument, DirectiveHeaderOp, DirectivePayload, EditorState, RemoteSpec } from "./types";
+import type { DirectiveDocument, DirectiveHeaderOp, DirectivePayload, EditorState, RemoteDocument, RemoteSpec } from "./types";
 
 export function buildPayload(input: EditorState): DirectivePayload {
   const buildOps = (items: EditorState["requestHeaderOps"]): DirectiveHeaderOp[] => items.flatMap<DirectiveHeaderOp>((item) => {
@@ -25,10 +25,16 @@ export function buildPayload(input: EditorState): DirectivePayload {
       ...(responseOps.length ? { response: { ops: responseOps } } : {}),
     };
   }
+  if (input.requestProgram.length || input.attemptProgram.length) {
+    payload.program = {
+      ...(input.requestProgram.length ? { request: input.requestProgram } : {}),
+      ...(input.attemptProgram.length ? { attempt: input.attemptProgram } : {}),
+    };
+  }
   return payload;
 }
 
-export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetURL" | "joinPath" | "proxyURL" | "requestHeaderMode" | "preserveProxyDisclosure" | "requestHeaderOps" | "responseHeaderOps"> {
+export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetURL" | "joinPath" | "proxyURL" | "requestHeaderMode" | "preserveProxyDisclosure" | "requestHeaderOps" | "responseHeaderOps" | "requestProgram" | "attemptProgram"> {
   const toEditorOps = (ops: DirectiveHeaderOp[]) => ops.map((item) => newHeaderOp(
     item.op,
     item.glob !== undefined ? "glob" : "name",
@@ -43,6 +49,8 @@ export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "t
     preserveProxyDisclosure: payload.headers?.request?.preserve_proxy_disclosure ?? false,
     requestHeaderOps: toEditorOps(payload.headers?.request?.ops ?? []),
     responseHeaderOps: toEditorOps(payload.headers?.response?.ops ?? []),
+    requestProgram: payload.program?.request ?? [],
+    attemptProgram: payload.program?.attempt ?? [],
   };
 }
 
@@ -60,11 +68,14 @@ export function buildRemoteSpec(editor: EditorState): RemoteSpec {
   };
 }
 
-export function remoteSpecToEditor(editor: EditorState, spec: RemoteSpec): EditorState {
+export function remoteDocumentToEditor(editor: EditorState, remote: RemoteDocument): EditorState {
+  const spec = remote.source;
   return {
     ...editor,
     source: spec.type,
     remoteKey: spec.key ?? "",
+    requestProgram: remote.program?.request ?? [],
+    attemptProgram: [],
     ...(spec.type === "http"
       ? {
           httpURL: spec.url,
@@ -76,7 +87,13 @@ export function remoteSpecToEditor(editor: EditorState, spec: RemoteSpec): Edito
 }
 
 export function encodeDocument(editor: EditorState, payload: DirectivePayload): DirectiveDocument {
-  return editor.source === "inline" ? { kind: "inline", payload } : { kind: "remote", remote: buildRemoteSpec(editor) };
+  return editor.source === "inline" ? { kind: "inline", payload } : {
+    kind: "remote",
+    remote: {
+      source: buildRemoteSpec(editor),
+      ...(editor.requestProgram.length ? { program: { request: editor.requestProgram } } : {}),
+    },
+  };
 }
 
 export function isRemoteKeyValid(value: string) {

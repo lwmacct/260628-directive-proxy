@@ -19,7 +19,7 @@ func Encode(payload Payload) (string, error) {
 }
 
 func EncodeRemote(spec RemoteSpec) (string, error) {
-	return EncodeDocument(Document{Kind: KindRemote, Remote: &spec})
+	return EncodeDocument(Document{Kind: KindRemote, Remote: &RemoteDocument{Source: spec}})
 }
 
 func EncodeDocument(document Document) (string, error) {
@@ -72,11 +72,11 @@ func DecodeWithOptions(encoded string, opts DecodeOptions) (Document, error) {
 		}
 		return ValidateDocument(Document{Kind: KindInline, Payload: &payload})
 	case TokenRemote:
-		spec, err := decodeRemoteSpec(raw)
+		remote, err := decodeRemoteDocument(raw)
 		if err != nil {
 			return Document{}, err
 		}
-		return Document{Kind: KindRemote, Remote: &spec}, nil
+		return ValidateDocument(Document{Kind: KindRemote, Remote: &remote})
 	default:
 		return Document{}, ErrInvalidPayload
 	}
@@ -93,11 +93,15 @@ func ValidateDocument(document Document) (Document, error) {
 		if document.Remote == nil || document.Payload != nil {
 			return Document{}, ErrInvalidPayload
 		}
-		spec, err := normalizeRemoteSpec(*document.Remote)
+		spec, err := normalizeRemoteSpec(document.Remote.Source)
 		if err != nil {
 			return Document{}, err
 		}
-		document.Remote = &spec
+		program, err := normalizeProgram(document.Remote.Program, true, false)
+		if err != nil {
+			return Document{}, err
+		}
+		document.Remote = &RemoteDocument{Source: spec, Program: program}
 		return document, nil
 	default:
 		return Document{}, ErrInvalidPayload
@@ -127,17 +131,17 @@ func encodeToken(kind string, raw []byte) string {
 	}, ".")
 }
 
-func decodeRemoteSpec(raw []byte) (RemoteSpec, error) {
+func decodeRemoteDocument(raw []byte) (RemoteDocument, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	var spec RemoteSpec
-	if err := decoder.Decode(&spec); err != nil {
-		return RemoteSpec{}, ErrInvalidPayload
+	var remote RemoteDocument
+	if err := decoder.Decode(&remote); err != nil {
+		return RemoteDocument{}, ErrInvalidPayload
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return RemoteSpec{}, ErrInvalidPayload
+		return RemoteDocument{}, ErrInvalidPayload
 	}
-	return normalizeRemoteSpec(spec)
+	return remote, nil
 }
 
 func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
