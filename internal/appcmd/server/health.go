@@ -1,11 +1,9 @@
-package handler
+package server
 
 import (
-	"context"
+	"encoding/json"
 	"net/http"
 	"time"
-
-	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
@@ -16,25 +14,29 @@ type healthHandler struct {
 	eventOutput event.HealthProvider
 }
 
-func RegisterHealth(api huma.API, modules module.HealthProvider, eventOutput event.HealthProvider) {
-	handler := &healthHandler{modules: modules, eventOutput: eventOutput}
-	huma.Register(api, huma.Operation{
-		OperationID: "get-health",
-		Method:      http.MethodGet,
-		Path:        "/health",
-		Summary:     "Get service health",
-	}, handler.get)
+func newHealthHandler(modules module.HealthProvider, eventOutput event.HealthProvider) http.Handler {
+	return &healthHandler{modules: modules, eventOutput: eventOutput}
 }
 
-func (handler *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutputDTO, error) {
-	response := HealthResponseDTO{
+func (handler *healthHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if request == nil || request.Method != http.MethodGet {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(writer).Encode(handler.snapshot())
+}
+
+func (handler *healthHandler) snapshot() HealthResponse {
+	response := HealthResponse{
 		Status:    "ok",
 		Timestamp: time.Now().UTC(),
-		Modules: ModuleRuntimeHealthDTO{
-			Status: "unavailable", Items: map[string]ModuleHealthDTO{},
+		Modules: ModuleRuntimeHealth{
+			Status: "unavailable", Items: map[string]ModuleHealth{},
 		},
-		EventOutput: EventOutputHealthDTO{
-			Status: "disabled", Sink: OutputHealthDTO{Type: "fluent", Status: "disabled"},
+		EventOutput: EventOutputHealth{
+			Status: "disabled", Sink: OutputHealth{Type: "fluent", Status: "disabled"},
 		},
 	}
 	if handler != nil && handler.modules != nil {
@@ -44,7 +46,7 @@ func (handler *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutput
 			response.Status = "degraded"
 		}
 		for name, status := range health.Modules {
-			item := ModuleHealthDTO{Status: status.Status}
+			item := ModuleHealth{Status: status.Status}
 			if !status.LastFailureAt.IsZero() {
 				item.LastFailureAt = &status.LastFailureAt
 			}
@@ -59,7 +61,7 @@ func (handler *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutput
 			response.Status = "degraded"
 		}
 		status := health.Sink
-		response.EventOutput.Sink = OutputHealthDTO{
+		response.EventOutput.Sink = OutputHealth{
 			Type: "fluent", Status: status.Status, QueuedRecords: status.QueuedRecords,
 			QueuedBytes: status.QueuedBytes, DroppedRecords: status.DroppedRecords,
 		}
@@ -67,5 +69,5 @@ func (handler *healthHandler) get(_ context.Context, _ *struct{}) (*HealthOutput
 			response.EventOutput.Sink.LastFailureAt = &status.LastFailureAt
 		}
 	}
-	return &HealthOutputDTO{Body: response}, nil
+	return response
 }

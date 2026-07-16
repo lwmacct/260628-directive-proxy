@@ -3,22 +3,14 @@ import { useWorkbenchLocale } from "@lwmacct/260627-antd-workbench";
 const zh = {
   app: {
     console: "控制台", settings: "设置", debugTools: "调试工具", preferences: "偏好设置",
-    exchanges: "活动请求", authConsole: "Authorization 工作台", appearance: "外观设置",
+    authConsole: "Directive 工作台", appearance: "外观设置",
   },
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
     unavailable: "暂时无法连接认证服务",
-  invalidToken: "访问令牌无效",
+    invalidToken: "访问令牌无效",
   },
   appearance: { panel: "主题与界面" },
-  exchanges: {
-    description: "查看处于正文流启动、请求流传输、远端指令解析或等待上游最终响应头阶段的请求，并人工触发带前置条件的重试。",
-    auto: "自动刷新", refresh: "刷新", active: "活动请求", retryable: "可重试", oldestWait: "最长阶段时长",
-    time: "尝试时间", method: "方法", status: "状态", metadata: "请求元数据", search: "搜索 URL、目标地址、Metadata 或 Trace ID",
-    target: "目标地址", attempt: "尝试", waiting: "阶段时长", resolving: "解析远程指令", bodyStarting: "启动正文流", bodyStreaming: "流式传输请求", awaiting: "等待上游响应", retrying: "正在切换尝试",
-    retry: "重试", retryConfirm: "取消当前上游尝试并启动下一次尝试？", retryNotReady: "当前请求不可重试或已达到次数上限",
-    requestFailed: "请求失败", retryFailed: "重试失败",
-  },
   authConsole: {
     description: "从结构化表单、Payload JSON 或 Token 任一来源编辑 directive，并同步生成其他格式。",
     structured: "结构化编辑", editableSources: "可编辑输入源", directiveSource: "指令来源", redisKey: "Redis Key", optionalRemoteKey: "远程 Key（可选）", httpResolverURL: "HTTP Resolver URL", redisURL: "Redis URL", resolverHeaders: "Resolver 静态请求头", resolverRequestHeaders: "允许披露的原请求头", addResolverHeader: "添加请求头", removeResolverHeader: "删除 Resolver 请求头", enabled: "启用", headerMode: "Header Mode", headerOps: "Header 操作", requestHeaderPolicy: "请求 Header", responseHeaderPolicy: "响应 Header", preserveProxyDisclosure: "保留代理披露 Header",
@@ -47,22 +39,14 @@ const zh = {
 const en: Text = {
   app: {
     console: "Console", settings: "Settings", debugTools: "Debug tools", preferences: "Preferences",
-    exchanges: "Active requests", authConsole: "Authorization Workbench", appearance: "Appearance",
+    authConsole: "Directive Workbench", appearance: "Appearance",
   },
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
     unavailable: "Unable to connect to the authentication service",
-  invalidToken: "Invalid access token",
+    invalidToken: "Invalid access token",
   },
   appearance: { panel: "Theme and interface" },
-  exchanges: {
-    description: "View requests starting or streaming a request body, resolving a directive, or awaiting final upstream response headers, and trigger a conditional retry through the admin API.",
-    auto: "Auto refresh", refresh: "Refresh", active: "Active requests", retryable: "Retryable", oldestWait: "Oldest state",
-    time: "Attempt time", method: "Method", status: "Status", metadata: "Request metadata", search: "Search URL, target, metadata, or Trace ID",
-    target: "Target", attempt: "Attempt", waiting: "State time", resolving: "Resolving directive", bodyStarting: "Starting body stream", bodyStreaming: "Streaming request", awaiting: "Awaiting upstream", retrying: "Switching attempt",
-    retry: "Retry", retryConfirm: "Cancel the current upstream attempt and start the next attempt?", retryNotReady: "Request is not retryable or attempt limit reached",
-    requestFailed: "Request failed", retryFailed: "Retry failed",
-  },
   authConsole: {
     description: "Edit a directive from the structured form, Payload JSON, or Token and keep every format in sync.",
     structured: "Structured editor", editableSources: "Editable sources", directiveSource: "Directive source", redisKey: "Redis key", optionalRemoteKey: "Remote key (optional)", httpResolverURL: "HTTP resolver URL", redisURL: "Redis URL", resolverHeaders: "Static resolver headers", resolverRequestHeaders: "Disclosed request headers", addResolverHeader: "Add header", removeResolverHeader: "Remove resolver header", enabled: "Enabled", headerMode: "Header Mode", headerOps: "Header operations", requestHeaderPolicy: "Request headers", responseHeaderPolicy: "Response headers", preserveProxyDisclosure: "Preserve proxy disclosure headers",

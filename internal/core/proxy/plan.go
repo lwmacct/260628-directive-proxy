@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -14,6 +15,7 @@ type Plan struct {
 	Headers  HeaderPlan
 	Metadata requestmeta.Metadata
 	Modules  []module.Spec
+	Recovery *recovery.Policy
 	JoinPath bool
 }
 
@@ -41,6 +43,7 @@ func ClonePlan(in *Plan) *Plan {
 	out.Headers = cloneHeaderPlan(in.Headers)
 	out.Metadata = requestmeta.Clone(in.Metadata)
 	out.Modules = cloneModuleSpecs(in.Modules)
+	out.Recovery = recovery.ClonePolicy(in.Recovery)
 	return &out
 }
 

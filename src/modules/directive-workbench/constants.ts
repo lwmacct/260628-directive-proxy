@@ -37,4 +37,5 @@ export const initialEditor: EditorState = {
   responseHeaderOps: [],
   requestProgram: [{ id: "capture", module: "builtin.capture", config: {} }],
   attemptProgram: [],
+  recovery: undefined,
 };

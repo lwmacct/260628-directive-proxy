@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
 var (
@@ -30,4 +31,16 @@ type PreparedDirective interface {
 	Source() SourceMetadata
 	RequestProgram() []module.Spec
 	ResolveAttempt(context.Context, int) (Resolution, error)
+}
+
+type RecoveryPreparedDirective interface {
+	Recovery() *recovery.Policy
+}
+
+func PreparedRecovery(prepared PreparedDirective) *recovery.Policy {
+	value, ok := prepared.(RecoveryPreparedDirective)
+	if !ok || value == nil {
+		return nil
+	}
+	return value.Recovery()
 }

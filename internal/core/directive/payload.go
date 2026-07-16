@@ -4,7 +4,7 @@ import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
 const (
 	TokenFamily  = "dproxy"
-	TokenVersion = "17"
+	TokenVersion = "18"
 	TokenInline  = "i"
 	TokenRemote  = "r"
 )
@@ -15,14 +15,49 @@ const (
 )
 
 type Document struct {
-	Kind    string          `json:"kind" enum:"inline,remote"`
-	Payload *Payload        `json:"payload,omitempty"`
-	Remote  *RemoteDocument `json:"remote,omitempty"`
+	Kind     string          `json:"kind" enum:"inline,remote"`
+	Payload  *Payload        `json:"payload,omitempty"`
+	Remote   *RemoteDocument `json:"remote,omitempty"`
+	Recovery *RecoverySpec   `json:"recovery,omitempty"`
 }
 
 type RemoteDocument struct {
 	Source  RemoteSpec     `json:"source"`
 	Program module.Program `json:"program,omitempty"`
+}
+
+type RecoverySpec struct {
+	Controller RecoveryControllerSpec `json:"controller"`
+	Triggers   RecoveryTriggerSpec    `json:"triggers"`
+	Budget     RecoveryBudgetSpec     `json:"budget"`
+}
+
+type RecoveryControllerSpec struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Timeout string            `json:"timeout,omitempty"`
+}
+
+type RecoveryTriggerSpec struct {
+	ResponseHeaderTimeout string                        `json:"response_header_timeout,omitempty"`
+	UnexpectedStatus      *RecoveryUnexpectedStatusSpec `json:"unexpected_status,omitempty"`
+	TransportError        bool                          `json:"transport_error,omitempty"`
+	DirectiveError        bool                          `json:"directive_error,omitempty"`
+}
+
+type RecoveryUnexpectedStatusSpec struct {
+	Expected         []RecoveryStatusRangeSpec `json:"expected"`
+	CaptureBodyBytes int64                     `json:"capture_body_bytes,omitempty"`
+}
+
+type RecoveryStatusRangeSpec struct {
+	From int `json:"from"`
+	To   int `json:"to"`
+}
+
+type RecoveryBudgetSpec struct {
+	MaxAttempts int    `json:"max_attempts"`
+	MaxElapsed  string `json:"max_elapsed,omitempty"`
 }
 
 const (

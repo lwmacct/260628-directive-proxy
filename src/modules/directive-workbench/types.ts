@@ -30,6 +30,7 @@ export type EditorState = {
   responseHeaderOps: HeaderOp[];
   requestProgram: ModuleSpec[];
   attemptProgram: ModuleSpec[];
+  recovery?: RecoverySpec;
 };
 
 export type ModuleSpec = {
@@ -77,9 +78,30 @@ export type RemoteDocument = {
   program?: Pick<DirectiveProgram, "request">;
 };
 
+export type RecoverySpec = {
+  controller: {
+    url: string;
+    headers?: Record<string, string>;
+    timeout?: string;
+  };
+  triggers: {
+    response_header_timeout?: string;
+    unexpected_status?: {
+      expected: Array<{ from: number; to: number }>;
+      capture_body_bytes?: number;
+    };
+    transport_error?: boolean;
+    directive_error?: boolean;
+  };
+  budget: {
+    max_attempts: number;
+    max_elapsed?: string;
+  };
+};
+
 export type DirectiveDocument =
-  | { kind: "inline"; payload: DirectivePayload }
-  | { kind: "remote"; remote: RemoteDocument };
+  | { kind: "inline"; payload: DirectivePayload; recovery?: RecoverySpec }
+  | { kind: "remote"; remote: RemoteDocument; recovery?: RecoverySpec };
 
 export type DirectiveCodecResponse = {
   token: string;

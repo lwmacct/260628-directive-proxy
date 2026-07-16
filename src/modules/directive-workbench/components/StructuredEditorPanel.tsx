@@ -4,7 +4,7 @@ import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import { useEffect, useState, type ChangeEvent } from "react";
 import { HeaderOperationsTable } from "./HeaderOperationsTable";
 import { newHeaderOp, newResolverHeader } from "../constants";
-import type { EditorState, HeaderOp, ModuleSpec } from "../types";
+import type { EditorState, HeaderOp, ModuleSpec, RecoverySpec } from "../types";
 import type { Text } from "../../../shared/i18n";
 
 const { Text: Label } = Typography;
@@ -26,6 +26,25 @@ function ProgramEditor(props: { label: string; value: ModuleSpec[]; onChange: (v
   };
   return <Form.Item help={invalid ? "Invalid module program JSON" : undefined} label={label} validateStatus={invalid ? "error" : undefined}>
     <Input.TextArea autoSize={{ minRows: 4, maxRows: 12 }} onBlur={apply} onChange={(event) => setRaw(event.target.value)} value={raw} />
+  </Form.Item>;
+}
+
+function RecoveryEditor(props: { value?: RecoverySpec; onChange: (value?: RecoverySpec) => void }) {
+  const { value, onChange } = props;
+  const [raw, setRaw] = useState(() => value ? JSON.stringify(value, null, 2) : "");
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => { setRaw(value ? JSON.stringify(value, null, 2) : ""); }, [value]);
+  const apply = () => {
+    try {
+      const parsed = raw.trim() ? JSON.parse(raw) as RecoverySpec : undefined;
+      onChange(parsed);
+      setInvalid(false);
+    } catch {
+      setInvalid(true);
+    }
+  };
+  return <Form.Item help={invalid ? "Invalid Recovery JSON" : undefined} label="Recovery Controller" validateStatus={invalid ? "error" : undefined}>
+    <Input.TextArea autoSize={{ minRows: 6, maxRows: 18 }} placeholder='{ "controller": { "url": "https://control.example/recovery" }, "triggers": { "unexpected_status": { "expected": [{ "from": 200, "to": 299 }] } }, "budget": { "max_attempts": 3 } }' onBlur={apply} onChange={(event) => setRaw(event.target.value)} value={raw} />
   </Form.Item>;
 }
 
@@ -75,6 +94,7 @@ export function StructuredEditorPanel(props: { editor: EditorState; text: Text["
         {editor.source === "http" ? <><Form.Item label={text.resolverRequestHeaders}><Select mode="tags" open={false} placeholder="Content-Type, X-Tenant-*" value={editor.resolverRequestHeaders} onChange={(resolverRequestHeaders: string[]) => onUpdate({ resolverRequestHeaders })} /></Form.Item><Form.Item label={text.resolverHeaders}><Flex gap="small" vertical>{editor.resolverHeaders.map((header) => <Flex gap="small" key={header.key} wrap><Input placeholder="Authorization" style={{ flex: "1 1 160px", minWidth: 0 }} value={header.name} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ resolverHeaders: editor.resolverHeaders.map((item) => item.key === header.key ? { ...item, name: event.target.value } : item) })} /><Input placeholder="Bearer policy-token" style={{ flex: "1 1 160px", minWidth: 0 }} value={header.value} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ resolverHeaders: editor.resolverHeaders.map((item) => item.key === header.key ? { ...item, value: event.target.value } : item) })} /><Button aria-label={text.removeResolverHeader} icon={<DeleteOutlined />} onClick={() => onUpdate({ resolverHeaders: editor.resolverHeaders.filter((item) => item.key !== header.key) })} /></Flex>)}<Button icon={<PlusOutlined />} onClick={() => onUpdate({ resolverHeaders: [...editor.resolverHeaders, newResolverHeader("", "")] })}>{text.addResolverHeader}</Button></Flex></Form.Item></> : null}
         <ProgramEditor label="Request modules" value={editor.requestProgram} onChange={(requestProgram) => onUpdate({ requestProgram })} />
       </>}
+      <RecoveryEditor value={editor.recovery} onChange={(recovery) => onUpdate({ recovery })} />
     </Form>
   </>;
 }

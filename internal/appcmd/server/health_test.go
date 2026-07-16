@@ -1,7 +1,9 @@
-package handler
+package server
 
 import (
-	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -31,14 +33,16 @@ func TestHealthReportsModuleAndEventOutputDegradation(t *testing.T) {
 			},
 		}},
 	}
-	response, err := handler.get(context.Background(), &struct{}{})
-	if err != nil {
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	var response HealthResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Body.Status != "degraded" || response.Body.Modules.Items["builtin.llmusage"].Status != "ok" {
-		t.Fatalf("unexpected health response: %#v", response.Body)
+	if response.Status != "degraded" || response.Modules.Items["builtin.llmusage"].Status != "ok" {
+		t.Fatalf("unexpected health response: %#v", response)
 	}
-	output := response.Body.EventOutput.Sink
+	output := response.EventOutput.Sink
 	if output.Status != "degraded" || output.DroppedRecords != 2 || output.LastFailureAt == nil || !output.LastFailureAt.Equal(failureAt) {
 		t.Fatalf("unexpected output health: %#v", output)
 	}
@@ -51,11 +55,8 @@ func TestHealthReportsDisabledEventOutputWithoutDegradingService(t *testing.T) {
 			Status: "disabled", Sink: event.Status{Status: "disabled"},
 		}},
 	}
-	response, err := handler.get(context.Background(), &struct{}{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Body.Status != "ok" || response.Body.EventOutput.Enabled || response.Body.EventOutput.Status != "disabled" || response.Body.EventOutput.Sink.Status != "disabled" {
-		t.Fatalf("unexpected disabled output health: %#v", response.Body)
+	response := handler.snapshot()
+	if response.Status != "ok" || response.EventOutput.Enabled || response.EventOutput.Status != "disabled" || response.EventOutput.Sink.Status != "disabled" {
+		t.Fatalf("unexpected disabled output health: %#v", response)
 	}
 }

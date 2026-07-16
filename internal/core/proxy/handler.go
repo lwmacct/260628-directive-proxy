@@ -12,17 +12,16 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/retry"
 )
 
 type exchangeStarter interface {
-	Start(*http.Request, retry.Identity) *exchange.Exchange
+	Start(*http.Request) *exchange.Exchange
 }
 
 type Handler struct {
 	resolver           Resolver
 	proxy              *httputil.ReverseProxy
-	exchanges          exchangeStarter
+	exchangeFactory    exchangeStarter
 	trackBeforeResolve bool
 	bodyStore          *bodystore.Controller
 	bodyReadTimeout    time.Duration
@@ -30,7 +29,7 @@ type Handler struct {
 }
 
 type HandlerOptions struct {
-	Exchanges          exchangeStarter
+	ExchangeFactory    exchangeStarter
 	TrackBeforeResolve bool
 	BodyStore          *bodystore.Controller
 	BodyReadTimeout    time.Duration
@@ -40,7 +39,7 @@ type HandlerOptions struct {
 
 func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOptions) *Handler {
 	if _, ok := transport.(interface{ orchestratesPreparedRequests() }); !ok {
-		wrapped, err := NewRetryTransport(transport, RetryTransportOptions{})
+		wrapped, err := NewRecoveryTransport(transport, RecoveryTransportOptions{})
 		if err == nil {
 			transport = wrapped
 		}
@@ -48,7 +47,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 	proxy := &httputil.ReverseProxy{
 		// Flush every write so SSE/NDJSON style responses are forwarded promptly.
 		FlushInterval: -1,
-		// RetryTransport rebuilds every outbound attempt from the immutable
+		// RecoveryTransport rebuilds every outbound attempt from the immutable
 		// inbound template after resolving that attempt's directive.
 		Rewrite:        func(*httputil.ProxyRequest) {},
 		ModifyResponse: modifyResponse,
@@ -59,7 +58,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 	return &Handler{
 		resolver:           resolver,
 		proxy:              proxy,
-		exchanges:          opts.Exchanges,
+		exchangeFactory:    opts.ExchangeFactory,
 		trackBeforeResolve: opts.TrackBeforeResolve,
 		bodyStore:          opts.BodyStore,
 		bodyReadTimeout:    opts.BodyReadTimeout,
@@ -93,6 +92,10 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "module_failed", "module: request lifecycle execution failed")
 		return
 	}
+	if errors.Is(err, ErrRecoveryFailed) {
+		WriteProxyErrorJSON(w, http.StatusBadGateway, "recovery_failed", "recovery: controller failed the upstream attempt")
+		return
+	}
 	if writeDirectiveError(w, err) {
 		return
 	}
@@ -116,18 +119,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	identity, identityErr := retry.TakeIdentity(r)
-	if identityErr != nil {
-		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_retry_identity", "proxy: Dproxy-Retry-ID must be a canonical UUIDv7")
-		return
-	}
 	var current *exchange.Exchange
-	if h.trackBeforeResolve && h.exchanges != nil {
-		current = h.exchanges.Start(r, identity)
-		if current == nil && identity.Valid() {
-			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_retry_id", "proxy: retry ID is already active")
-			return
-		}
+	if h.trackBeforeResolve && h.exchangeFactory != nil {
+		current = h.exchangeFactory.Start(r)
 		if current != nil {
 			r = r.WithContext(exchange.ContextWithExchange(r.Context(), current))
 			w = current.WrapResponseWriter(w)
@@ -143,12 +137,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if current == nil && h.exchanges != nil {
-		current = h.exchanges.Start(r, identity)
-		if current == nil && identity.Valid() {
-			WriteProxyErrorJSON(w, http.StatusConflict, "duplicate_retry_id", "proxy: retry ID is already active")
-			return
-		}
+	if current == nil && h.exchangeFactory != nil {
+		current = h.exchangeFactory.Start(r)
 		if current != nil {
 			r = r.WithContext(exchange.ContextWithExchange(r.Context(), current))
 			w = current.WrapResponseWriter(w)

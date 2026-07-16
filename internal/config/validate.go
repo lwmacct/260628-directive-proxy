@@ -74,9 +74,11 @@ func Validate(cfg Server) (Server, error) {
 		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
 		return cfg, ErrInvalidTransport
 	}
-	retry := cfg.Proxy.Retry
-	if retry.MaxAttempts < 2 || retry.CommandRetention <= 0 {
-		return cfg, ErrInvalidRetry
+	recoveryConfig := cfg.Proxy.Recovery
+	if recoveryConfig.MaxAttemptsLimit < 1 || recoveryConfig.MaxElapsedLimit <= 0 ||
+		recoveryConfig.MaxCallbackTimeout <= 0 || recoveryConfig.MaxCapturedBodyBytes <= 0 ||
+		recoveryConfig.MaxCallbackResponseBytes <= 0 {
+		return cfg, ErrInvalidRecovery
 	}
 	bodyStore := cfg.Proxy.BodyStore
 	if bodyStore.MemoryMaxBytes <= 0 || bodyStore.MemoryPerBodyBytes <= 0 ||

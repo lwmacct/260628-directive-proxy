@@ -87,12 +87,14 @@ export function remoteDocumentToEditor(editor: EditorState, remote: RemoteDocume
 }
 
 export function encodeDocument(editor: EditorState, payload: DirectivePayload): DirectiveDocument {
-  return editor.source === "inline" ? { kind: "inline", payload } : {
+  const recovery = editor.recovery ? { recovery: editor.recovery } : {};
+  return editor.source === "inline" ? { kind: "inline", payload, ...recovery } : {
     kind: "remote",
     remote: {
       source: buildRemoteSpec(editor),
       ...(editor.requestProgram.length ? { program: { request: editor.requestProgram } } : {}),
     },
+    ...recovery,
   };
 }
 

@@ -262,15 +262,18 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 	}
 }
 
-func TestValidateRetryConfiguration(t *testing.T) {
-	for _, mutate := range []func(*ProxyRetry){
-		func(cfg *ProxyRetry) { cfg.MaxAttempts = 1 },
-		func(cfg *ProxyRetry) { cfg.CommandRetention = 0 },
+func TestValidateRecoveryConfiguration(t *testing.T) {
+	for _, mutate := range []func(*ProxyRecovery){
+		func(cfg *ProxyRecovery) { cfg.MaxAttemptsLimit = 0 },
+		func(cfg *ProxyRecovery) { cfg.MaxElapsedLimit = 0 },
+		func(cfg *ProxyRecovery) { cfg.MaxCallbackTimeout = 0 },
+		func(cfg *ProxyRecovery) { cfg.MaxCapturedBodyBytes = 0 },
+		func(cfg *ProxyRecovery) { cfg.MaxCallbackResponseBytes = 0 },
 	} {
 		cfg := validDefaultConfig()
-		mutate(&cfg.Proxy.Retry)
-		if _, err := Validate(cfg); err != ErrInvalidRetry {
-			t.Fatalf("expected invalid retry config, got %v", err)
+		mutate(&cfg.Proxy.Recovery)
+		if _, err := Validate(cfg); err != ErrInvalidRecovery {
+			t.Fatalf("expected invalid recovery config, got %v", err)
 		}
 	}
 	for _, mutate := range []func(*ProxyBodyStore){

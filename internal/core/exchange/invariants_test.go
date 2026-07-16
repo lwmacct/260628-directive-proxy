@@ -12,12 +12,11 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/retry"
 )
 
 func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
-	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), retry.Identity{})
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	attempt, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +30,7 @@ func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
 
 func TestAttemptModuleProgramCanOnlyBeConfiguredOnce(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
-	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), retry.Identity{})
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	attempt, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
 	if err != nil {
 		t.Fatal(err)
@@ -45,9 +44,9 @@ func TestAttemptModuleProgramCanOnlyBeConfiguredOnce(t *testing.T) {
 	current.Complete()
 }
 
-func TestConcurrentRetryCommandsAreIdempotent(t *testing.T) {
+func TestConcurrentRecoveryRetryIsIdempotent(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
-	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil), retry.Identity{})
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	var cancelCount atomic.Int32
 	attempt, err := current.BeginAttempt(func() { cancelCount.Add(1) }, AttemptSource{Mode: "inline"})
 	if err != nil {
@@ -55,6 +54,9 @@ func TestConcurrentRetryCommandsAreIdempotent(t *testing.T) {
 	}
 	if !attempt.BeginUpstream(nil) {
 		t.Fatal("attempt did not enter upstream state")
+	}
+	if !attempt.BeginRecovery() {
+		t.Fatal("attempt did not enter recovery state")
 	}
 
 	const callers = 32
@@ -64,13 +66,10 @@ func TestConcurrentRetryCommandsAreIdempotent(t *testing.T) {
 	for range callers {
 		go func() {
 			defer wait.Done()
-			result, retryErr := manager.RetryByTraceID(current.TraceID(), attempt.Number(), TriggerAdminAPI)
+			retryErr := attempt.RequestRecoveryRetry()
 			if retryErr != nil {
 				errorsSeen <- retryErr
 				return
-			}
-			if result.NextAttempt != 2 || result.Exchange.Phase != PhaseRetryRequested {
-				errorsSeen <- errors.New("retry command returned an inconsistent result")
 			}
 		}()
 	}
@@ -100,7 +99,7 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
 	requestContext, cancel := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil).WithContext(requestContext)
-	current := manager.Start(request, retry.Identity{})
+	current := manager.Start(request)
 	if err := current.ConfigureRequest([]module.Spec{{ID: "drain", Module: "test.drain"}}); err != nil {
 		t.Fatal(err)
 	}

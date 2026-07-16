@@ -10,7 +10,6 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
-	"github.com/lwmacct/260628-directive-proxy/internal/handler"
 )
 
 const (
@@ -38,16 +37,19 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
-	services := handler.Services{ExchangeQuery: rt.exchanges, ExchangeCommands: rt.exchanges, Modules: rt.moduleRuntime, EventOutput: rt.eventOutput}
-	publicAPI := limitRequestBody(handler.NewPublicEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
-	adminAPI := limitRequestBody(handler.NewAdminEndpoint(services).Handler(), cfg.HTTP.MaxAPIBodyBytes)
+	health := newHealthHandler(rt.moduleRuntime, rt.eventOutput)
+	adminAPI := limitRequestBody(newDirectiveHandler(), cfg.HTTP.MaxAPIBodyBytes)
 	if rt.adminAuth != nil {
 		adminAPI = rt.adminAuth.RequireAccess(adminAPI)
+	} else {
+		adminAPI = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, errorResponse{Detail: "authentication unavailable"})
+		})
 	}
-	fallback := newFallbackHTTPHandler(rt, handler.NewSystemEndpoint(services).Handler())
-	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.exchanges, rt.bodyStore, rt.proxyTransport)
+	fallback := newFallbackHTTPHandler(rt)
+	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.exchangeFactory, rt.bodyStore, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
-		return routeHTTPRequests(publicAPI, adminAPI, directiveProxy, fallback)
+		return routeHTTPRequests(rt, health, adminAPI, directiveProxy, fallback)
 	}
 	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
@@ -55,16 +57,20 @@ func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	if rt.sourceAccess != nil {
 		protectedDirective = rt.sourceAccess.RequireAccess(directiveProxy)
 	}
-	return routeHTTPRequests(publicAPI, adminAPI, protectedDirective, fallback)
+	return routeHTTPRequests(rt, health, adminAPI, protectedDirective, fallback)
 }
 
-func routeHTTPRequests(publicAPI, adminAPI, directiveHandler, fallback http.Handler) http.Handler {
+func routeHTTPRequests(rt *runtime, health, adminAPI, directiveHandler, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case pathWithin(r.URL.Path, publicAPIPrefix):
-			publicAPI.ServeHTTP(w, r)
 		case pathWithin(r.URL.Path, adminAPIPrefix):
 			adminAPI.ServeHTTP(w, r)
+		case pathWithin(r.URL.Path, publicAPIPrefix):
+			http.NotFound(w, r)
+		case r.URL.Path == "/health":
+			health.ServeHTTP(w, r)
+		case rt != nil && rt.adminAuth != nil && pathWithin(r.URL.Path, rt.adminAuth.PathPrefix()):
+			fallback.ServeHTTP(w, r)
 		case directive.MatchesRequest(r):
 			directiveHandler.ServeHTTP(w, r)
 		default:
@@ -77,12 +83,11 @@ func pathWithin(requestPath, prefix string) bool {
 	return requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/")
 }
 
-func newFallbackHTTPHandler(rt *runtime, systemAPI http.Handler) http.Handler {
+func newFallbackHTTPHandler(rt *runtime) http.Handler {
 	mux := http.NewServeMux()
-	if rt.adminAuth != nil {
-		mux.Handle(rt.adminAuth.PathPrefix()+"/", rt.adminAuth.Handler())
+	if rt != nil && rt.adminAuth != nil {
+		mux.Handle(rt.adminAuth.PathPrefix()+"/", noStore(rt.adminAuth.Handler()))
 	}
-	mux.Handle("/health", systemAPI)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
 		mux.Handle("/", spaFileServer(webRoot))
 	}
@@ -138,13 +143,5 @@ func limitRequestBody(next http.Handler, maxBytes int64) http.Handler {
 }
 
 func shouldLimitRequestBody(r *http.Request) bool {
-	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Body == nil || r.Body == http.NoBody {
-		return false
-	}
-	for _, value := range r.Header.Values("Upgrade") {
-		if strings.EqualFold(strings.TrimSpace(value), "websocket") {
-			return false
-		}
-	}
-	return true
+	return r.Method != http.MethodGet && r.Method != http.MethodHead && r.Body != nil && r.Body != http.NoBody
 }

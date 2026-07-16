@@ -255,13 +255,11 @@ func (attempt *Attempt) BeginUpstream(req *http.Request) bool {
 		return false
 	}
 	current := attempt.exchange
-	now := time.Now().UTC()
 	current.stateMu.Lock()
 	if current.current != attempt || current.ctx.Err() != nil {
 		current.stateMu.Unlock()
 		return false
 	}
-	attempt.upstreamAt = now
 	current.phase = PhaseAwaitingResponse
 	targetURL := current.targetURL
 	current.stateMu.Unlock()
@@ -283,7 +281,6 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	}
 	current := attempt.exchange
 	decision := DecisionReturn
-	remove := false
 	closeLifecycle := true
 	current.stateMu.Lock()
 	if current.current != attempt {
@@ -296,17 +293,12 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	} else if responseStarted && attemptErr == nil {
 		current.phase = PhaseStreamingResponse
 		closeLifecycle = false
-		remove = true
 	} else {
 		current.current = nil
 		current.phase = PhaseFinished
-		remove = true
 	}
 	attempt.cancel = nil
 	current.stateMu.Unlock()
-	if remove {
-		current.manager.remove(current)
-	}
 	if !closeLifecycle {
 		return decision
 	}
@@ -325,7 +317,7 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	return decision
 }
 
-func (attempt *Attempt) emitRetryRequested(trigger Trigger, nextAttempt int) {
+func (attempt *Attempt) emitRetryRequested(trigger string, nextAttempt int) {
 	if attempt == nil || attempt.exchange == nil {
 		return
 	}
@@ -333,7 +325,7 @@ func (attempt *Attempt) emitRetryRequested(trigger Trigger, nextAttempt int) {
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.RetryRequested(current.ctx, module.RetryRequested{Trigger: string(trigger), NextAttempt: nextAttempt})
+		return scope.RetryRequested(current.ctx, module.RetryRequested{Trigger: trigger, NextAttempt: nextAttempt})
 	})
 }
 

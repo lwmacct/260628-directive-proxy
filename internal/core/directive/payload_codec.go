@@ -10,6 +10,8 @@ import (
 	"path"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 const maxRemoteKeyBytes = 256
@@ -31,9 +33,11 @@ func EncodeDocument(document Document) (string, error) {
 	var value any
 	switch document.Kind {
 	case KindInline:
-		kind, value = TokenInline, document.Payload
+		kind, value = TokenInline, inlineTokenDocument{Payload: *document.Payload, Recovery: document.Recovery}
 	case KindRemote:
-		kind, value = TokenRemote, document.Remote
+		kind, value = TokenRemote, remoteTokenDocument{
+			Source: document.Remote.Source, Program: document.Remote.Program, Recovery: document.Recovery,
+		}
 	default:
 		return "", ErrInvalidPayload
 	}
@@ -66,23 +70,30 @@ func DecodeWithOptions(encoded string, opts DecodeOptions) (Document, error) {
 		if opts.MaxInlineBytes > 0 && int64(len(raw)) > opts.MaxInlineBytes {
 			return Document{}, ErrPayloadTooLarge
 		}
-		payload, err := DecodePayload(raw)
+		inline, err := decodeInlineDocument(raw)
 		if err != nil {
 			return Document{}, err
 		}
-		return ValidateDocument(Document{Kind: KindInline, Payload: &payload})
+		return ValidateDocument(Document{Kind: KindInline, Payload: &inline.Payload, Recovery: inline.Recovery})
 	case TokenRemote:
 		remote, err := decodeRemoteDocument(raw)
 		if err != nil {
 			return Document{}, err
 		}
-		return ValidateDocument(Document{Kind: KindRemote, Remote: &remote})
+		return ValidateDocument(Document{
+			Kind: KindRemote, Remote: &RemoteDocument{Source: remote.Source, Program: remote.Program}, Recovery: remote.Recovery,
+		})
 	default:
 		return Document{}, ErrInvalidPayload
 	}
 }
 
 func ValidateDocument(document Document) (Document, error) {
+	recoverySpec, err := normalizeRecoverySpec(document.Recovery)
+	if err != nil {
+		return Document{}, err
+	}
+	document.Recovery = recoverySpec
 	switch document.Kind {
 	case KindInline:
 		if document.Payload == nil || document.Remote != nil || Validate(*document.Payload) != nil {
@@ -108,6 +119,30 @@ func ValidateDocument(document Document) (Document, error) {
 	}
 }
 
+type inlineTokenDocument struct {
+	Payload  Payload       `json:"payload"`
+	Recovery *RecoverySpec `json:"recovery,omitempty"`
+}
+
+type remoteTokenDocument struct {
+	Source   RemoteSpec     `json:"source"`
+	Program  module.Program `json:"program,omitempty"`
+	Recovery *RecoverySpec  `json:"recovery,omitempty"`
+}
+
+func decodeInlineDocument(raw []byte) (inlineTokenDocument, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var inline inlineTokenDocument
+	if err := decoder.Decode(&inline); err != nil {
+		return inlineTokenDocument{}, ErrInvalidPayload
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return inlineTokenDocument{}, ErrInvalidPayload
+	}
+	return inline, nil
+}
+
 func DecodePayload(raw []byte) (Payload, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -131,15 +166,15 @@ func encodeToken(kind string, raw []byte) string {
 	}, ".")
 }
 
-func decodeRemoteDocument(raw []byte) (RemoteDocument, error) {
+func decodeRemoteDocument(raw []byte) (remoteTokenDocument, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	var remote RemoteDocument
+	var remote remoteTokenDocument
 	if err := decoder.Decode(&remote); err != nil {
-		return RemoteDocument{}, ErrInvalidPayload
+		return remoteTokenDocument{}, ErrInvalidPayload
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return RemoteDocument{}, ErrInvalidPayload
+		return remoteTokenDocument{}, ErrInvalidPayload
 	}
 	return remote, nil
 }

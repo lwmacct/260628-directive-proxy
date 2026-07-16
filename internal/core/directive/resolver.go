@@ -13,6 +13,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
 var (
@@ -43,6 +44,7 @@ type Resolver struct {
 type inlinePrepared struct {
 	plan           *proxy.Plan
 	requestProgram []module.Spec
+	recovery       *recovery.Policy
 }
 
 type remotePrepared struct {
@@ -51,6 +53,7 @@ type remotePrepared struct {
 	spec           RemoteSpec
 	requestProgram []module.Spec
 	request        *http.Request
+	recovery       *recovery.Policy
 }
 
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
@@ -88,6 +91,10 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if err != nil {
 		return nil, proxy.ErrInvalidDirective
 	}
+	recoveryPolicy, err := CompileRecovery(document.Recovery)
+	if err != nil {
+		return nil, proxy.ErrInvalidDirective
+	}
 
 	if document.Kind == KindRemote {
 		if r == nil || r.remoteReader == nil {
@@ -99,6 +106,7 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 			spec:           cloneRemoteSpec(document.Remote.Source),
 			requestProgram: cloneModuleSpecs(document.Remote.Program.Request),
 			request:        snapshotResolveRequest(req),
+			recovery:       recovery.ClonePolicy(recoveryPolicy),
 		}, nil
 	}
 
@@ -106,7 +114,10 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if err != nil {
 		return nil, proxy.ErrInvalidDirective
 	}
-	return &inlinePrepared{plan: proxy.ClonePlan(plan), requestProgram: cloneModuleSpecs(document.Payload.Program.Request)}, nil
+	plan.Recovery = recovery.ClonePolicy(recoveryPolicy)
+	return &inlinePrepared{
+		plan: proxy.ClonePlan(plan), requestProgram: cloneModuleSpecs(document.Payload.Program.Request), recovery: recoveryPolicy,
+	}, nil
 }
 
 func (*inlinePrepared) Kind() string { return KindInline }
@@ -120,6 +131,13 @@ func (p *inlinePrepared) RequestProgram() []module.Spec {
 
 func (*inlinePrepared) Source() proxy.SourceMetadata {
 	return proxy.SourceMetadata{Mode: KindInline}
+}
+
+func (p *inlinePrepared) Recovery() *recovery.Policy {
+	if p == nil {
+		return nil
+	}
+	return recovery.ClonePolicy(p.recovery)
 }
 
 func (p *inlinePrepared) ResolveAttempt(context.Context, int) (proxy.Resolution, error) {
@@ -151,6 +169,13 @@ func (p *remotePrepared) Source() proxy.SourceMetadata {
 		Endpoint: sanitizeRemoteEndpoint(p.spec.URL),
 		Key:      p.spec.Key,
 	}
+}
+
+func (p *remotePrepared) Recovery() *recovery.Policy {
+	if p == nil {
+		return nil
+	}
+	return recovery.ClonePolicy(p.recovery)
 }
 
 func (p *remotePrepared) ResolveAttempt(ctx context.Context, _ int) (proxy.Resolution, error) {
@@ -190,6 +215,7 @@ func (p *remotePrepared) ResolveAttempt(ctx context.Context, _ int) (proxy.Resol
 		slog.Error("compile remote directive", "directive_backend", p.spec.Type, "directive_key", p.spec.Key, "error", err)
 		return proxy.Resolution{}, proxy.ErrRemoteDirectiveInvalid
 	}
+	plan.Recovery = recovery.ClonePolicy(p.recovery)
 	digest := sha256.Sum256(payloadRaw)
 	return proxy.Resolution{
 		Plan: plan,

@@ -23,7 +23,7 @@ server:
       poll-jitter-ratio: 0.1 # 成功轮询后的向下随机抖动比例
       allow-insecure-http: false # 允许通过明文 HTTP 读取证书材料
 
-    # Authme Admin API 认证配置
+    # Authme 指令工作台与工具 API 认证配置
     authme:
       path-prefix: "" # 认证 HTTP 路由前缀
 
@@ -70,7 +70,7 @@ server:
     read-timeout: 30s # HTTP 读取超时时间
     write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
     idle-timeout: 2m0s # HTTP 空闲连接超时时间
-    max-api-body-bytes: 1048576 # Admin API 最大请求体字节数，0 表示不限制
+    max-api-body-bytes: 1048576 # 指令工具 API 最大请求体字节数，0 表示不限制
     max-header-bytes: 131072 # HTTP 请求头最大字节数
 
   # 代理配置
@@ -84,10 +84,13 @@ server:
       idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
       disable-keep-alives: false # 是否禁用上游 keep-alive
 
-    # 等待上游响应时的外部介入重试配置
-    retry:
-      max-attempts: 3 # 单个 Exchange 允许的最大上游 Attempt 数，包含首次请求
-      command-retention: 1m0s # 已接受重试命令终态的保留时间
+    # Directive Recovery Controller 全局资源上限
+    recovery:
+      max-attempts-limit: 10 # Directive 可声明的最大 Attempt 数上限
+      max-elapsed-limit: 2m0s # Directive 可声明的最大 Recovery 总时长
+      max-callback-timeout: 5s # 单次 Recovery Controller 回调超时上限
+      max-captured-body-bytes: 1048576 # 异常上游响应允许捕获的最大正文大小
+      max-callback-response-bytes: 16384 # Recovery Controller 决策响应最大大小
 
     # 流式可重放请求正文的内存与磁盘配置
     body-store:

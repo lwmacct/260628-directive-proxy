@@ -37,8 +37,8 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
     if (patch.source) setActiveSource(patch.source === "inline" ? "payload" : "token");
   }
 
-  function applyPayload(nextPayload: DirectivePayload) {
-    const next = { ...editor, source: "inline" as const, ...payloadToEditor(nextPayload) };
+  function applyPayload(nextPayload: DirectivePayload, recovery = editor.recovery) {
+    const next = { ...editor, source: "inline" as const, recovery, ...payloadToEditor(nextPayload) };
     setEditor(next);
     setPayloadInput(formatPayload(nextPayload));
     setError(null);
@@ -48,9 +48,9 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
   async function applyPayloadInput() {
     try {
       const parsed = JSON.parse(payloadInput) as DirectivePayload;
-      const result = await directiveCodecRequest("encode", { kind: "inline", payload: parsed });
+      const result = await directiveCodecRequest("encode", { kind: "inline", payload: parsed, ...(editor.recovery ? { recovery: editor.recovery } : {}) });
       if (result.document.kind !== "inline") throw new Error(text.payloadParseFailed);
-      applyPayload(result.document.payload);
+      applyPayload(result.document.payload, result.document.recovery);
       setDirectiveToken(result.token);
       setTokenInput(result.token);
       void message.success(text.payloadApplied);
@@ -61,9 +61,9 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
     try {
       const decoded = await directiveCodecRequest("decode", { token: tokenInput });
       if (decoded.document.kind === "inline") {
-        applyPayload(decoded.document.payload);
+        applyPayload(decoded.document.payload, decoded.document.recovery);
       } else {
-        setEditor(remoteDocumentToEditor(editor, decoded.document.remote));
+        setEditor({ ...remoteDocumentToEditor(editor, decoded.document.remote), recovery: decoded.document.recovery });
         setActiveSource("token");
         setError(null);
       }

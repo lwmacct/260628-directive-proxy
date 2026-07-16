@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,12 +10,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -22,24 +26,42 @@ var (
 	ErrResolverFailed       = errors.New("proxy directive resolver failed")
 	ErrBodyStoreUnavailable = errors.New("proxy request body replay store is unavailable")
 	ErrModuleFailed         = errors.New("proxy module failed")
+	ErrRecoveryFailed       = errors.New("proxy recovery failed")
 )
 
-type RetryTransportOptions struct{}
+type RecoveryTransportOptions struct {
+	RecoveryController         recovery.Controller
+	MaxRecoveryAttempts        int
+	MaxRecoveryElapsed         time.Duration
+	MaxRecoveryCallbackTimeout time.Duration
+	MaxRecoveryBodyBytes       int64
+}
 
-type RetryTransport struct{ base http.RoundTripper }
+type RecoveryTransport struct {
+	base                       http.RoundTripper
+	recoveryController         recovery.Controller
+	maxRecoveryAttempts        int
+	maxRecoveryElapsed         time.Duration
+	maxRecoveryCallbackTimeout time.Duration
+	maxRecoveryBodyBytes       int64
+}
 
-func (*RetryTransport) orchestratesPreparedRequests() {}
+func (*RecoveryTransport) orchestratesPreparedRequests() {}
 
-func NewRetryTransport(base http.RoundTripper, _ RetryTransportOptions) (*RetryTransport, error) {
+func NewRecoveryTransport(base http.RoundTripper, options RecoveryTransportOptions) (*RecoveryTransport, error) {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return &RetryTransport{base: base}, nil
+	return &RecoveryTransport{
+		base: base, recoveryController: options.RecoveryController,
+		maxRecoveryAttempts: options.MaxRecoveryAttempts, maxRecoveryElapsed: options.MaxRecoveryElapsed,
+		maxRecoveryCallbackTimeout: options.MaxRecoveryCallbackTimeout, maxRecoveryBodyBytes: options.MaxRecoveryBodyBytes,
+	}, nil
 }
 
-func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t == nil || t.base == nil || req == nil {
-		return nil, errors.New("proxy retry transport is unavailable")
+		return nil, errors.New("proxy recovery transport is unavailable")
 	}
 	prepared, ok := preparedRequestFromContext(req.Context())
 	if !ok {
@@ -52,6 +74,10 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	if prepared.body == nil {
 		return nil, ErrBodyStoreUnavailable
+	}
+	recoveryPolicy := t.limitRecoveryPolicy(PreparedRecovery(prepared.directive))
+	if recoveryPolicy != nil {
+		current.ConfigureRecovery(recoveryPolicy, t.maxRecoveryAttempts, t.maxRecoveryElapsed)
 	}
 	var previousFingerprint string
 	var previousTarget string
@@ -74,6 +100,25 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		resolveDuration := time.Since(resolveStartedAt)
 		if resolveErr != nil {
 			attempt.DirectiveFailed(resolveDuration, directiveErrorCode(resolveErr))
+			if recoveryPolicy != nil && recoveryPolicy.Triggers.DirectiveError && attempt.BeginRecovery() {
+				decision, recoveryErr := t.recover(req.Context(), recoveryPolicy, attempt, prepared.directive.Source(), "", recovery.Trigger{
+					Type: recovery.TriggerDirectiveError, Code: directiveErrorCode(resolveErr),
+				}, nil)
+				if recoveryErr == nil {
+					switch decision.Action {
+					case recovery.ActionRetry:
+						if retryErr := attempt.RequestRecoveryRetry(); retryErr == nil {
+							attempt.FinishRoundTrip(false, context.Canceled)
+							cancel()
+							continue
+						}
+					case recovery.ActionFail:
+						attempt.FinishRoundTrip(false, ErrRecoveryFailed)
+						cancel()
+						return nil, ErrRecoveryFailed
+					}
+				}
+			}
 			attempt.FinishRoundTrip(false, resolveErr)
 			cancel()
 			return nil, resolveErr
@@ -153,7 +198,67 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 			return nil, context.Canceled
 		}
-		response, roundTripErr := t.base.RoundTrip(attemptRequest)
+		response, roundTripErr, responseTimedOut := t.roundTrip(attemptRequest, recoveryPolicy)
+		if roundTripErr != nil {
+			trigger := recovery.Trigger{Type: recovery.TriggerTransportError, Code: "transport_error"}
+			enabled := recoveryPolicy != nil && recoveryPolicy.Triggers.TransportError
+			if responseTimedOut {
+				trigger = recovery.Trigger{
+					Type:      recovery.TriggerResponseHeaderTimeout,
+					TimeoutMS: recoveryPolicy.Triggers.ResponseHeaderTimeout.Milliseconds(),
+				}
+				enabled = recoveryPolicy != nil && recoveryPolicy.Triggers.ResponseHeaderTimeout > 0
+			}
+			if enabled && attempt.BeginRecovery() {
+				decision, recoveryErr := t.recover(req.Context(), recoveryPolicy, attempt, resolution.Source, resolution.Source.PayloadSHA256, trigger, nil)
+				if recoveryErr == nil {
+					switch decision.Action {
+					case recovery.ActionRetry:
+						if retryErr := attempt.RequestRecoveryRetry(); retryErr == nil {
+							attempt.FinishRoundTrip(false, context.Canceled)
+							cancel()
+							continue
+						}
+					case recovery.ActionFail:
+						attempt.FinishRoundTrip(false, ErrRecoveryFailed)
+						cancel()
+						return nil, ErrRecoveryFailed
+					}
+				}
+			}
+		}
+		if roundTripErr == nil && response != nil && recoveryPolicy != nil &&
+			recoveryPolicy.Triggers.UnexpectedStatus.Matches(response.StatusCode) {
+			captured, captureErr := captureRecoveryResponse(response, recoveryPolicy.Triggers.UnexpectedStatus.CaptureBodyBytes)
+			if captureErr != nil {
+				if response.Body != nil {
+					_ = response.Body.Close()
+				}
+				attempt.FinishRoundTrip(false, captureErr)
+				cancel()
+				return nil, captureErr
+			}
+			if attempt.BeginRecovery() {
+				decision, recoveryErr := t.recover(req.Context(), recoveryPolicy, attempt, resolution.Source, resolution.Source.PayloadSHA256,
+					recovery.Trigger{Type: recovery.TriggerUnexpectedStatus}, captured)
+				if recoveryErr == nil {
+					switch decision.Action {
+					case recovery.ActionRetry:
+						if retryErr := attempt.RequestRecoveryRetry(); retryErr == nil {
+							_ = response.Body.Close()
+							attempt.FinishRoundTrip(false, context.Canceled)
+							cancel()
+							continue
+						}
+					case recovery.ActionFail:
+						_ = response.Body.Close()
+						attempt.FinishRoundTrip(false, ErrRecoveryFailed)
+						cancel()
+						return nil, ErrRecoveryFailed
+					}
+				}
+			}
+		}
 		if roundTripErr == nil && response != nil {
 			if mutationErr := attempt.MutateUpstreamResponse(response); mutationErr != nil {
 				if response.Body != nil {
@@ -185,7 +290,142 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 }
 
-func (t *RetryTransport) roundTripOnce(req *http.Request, prepared preparedRequest) (*http.Response, error) {
+func (t *RecoveryTransport) limitRecoveryPolicy(policy *recovery.Policy) *recovery.Policy {
+	policy = recovery.ClonePolicy(policy)
+	if policy == nil {
+		return nil
+	}
+	if t.maxRecoveryAttempts > 0 && policy.Budget.MaxAttempts > t.maxRecoveryAttempts {
+		policy.Budget.MaxAttempts = t.maxRecoveryAttempts
+	}
+	if t.maxRecoveryElapsed > 0 && policy.Budget.MaxElapsed > t.maxRecoveryElapsed {
+		policy.Budget.MaxElapsed = t.maxRecoveryElapsed
+	}
+	if t.maxRecoveryCallbackTimeout > 0 && policy.Controller.Timeout > t.maxRecoveryCallbackTimeout {
+		policy.Controller.Timeout = t.maxRecoveryCallbackTimeout
+	}
+	if policy.Triggers.UnexpectedStatus != nil && t.maxRecoveryBodyBytes > 0 &&
+		policy.Triggers.UnexpectedStatus.CaptureBodyBytes > t.maxRecoveryBodyBytes {
+		policy.Triggers.UnexpectedStatus.CaptureBodyBytes = t.maxRecoveryBodyBytes
+	}
+	return policy
+}
+
+func (t *RecoveryTransport) roundTrip(request *http.Request, policy *recovery.Policy) (*http.Response, error, bool) {
+	if policy == nil || policy.Triggers.ResponseHeaderTimeout <= 0 {
+		response, err := t.base.RoundTrip(request)
+		return response, err, false
+	}
+	ctx, cancel := context.WithCancel(request.Context())
+	var timedOut atomic.Bool
+	var timerMu sync.Mutex
+	var timer *time.Timer
+	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) {
+		timerMu.Lock()
+		if timer == nil {
+			timer = time.AfterFunc(policy.Triggers.ResponseHeaderTimeout, func() {
+				timedOut.Store(true)
+				cancel()
+			})
+		}
+		timerMu.Unlock()
+	}}
+	traced := request.WithContext(httptrace.WithClientTrace(ctx, trace))
+	response, err := t.base.RoundTrip(traced)
+	timerMu.Lock()
+	if timer != nil {
+		timer.Stop()
+	}
+	timerMu.Unlock()
+	if err != nil || response == nil {
+		cancel()
+	}
+	return response, err, timedOut.Load()
+}
+
+func (t *RecoveryTransport) recover(ctx context.Context, policy *recovery.Policy, attempt *exchange.Attempt, source SourceMetadata,
+	payloadSHA256 string, trigger recovery.Trigger, response *recovery.Response,
+) (recovery.Decision, error) {
+	if t == nil || t.recoveryController == nil || policy == nil || attempt == nil {
+		return recovery.Decision{}, ErrRecoveryFailed
+	}
+	info := attempt.RecoveryContext()
+	event := recovery.Event{
+		Protocol: recovery.Protocol,
+		EventID:  fmt.Sprintf("%s:%d:%s", info.TraceID, info.Attempt, trigger.Type),
+		TraceID:  info.TraceID, ObservedAt: time.Now().UTC(),
+		Attempt: recovery.AttemptInfo{
+			Number: info.Attempt, MaxAttempts: info.MaxAttempts, ElapsedMS: info.Elapsed.Milliseconds(),
+			RemainingMS: info.Remaining.Milliseconds(), NextAttempt: info.NextAttempt, RetryAllowed: info.RetryAllowed,
+		},
+		Trigger: trigger,
+		Directive: recovery.DirectiveInfo{
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Key: source.Key, PayloadSHA256: payloadSHA256,
+		},
+		Metadata: info.Metadata, Response: response,
+	}
+	decision, err := t.recoveryController.Decide(ctx, policy.Controller, event)
+	if err != nil {
+		return recovery.Decision{}, err
+	}
+	if decision.Action == recovery.ActionRetry && !info.RetryAllowed {
+		return recovery.Decision{}, exchange.ErrMaxAttempts
+	}
+	if decision.AfterMS > 0 {
+		delay := time.Duration(decision.AfterMS) * time.Millisecond
+		if info.Remaining > 0 && delay >= info.Remaining {
+			return recovery.Decision{}, exchange.ErrRecoveryBudgetExceeded
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return recovery.Decision{}, ctx.Err()
+		}
+	}
+	return decision, nil
+}
+
+func captureRecoveryResponse(response *http.Response, limit int64) (*recovery.Response, error) {
+	if response == nil || response.Body == nil || limit <= 0 {
+		return nil, ErrRecoveryFailed
+	}
+	read, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	truncated := int64(len(read)) > limit
+	captured := read
+	if truncated {
+		captured = read[:limit]
+		response.Body = &joinedResponseBody{Reader: io.MultiReader(bytes.NewReader(read), response.Body), source: response.Body}
+	} else {
+		_ = response.Body.Close()
+		response.Body = io.NopCloser(bytes.NewReader(read))
+	}
+	size := int64(len(read))
+	if response.ContentLength >= 0 {
+		size = response.ContentLength
+	}
+	return &recovery.Response{
+		StatusCode: response.StatusCode, Headers: response.Header.Clone(), Body: recovery.NewCapturedBody(captured, size, truncated),
+	}, nil
+}
+
+type joinedResponseBody struct {
+	io.Reader
+	source io.Closer
+}
+
+func (body *joinedResponseBody) Close() error {
+	if body == nil || body.source == nil {
+		return nil
+	}
+	return body.source.Close()
+}
+
+func (t *RecoveryTransport) roundTripOnce(req *http.Request, prepared preparedRequest) (*http.Response, error) {
 	resolution, err := prepared.directive.ResolveAttempt(req.Context(), 1)
 	if err != nil {
 		return nil, err
@@ -307,6 +547,7 @@ func planFingerprint(plan *Plan) string {
 		Headers  HeaderPlan
 		Metadata map[string][]string
 		Modules  []module.Spec
+		Recovery any
 		JoinPath bool
 	}{
 		Target:   urlString(plan.Target),
@@ -314,6 +555,7 @@ func planFingerprint(plan *Plan) string {
 		Headers:  plan.Headers,
 		Metadata: plan.Metadata,
 		Modules:  plan.Modules,
+		Recovery: plan.Recovery,
 		JoinPath: plan.JoinPath,
 	})
 	if err != nil {

@@ -4,7 +4,6 @@ go 1.26.4
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/google/uuid v1.6.0
 	github.com/lwmacct/251207-go-pkg-cfgm v0.33.260716
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630

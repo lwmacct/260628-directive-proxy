@@ -33,8 +33,8 @@ directive 使用有序数组声明程序：
 
 `core/exchange` 是生命周期拥有者，`core/module` 是被生命周期调用的通用执行机制，两者不互相替代：
 
-- `Manager` 只维护活动 Exchange 索引、retry command 和短期 tombstone，不调度单个请求的生命周期；
-- `Exchange` 拥有入站请求生命周期、request scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RetryTransport；
+- `Manager` 是轻量 Exchange factory，只携带 Module runtime 和服务端 Attempt 上限，不维护活动索引或外部 command；
+- `Exchange` 拥有入站请求生命周期、request scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RecoveryTransport；
 - `Attempt` 是 Exchange 创建的强类型子对象，拥有一次 directive 解析、上游访问和 attempt scope；
 - `Runtime` 只注册 Definition、编译 directive program、创建 Run/Scope 和汇总 Module 健康。
 
@@ -42,8 +42,8 @@ directive 使用有序数组声明程序：
 
 ## Scope
 
-- request scope 由 Exchange 在读取请求正文前打开，跨越全部 retry Attempt 和下游响应；
-- attempt scope 在每次 directive plan 解析后打开，retry、transport error 或响应 body 结束时关闭；
+- request scope 由 Exchange 在读取请求正文前打开，跨越全部 Recovery Attempt 和下游响应；
+- attempt scope 在每次 directive plan 解析后打开，Recovery retry、transport error 或响应 body 结束时关闭；
 - request Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
 - scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`；客户端取消只改变 Finish cause，不跳过 drain。
 

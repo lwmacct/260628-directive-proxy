@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/retry"
 )
 
 const maxProjectedSSEEventBytes = 16 << 20
@@ -25,11 +25,9 @@ type Exchange struct {
 	moduleRuntime  *module.Runtime
 	run            *module.Run
 	traceID        string
-	identity       retry.Identity
 	startedAt      time.Time
 	method         string
 	idempotencyKey string
-	requestURL     string
 
 	stateMu       sync.Mutex
 	phase         Phase
@@ -38,7 +36,8 @@ type Exchange struct {
 	metadata      requestmeta.Metadata
 	metadataBound bool
 	targetURL     string
-	retryResults  map[int]RetryResult
+	maxAttempts   int
+	maxElapsed    time.Duration
 
 	lifecycleMu          sync.Mutex
 	requestScope         *module.Scope
@@ -55,13 +54,12 @@ type Exchange struct {
 }
 
 type Attempt struct {
-	exchange   *Exchange
-	number     int
-	startedAt  time.Time
-	upstreamAt time.Time
-	source     module.AttemptStarted
-	cancel     context.CancelFunc
-	metadata   requestmeta.Metadata
+	exchange  *Exchange
+	number    int
+	startedAt time.Time
+	source    module.AttemptStarted
+	cancel    context.CancelFunc
+	metadata  requestmeta.Metadata
 
 	scope      *module.Scope
 	projection *module.Projection
@@ -69,18 +67,16 @@ type Attempt struct {
 	closed     atomic.Bool
 }
 
-func newExchange(manager *Manager, req *http.Request, identity retry.Identity, startedAt time.Time) *Exchange {
+func newExchange(manager *Manager, req *http.Request, startedAt time.Time) *Exchange {
 	current := &Exchange{
 		manager:        manager,
 		ctx:            req.Context(),
 		traceID:        newTraceID(),
-		identity:       identity,
 		startedAt:      startedAt,
 		method:         req.Method,
 		idempotencyKey: strings.TrimSpace(req.Header.Get("Idempotency-Key")),
-		requestURL:     redactURL(requestURL(req)),
 		phase:          PhaseStartingBody,
-		retryResults:   make(map[int]RetryResult),
+		maxAttempts:    manager.maxAttempts,
 		requestStarted: module.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
 	if manager != nil && manager.moduleRuntime != nil {
@@ -125,7 +121,7 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc, source AttemptS
 		current.stateMu.Unlock()
 		return nil, ErrAttemptActive
 	}
-	if current.attemptCount >= current.manager.maxAttempts {
+	if current.attemptCount >= current.maxAttempts {
 		current.stateMu.Unlock()
 		return nil, ErrMaxAttempts
 	}
@@ -145,87 +141,111 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc, source AttemptS
 	return attempt, nil
 }
 
-func (current *Exchange) Snapshot() (Snapshot, bool) {
+func (current *Exchange) requestRecoveryRetry(expectedAttempt int) error {
 	if current == nil || current.completed.Load() {
-		return Snapshot{}, false
-	}
-	current.stateMu.Lock()
-	item := current.snapshotLocked()
-	current.stateMu.Unlock()
-	return item, true
-}
-
-func (current *Exchange) snapshotLocked() Snapshot {
-	item := Snapshot{
-		TraceID: current.traceID, HasRetryID: current.identity.Valid(), Metadata: requestmeta.Clone(current.metadata),
-		Phase: current.phase, Method: current.method, URL: current.requestURL, TargetURL: current.targetURL,
-		StartedAt: current.startedAt, Attempt: current.attemptCount, MaxAttempts: current.manager.maxAttempts,
-	}
-	if current.current != nil {
-		item.Attempt = current.current.number
-		item.AttemptStartedAt = current.current.startedAt
-		item.UpstreamStartedAt = current.current.upstreamAt
-	}
-	return item
-}
-
-func (current *Exchange) requestRetry(expectedAttempt int, trigger Trigger) (RetryResult, error) {
-	if current == nil || current.completed.Load() {
-		return RetryResult{}, ErrNotFound
+		return context.Canceled
 	}
 	var cancel context.CancelFunc
 	var attempt *Attempt
-	accepted := false
 	current.stateMu.Lock()
-	if previous, ok := current.retryResults[expectedAttempt]; ok {
-		current.stateMu.Unlock()
-		return previous, nil
-	}
 	attempt = current.current
 	if attempt == nil || attempt.number != expectedAttempt {
 		current.stateMu.Unlock()
-		return RetryResult{}, ErrAttemptChanged
+		return context.Canceled
 	}
 	if current.phase == PhaseRetryRequested {
-		result := RetryResult{Exchange: current.snapshotLocked(), NextAttempt: attempt.number + 1}
 		current.stateMu.Unlock()
-		return result, nil
+		return nil
 	}
-	if current.phase != PhaseAwaitingResponse {
+	if current.phase != PhaseAwaitingResponse && current.phase != PhaseRecovering {
 		current.stateMu.Unlock()
-		return RetryResult{}, ErrRetryNotReady
+		return context.Canceled
 	}
 	if (current.method == http.MethodPost || current.method == http.MethodPatch) && current.idempotencyKey == "" {
 		current.stateMu.Unlock()
-		return RetryResult{}, ErrIdempotencyKeyRequired
+		return ErrIdempotencyKeyRequired
 	}
-	if attempt.number >= current.manager.maxAttempts {
+	if attempt.number >= current.maxAttempts {
 		current.stateMu.Unlock()
-		return RetryResult{}, ErrMaxAttempts
+		return ErrMaxAttempts
+	}
+	if current.maxElapsed > 0 && time.Since(current.startedAt) >= current.maxElapsed {
+		current.stateMu.Unlock()
+		return ErrRecoveryBudgetExceeded
 	}
 	current.phase = PhaseRetryRequested
 	cancel = attempt.cancel
-	result := RetryResult{Exchange: current.snapshotLocked(), NextAttempt: attempt.number + 1}
-	current.retryResults[expectedAttempt] = result
-	accepted = true
 	current.stateMu.Unlock()
-	if accepted {
-		attempt.emitRetryRequested(trigger, result.NextAttempt)
-		if cancel != nil {
-			cancel()
-		}
+	attempt.emitRetryRequested("recovery_controller", attempt.number+1)
+	if cancel != nil {
+		cancel()
 	}
-	return result, nil
+	return nil
 }
 
-func (current *Exchange) terminalData() (retry.Identity, map[int]RetryResult) {
+func (current *Exchange) ConfigureRecovery(policy *recovery.Policy, maxAttempts int, maxElapsed time.Duration) {
+	if current == nil || policy == nil {
+		return
+	}
+	current.stateMu.Lock()
+	attempts := policy.Budget.MaxAttempts
+	if maxAttempts > 0 && (attempts == 0 || attempts > maxAttempts) {
+		attempts = maxAttempts
+	}
+	if attempts < 1 {
+		attempts = 1
+	}
+	elapsed := policy.Budget.MaxElapsed
+	if maxElapsed > 0 && (elapsed == 0 || elapsed > maxElapsed) {
+		elapsed = maxElapsed
+	}
+	current.maxAttempts = attempts
+	current.maxElapsed = elapsed
+	current.stateMu.Unlock()
+}
+
+func (attempt *Attempt) BeginRecovery() bool {
+	if attempt == nil || attempt.exchange == nil {
+		return false
+	}
+	current := attempt.exchange
 	current.stateMu.Lock()
 	defer current.stateMu.Unlock()
-	results := make(map[int]RetryResult, len(current.retryResults))
-	for attempt, result := range current.retryResults {
-		results[attempt] = result
+	if current.current != attempt || current.completed.Load() || current.phase == PhaseStreamingResponse || current.phase == PhaseFinished {
+		return false
 	}
-	return current.identity, results
+	current.phase = PhaseRecovering
+	return true
+}
+
+func (attempt *Attempt) RequestRecoveryRetry() error {
+	if attempt == nil || attempt.exchange == nil {
+		return context.Canceled
+	}
+	return attempt.exchange.requestRecoveryRetry(attempt.number)
+}
+
+func (attempt *Attempt) RecoveryContext() RecoveryContext {
+	if attempt == nil || attempt.exchange == nil {
+		return RecoveryContext{}
+	}
+	current := attempt.exchange
+	current.stateMu.Lock()
+	defer current.stateMu.Unlock()
+	elapsed := time.Since(current.startedAt)
+	remaining := time.Duration(0)
+	if current.maxElapsed > 0 && elapsed < current.maxElapsed {
+		remaining = current.maxElapsed - elapsed
+	}
+	retryAllowed := attempt.number < current.maxAttempts && (current.maxElapsed == 0 || elapsed < current.maxElapsed)
+	if (current.method == http.MethodPost || current.method == http.MethodPatch) && current.idempotencyKey == "" {
+		retryAllowed = false
+	}
+	return RecoveryContext{
+		TraceID: current.traceID, Attempt: attempt.number,
+		MaxAttempts: current.maxAttempts, StartedAt: current.startedAt, Elapsed: elapsed, Remaining: remaining,
+		NextAttempt: attempt.number + 1, RetryAllowed: retryAllowed, Metadata: requestmeta.Clone(attempt.metadata),
+	}
 }
 
 func (current *Exchange) Complete() {
@@ -260,7 +280,6 @@ func (current *Exchange) Complete() {
 		}
 		current.lifecycleMu.Unlock()
 		current.completed.Store(true)
-		current.manager.remove(current)
 		current.closeRun()
 	})
 }

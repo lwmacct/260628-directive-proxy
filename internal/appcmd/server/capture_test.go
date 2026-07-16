@@ -21,15 +21,12 @@ import (
 	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
 
-func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.T) {
+func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	firstSent := make(chan struct{})
 	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if value := r.Header.Get("X-Dproxy-Request-ID"); value != "" {
 			t.Errorf("request metadata leaked upstream: %q", value)
-		}
-		if r.Header.Get("Dproxy-Retry-ID") != "" {
-			t.Errorf("retry identity leaked upstream: %#v", r.Header)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("X-Upstream", "raw")
@@ -55,12 +52,12 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	manager := exchange.NewManager(exchange.ManagerOptions{
 		MaxAttempts: 3,
 	}, moduleRuntime)
-	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
+	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -83,7 +80,6 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	}
 	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL+"/events", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryID(req, 1)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -97,9 +93,6 @@ func TestProxySSELeavesRetryRegistryAfterHeadersAndCapturesEachEvent(t *testing.
 	case <-firstSent:
 	case <-time.After(time.Second):
 		t.Fatal("SSE event was not sent")
-	}
-	if active := manager.ListActive(); len(active) != 0 {
-		t.Fatalf("SSE remained retryable after response headers: %#v", active)
 	}
 	if response.Header.Get("X-Upstream") != "" || response.Header.Get("X-Downstream") != "rewritten" {
 		t.Fatalf("unexpected rewritten response headers: %#v", response.Header)
@@ -162,12 +155,12 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 		t.Fatal(err)
 	}
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 3}, moduleRuntime)
-	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
+	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime}
+	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime}
 	token, err := directive.Encode(directive.Payload{
 		Target:  directive.TargetSection{URL: upstream.URL},
 		Program: module.Program{Request: []module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
@@ -227,12 +220,12 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	}
 	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 2}, moduleRuntime)
-	transport, err := proxy.NewRetryTransport(http.DefaultTransport, proxy.RetryTransportOptions{})
+	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	rt := &runtime{exchanges: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(directive.Payload{
@@ -246,7 +239,6 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	}
 	req, _ := http.NewRequest(http.MethodGet, proxyServer.URL, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	setTestRetryID(req, 2)
 	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
