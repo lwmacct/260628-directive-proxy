@@ -166,7 +166,7 @@ server:
 
 生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `external-urls`。OIDC callback 固定为 `<external-url>/auth/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
 
-当前不支持且暂不计划直接连接 GitHub 原生 OAuth App。现有认证边界保持为标准 OIDC：provider 必须提供 OIDC discovery 和可验证的 ID Token，GitHub 身份由 Dex GitHub connector 转换为 OIDC claims。这样无需在服务内持有临时 GitHub access token，也避免引入 GitHub API、限流和单 callback URL 等额外语义。
+当前服务只通过 Dex GitHub connector 使用标准 OIDC：provider 必须提供 OIDC discovery 和可验证的 ID Token，GitHub 身份由 Dex 转换为 OIDC claims。
 
 同时提供两种登录方式时配置：
 

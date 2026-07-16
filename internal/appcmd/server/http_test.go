@@ -15,7 +15,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
 
 	proxyrequestadapter "github.com/lwmacct/260628-directive-proxy/internal/adapter/proxyrequest"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -107,7 +107,7 @@ func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
+	cfg.HTTP.Auth.Origins = []string{"http://localhost"}
 	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
 	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: digest},
@@ -506,7 +506,7 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig().Server
-	cfg.HTTP.Auth.ExternalURLs = []string{"http://localhost"}
+	cfg.HTTP.Auth.Origins = []string{"http://localhost"}
 	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
 	cfg.HTTP.Auth.Token.Credentials = map[string]statictoken.Credential{
 		"admin": {Name: "Administrator", TokenSHA256: digest},

@@ -4,8 +4,9 @@ import (
 	"net/netip"
 	"strings"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
@@ -32,11 +33,12 @@ func Validate(cfg Server) (Server, error) {
 	if len(cfg.HTTP.Auth.Methods) == 0 {
 		return cfg, ErrInvalidAuth
 	}
-	validatedCore, err := (httpauth.Config{ExternalURLs: cfg.HTTP.Auth.ExternalURLs, Session: cfg.HTTP.Auth.Session}).Validate()
+	coreConfig := httpauth.Config{Origins: cfg.HTTP.Auth.Origins, Session: cfg.HTTP.Auth.Session}
+	validatedCore, err := coreConfig.Normalize()
 	if err != nil {
 		return cfg, ErrInvalidAuth
 	}
-	cfg.HTTP.Auth.ExternalURLs = validatedCore.ExternalURLs
+	cfg.HTTP.Auth.Origins = validatedCore.Origins
 	cfg.HTTP.Auth.Session = validatedCore.Session
 	seen := make(map[AuthMethod]struct{}, len(cfg.HTTP.Auth.Methods))
 	for _, method := range cfg.HTTP.Auth.Methods {
@@ -46,11 +48,21 @@ func Validate(cfg Server) (Server, error) {
 		seen[method] = struct{}{}
 		switch method {
 		case AuthMethodToken:
-			if _, err := cfg.HTTP.Auth.Token.Validate(); err != nil {
+			tokenConfig := cfg.HTTP.Auth.Token
+			if tokenConfig.Namespace == "" {
+				tokenConfig.Namespace = types.AdminTokenNamespace
+			}
+			validatedToken, err := tokenConfig.Normalize()
+			if err != nil {
 				return cfg, ErrInvalidAuth
 			}
+			cfg.HTTP.Auth.Token = validatedToken
 		case AuthMethodOIDC:
-			validatedAuth, err := cfg.HTTP.Auth.OIDC.MethodConfig().Validate()
+			if cfg.HTTP.Auth.OIDC.SessionTTL <= 0 {
+				return cfg, ErrInvalidAuth
+			}
+			oidcConfig := cfg.HTTP.Auth.OIDC.MethodConfig()
+			validatedAuth, err := oidcConfig.Normalize()
 			if err != nil {
 				return cfg, ErrInvalidAuth
 			}

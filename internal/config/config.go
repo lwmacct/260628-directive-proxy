@@ -7,9 +7,10 @@ import (
 
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
+	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
@@ -53,11 +54,11 @@ const (
 )
 
 type Auth struct {
-	ExternalURLs []string               `json:"external-urls" desc:"允许浏览器访问应用的可信 origin"`
-	Session      httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
-	Methods      []AuthMethod           `json:"methods"       desc:"启用的认证方式，可选 token、oidc"`
-	Token        statictoken.Config     `json:"token"         desc:"Token 认证配置"`
-	OIDC         OIDCAuth               `json:"oidc"          desc:"OIDC 认证配置"`
+	Origins []string               `json:"origins"       desc:"允许浏览器访问应用的可信 origin"`
+	Session httpauth.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
+	Methods []AuthMethod           `json:"methods"       desc:"启用的认证方式，可选 token、oidc"`
+	Token   statictoken.Config     `json:"token"         desc:"Token 认证配置"`
+	OIDC    OIDCAuth               `json:"oidc"          desc:"OIDC 认证配置"`
 }
 
 type OIDCAuth struct {
@@ -68,8 +69,8 @@ type OIDCAuth struct {
 	SessionTTL   time.Duration `json:"session-ttl"   desc:"OIDC 身份 Session 最长有效时间"`
 }
 
-func (c OIDCAuth) MethodConfig() oidc.Config {
-	return oidc.Config{ID: "github", Label: "GitHub", Issuer: c.Issuer, ClientID: c.ClientID, ClientSecret: c.ClientSecret, SessionTTL: c.SessionTTL}
+func (c OIDCAuth) MethodConfig() dexgithub.Config {
+	return dexgithub.Config{ID: "github", Label: "GitHub", Issuer: c.Issuer, ClientID: c.ClientID, ClientSecret: c.ClientSecret, SessionTTL: c.SessionTTL}
 }
 
 type Proxy struct {
@@ -135,13 +136,14 @@ func DefaultConfig() Config {
 			HTTP: ServerHTTP{
 				Listen: ":23198",
 				Auth: Auth{
-					Methods:      []AuthMethod{AuthMethodToken},
-					ExternalURLs: []string{"http://localhost:23199"},
+					Methods: []AuthMethod{AuthMethodToken},
+					Origins: []string{"http://localhost:23199"},
 					Session: httpauth.SessionConfig{
 						Keys: []httpauth.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
 						TTL:  24 * time.Hour,
 					},
 					Token: statictoken.Config{
+						Namespace: types.AdminTokenNamespace,
 						Credentials: map[string]statictoken.Credential{
 							"admin": {Name: "Administrator", TokenSHA256: "${AUTH_TOKEN_SHA256}"},
 						},

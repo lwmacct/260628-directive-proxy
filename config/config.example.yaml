@@ -27,7 +27,7 @@ server:
     auth:
 
       # 允许浏览器访问应用的可信 origin
-      external-urls:
+      origins:
         - http://localhost:23199
 
       # 统一浏览器 Session 配置
@@ -46,6 +46,9 @@ server:
 
       # Token 认证配置
       token:
+        id: "" # Authentication method ID
+        label: "" # Authentication method display label
+        namespace: "dpctl" # Token namespace
 
         # Static access tokens keyed by credential ID
         credentials:

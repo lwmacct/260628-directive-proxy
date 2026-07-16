@@ -10,9 +10,8 @@ import (
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/dexgithub"
+	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/adapters/statictoken"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
@@ -133,13 +132,15 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, e
 	for _, configured := range cfg.Auth.Methods {
 		switch configured {
 		case config.AuthMethodToken:
-			tokenMethod, err := statictoken.New(types.AdminTokenNamespace, cfg.Auth.Token)
+			tokenConfig := cfg.Auth.Token
+			tokenConfig.Namespace = types.AdminTokenNamespace
+			tokenMethod, err := statictoken.New(tokenConfig)
 			if err != nil {
 				return nil, err
 			}
 			methods = append(methods, tokenMethod)
 		case config.AuthMethodOIDC:
-			oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig(), oidc.Options{})
+			oidcMethod, err := dexgithub.New(ctx, cfg.Auth.OIDC.MethodConfig())
 			if err != nil {
 				return nil, err
 			}
@@ -151,7 +152,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, e
 			methods = append(methods, oidcMethod)
 		}
 	}
-	return httpauth.New(httpauth.Config{ExternalURLs: cfg.Auth.ExternalURLs, Session: cfg.Auth.Session}, methods, httpauth.Options{Authorizer: httpauth.AuthorizeAll(authorizers...)})
+	return httpauth.New(httpauth.Config{Origins: cfg.Auth.Origins, Session: cfg.Auth.Session}, httpauth.WithMethods(methods...), httpauth.WithAuthorizer(httpauth.Chain(authorizers...)))
 }
 
 func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {
