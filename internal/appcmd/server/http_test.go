@@ -397,7 +397,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
+	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: "198.51.100.7"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -424,7 +424,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{"198.51.100.7"}
+	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: "198.51.100.7"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
@@ -457,7 +457,7 @@ func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) 
 
 func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Server, value runtime) *runtime {
 	t.Helper()
-	access, engine, err := newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
+	access, engine, err := newDirectiveSourceAccess(context.Background(), cfg.Proxy.Directive.SourceAccess)
 	if err != nil {
 		t.Fatalf("configure test source access: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestRuntimeCloseClosesSourceEngine(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	engine := rt.sourceEngine
-	policy, err := sourceaccess.CompileSources([]string{"127.0.0.1"})
+	policy, err := sourceaccess.Compile([]sourceaccess.Rule{{Value: "127.0.0.1"}})
 	if err != nil {
 		t.Fatalf("compile test policy: %v", err)
 	}

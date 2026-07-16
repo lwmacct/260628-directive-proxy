@@ -100,24 +100,30 @@ server:
 
       # Directive 入口来源白名单
       source-access:
-        enabled: false # 是否启用 Directive 入口来源白名单
+        enabled: false # whether source access is enabled by the calling application
 
-        # 允许访问的来源 IP、CIDR 或域名列表
-        allowed-sources:
-          - 127.0.0.1
-          - ::1
-          - 172.22.0.0/16
+        # source allowlist rules
+        rules:
+          - id: ""
+            kind: ""
+            value: "127.0.0.1"
+          - id: ""
+            kind: ""
+            value: "::1"
+          - id: ""
+            kind: ""
+            value: "172.22.0.0/16"
 
-        # 可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头
-        trusted-proxies: []
-
-        # 域名来源规则的 DNS 缓存配置
+        # domain resolution cache settings
         dns:
           lookup-timeout: 2s # 单次域名解析超时
           success-ttl: 1m0s # 域名成功解析结果缓存时间
           failure-ttl: 10s # 域名解析失败结果缓存时间
           stale-ttl: 10m0s # 解析失败后允许继续使用旧成功结果的最长时间
           max-hosts: 1024 # DNS 缓存的最大域名数量
+
+        # 可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头
+        trusted-proxies: []
 
       # 远程指令解析资源限制
       remote:

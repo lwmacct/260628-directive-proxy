@@ -1,11 +1,11 @@
 package config
 
 import (
+	"net/netip"
 	"strings"
 
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/oidc/dexgithub"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
@@ -119,22 +119,39 @@ func validateFluentOutput(cfg fluent.Config) (fluent.Config, error) {
 }
 
 func validateDirectiveSourceAccess(cfg DirectiveSourceAccess) (DirectiveSourceAccess, error) {
-	policy, err := sourceaccess.CompileSources(cfg.AllowedSources)
-	if err != nil || policy.Len() == 0 || cfg.DNS.Validate() != nil {
+	normalized, err := cfg.Config.Normalize()
+	if err != nil || normalized.Enabled && len(normalized.Rules) == 0 {
 		return cfg, ErrInvalidAccess
 	}
-	rules := policy.Rules()
-	cfg.AllowedSources = make([]string, len(rules))
-	for index, rule := range rules {
-		cfg.AllowedSources[index] = rule.Value
-	}
-	httpConfig, err := (sourcehttp.Config{
+	httpConfig := sourcehttp.Config{
 		TrustedProxies: cfg.TrustedProxies,
-		Headers:        sourcehttp.DefaultHeaders(),
-	}).Validate()
-	if err != nil {
+		Headers:        []sourcehttp.Header{sourcehttp.HeaderForwarded, sourcehttp.HeaderXForwardedFor, sourcehttp.HeaderXRealIP},
+	}
+	if err := httpConfig.Validate(); err != nil {
 		return cfg, ErrInvalidAccess
 	}
-	cfg.TrustedProxies = httpConfig.TrustedProxies
+	cfg.Config = normalized
+	cfg.TrustedProxies = normalizeTrustedProxies(cfg.TrustedProxies)
 	return cfg, nil
+}
+
+func normalizeTrustedProxies(values []string) []string {
+	result := make([]string, len(values))
+	for index, raw := range values {
+		value := strings.TrimSpace(raw)
+		if address, err := netip.ParseAddr(value); err == nil {
+			address = address.WithZone("").Unmap()
+			result[index] = netip.PrefixFrom(address, address.BitLen()).String()
+			continue
+		}
+		prefix := netip.MustParsePrefix(value)
+		address := prefix.Addr()
+		bits := prefix.Bits()
+		if address.Is4In6() {
+			address = address.Unmap()
+			bits -= 96
+		}
+		result[index] = netip.PrefixFrom(address.WithZone("").Unmap(), bits).Masked().String()
+	}
+	return result
 }

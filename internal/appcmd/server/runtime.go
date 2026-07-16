@@ -51,7 +51,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	var sourceAccess *sourcehttp.Guard
 	var sourceEngine *sourceaccess.Engine
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
-		sourceAccess, sourceEngine, err = newDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)
+		sourceAccess, sourceEngine, err = newDirectiveSourceAccess(ctx, cfg.Proxy.Directive.SourceAccess)
 		if err != nil {
 			_ = tlsRuntime.Close()
 			return nil, fmt.Errorf("configure source access: %w", err)
@@ -154,32 +154,27 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*httpauth.Auth, e
 	return httpauth.New(httpauth.Config{ExternalURLs: cfg.Auth.ExternalURLs, Session: cfg.Auth.Session}, methods, httpauth.Options{Authorizer: httpauth.AuthorizeAll(authorizers...)})
 }
 
-func newDirectiveSourceAccess(cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {
-	policy, err := sourceaccess.CompileSources(cfg.AllowedSources)
+func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {
+	policy, err := sourceaccess.Compile(cfg.Rules)
 	if err != nil || policy.Len() == 0 {
 		return nil, nil, config.ErrInvalidAccess
 	}
-	engine, err := sourceaccess.NewEngine(sourceaccess.EngineConfig{DNS: cfg.DNS}, sourceaccess.EngineOptions{})
+	engine, err := sourceaccess.NewEngine(ctx, cfg.DNS)
 	if err != nil {
 		return nil, nil, err
 	}
-	extractor, err := sourcehttp.NewExtractor(sourcehttp.Config{
+	guard, err := sourcehttp.New(sourcehttp.Config{
 		TrustedProxies: cfg.TrustedProxies,
-		Headers:        sourcehttp.DefaultHeaders(),
-	})
-	if err != nil {
-		engine.Close()
-		return nil, nil, err
-	}
-	guard, err := sourcehttp.NewGuard(extractor, engine.Bind(policy), sourcehttp.GuardOptions{
-		DeniedHandler: func(w http.ResponseWriter, _ *http.Request, result sourceaccess.Result) {
+		Headers:        []sourcehttp.Header{sourcehttp.HeaderForwarded, sourcehttp.HeaderXForwardedFor, sourcehttp.HeaderXRealIP},
+	}, engine.Bind(policy), sourcehttp.WithDeniedHandler(
+		func(w http.ResponseWriter, _ *http.Request, result sourceaccess.Result) {
 			code := result.Decision.Reason
 			if code == "" {
 				code = sourceaccess.ReasonSourceNotAllowed
 			}
 			proxy.WriteProxyErrorJSON(w, http.StatusForbidden, string(code), "directive: source access denied")
 		},
-	})
+	))
 	if err != nil {
 		engine.Close()
 		return nil, nil, err

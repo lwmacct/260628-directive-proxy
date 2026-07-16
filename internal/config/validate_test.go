@@ -8,6 +8,7 @@ import (
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-httpauth/pkg/httpauth/statictoken"
+	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
 func validDefaultConfig() Server {
@@ -173,8 +174,8 @@ func TestValidateRejectsInvalidAuthMethods(t *testing.T) {
 
 func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
 	tests := []func(*DirectiveSourceAccess){
-		func(cfg *DirectiveSourceAccess) { cfg.AllowedSources = nil },
-		func(cfg *DirectiveSourceAccess) { cfg.AllowedSources = []string{"bad_name.example"} },
+		func(cfg *DirectiveSourceAccess) { cfg.Rules = nil },
+		func(cfg *DirectiveSourceAccess) { cfg.Rules = []sourceaccess.Rule{{Value: "bad_name.example"}} },
 		func(cfg *DirectiveSourceAccess) { cfg.TrustedProxies = []string{"proxy.example.com"} },
 		func(cfg *DirectiveSourceAccess) { cfg.DNS.LookupTimeout = -1 },
 		func(cfg *DirectiveSourceAccess) { cfg.DNS.MaxHosts = 0 },
@@ -192,7 +193,7 @@ func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
 func TestValidateNormalizesSourceAccess(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	cfg.Proxy.Directive.SourceAccess.AllowedSources = []string{" EDGE.Example.COM. ", "192.0.2.7/24"}
+	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: " EDGE.Example.COM. "}, {Value: "192.0.2.7/24"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"10.0.0.1"}
 
 	validated, err := Validate(cfg)
@@ -200,7 +201,7 @@ func TestValidateNormalizesSourceAccess(t *testing.T) {
 		t.Fatalf("validate config: %v", err)
 	}
 	access := validated.Proxy.Directive.SourceAccess
-	if access.AllowedSources[0] != "edge.example.com" || access.AllowedSources[1] != "192.0.2.0/24" ||
+	if access.Rules[0].Value != "edge.example.com" || access.Rules[1].Value != "192.0.2.0/24" ||
 		access.TrustedProxies[0] != "10.0.0.1/32" {
 		t.Fatalf("unexpected normalized source access: %#v", access)
 	}
@@ -208,7 +209,7 @@ func TestValidateNormalizesSourceAccess(t *testing.T) {
 
 func TestValidateSkipsSourceAccessWhenDisabled(t *testing.T) {
 	cfg := validDefaultConfig()
-	cfg.Proxy.Directive.SourceAccess.AllowedSources = nil
+	cfg.Proxy.Directive.SourceAccess.Rules = nil
 	cfg.Proxy.Directive.SourceAccess.DNS.MaxHosts = 0
 
 	if _, err := Validate(cfg); err != nil {

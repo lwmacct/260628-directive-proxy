@@ -100,10 +100,8 @@ type ProxyDirective struct {
 }
 
 type DirectiveSourceAccess struct {
-	Enabled        bool                   `json:"enabled"          desc:"是否启用 Directive 入口来源白名单"`
-	AllowedSources []string               `json:"allowed-sources"  desc:"允许访问的来源 IP、CIDR 或域名列表"`
-	TrustedProxies []string               `json:"trusted-proxies" desc:"可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头"`
-	DNS            sourceaccess.DNSConfig `json:"dns"             desc:"域名来源规则的 DNS 缓存配置"`
+	sourceaccess.Config `cfgm:",inline"`
+	TrustedProxies      []string `json:"trusted-proxies" desc:"可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头"`
 }
 
 type RemoteDirective struct {
@@ -132,8 +130,6 @@ type ProxyTransport struct {
 }
 
 func DefaultConfig() Config {
-	sourceDNS := sourceaccess.DefaultDNSConfig()
-	sourceDNS.StaleTTL = 10 * time.Minute
 	return Config{
 		Server: Server{
 			HTTP: ServerHTTP{
@@ -190,11 +186,16 @@ func DefaultConfig() Config {
 				Directive: ProxyDirective{
 					MaxTokenBytes:  64 << 10,
 					MaxInlineBytes: 48 << 10,
-					SourceAccess: DirectiveSourceAccess{
-						Enabled:        false,
-						AllowedSources: []string{"127.0.0.1", "::1", "172.22.0.0/16"},
-						DNS:            sourceDNS,
-					},
+					SourceAccess: func() DirectiveSourceAccess {
+						access := sourceaccess.DefaultConfig()
+						access.Rules = []sourceaccess.Rule{
+							{Value: "127.0.0.1"},
+							{Value: "::1"},
+							{Value: "172.22.0.0/16"},
+						}
+						access.DNS.StaleTTL = 10 * time.Minute
+						return DirectiveSourceAccess{Config: access}
+					}(),
 					Remote: RemoteDirective{
 						Timeout:          time.Second,
 						MaxResponseBytes: 256 << 10,
@@ -233,10 +234,4 @@ func (c Auth) HasMethod(method AuthMethod) bool {
 var Manager = cfgm.New(
 	DefaultConfig(),
 	cfgm.AppName("app"),
-	cfgm.HideCLI(
-		"server.http.auth.session.keys",
-		"server.http.auth.token",
-		"server.fluent.auth",
-		"server.fluent.websocket.header",
-	),
 )
