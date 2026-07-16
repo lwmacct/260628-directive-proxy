@@ -1,3 +1,5 @@
+import { authmeEndpoint } from "./authme";
+
 export type AuthMethodID = "github" | "token";
 
 export type AuthMethod = {
@@ -23,7 +25,7 @@ export type SessionState =
 
 export async function loadSession(): Promise<SessionState> {
   try {
-    const response = await fetch("/auth/session");
+    const response = await fetch(authmeEndpoint("/session"));
     if (!response.ok) return { status: "unavailable" };
     const session: unknown = await response.json();
     return isSessionState(session) ? session : { status: "unavailable" };

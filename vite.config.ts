@@ -24,7 +24,7 @@ export default defineConfig({
     port: 23199,
     strictPort: true,
     proxy: {
-      "/auth": {
+      "/authme": {
         target: "http://localhost:23198",
       },
       "/api": {

@@ -6,6 +6,7 @@ import {
 import { GithubOutlined, KeyOutlined } from "@ant-design/icons";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useText } from "../shared/i18n";
+import { authmeEndpoint } from "./authme";
 import { loadSession, type AuthIdentity, type AuthMethod, type AuthMethodID, type SessionState } from "./session";
 
 type AuthState =
@@ -53,7 +54,7 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
     if (!methods) return;
     setLogoutLoading(true);
     try {
-      const response = await fetch("/auth/session", { method: "DELETE" });
+      const response = await fetch(authmeEndpoint("/session"), { method: "DELETE" });
       setState(response.ok
         ? { status: "signed-out", methods }
         : { status: "unavailable", methods });
@@ -68,14 +69,14 @@ export function AuthBoundary({ children, initialSession }: { children: ReactNode
     setState({ status: "signing-in", method: "github", methods });
     const returnTo = window.location.pathname + window.location.search + window.location.hash;
     window.requestAnimationFrame(() => {
-      window.location.assign(`/auth/login/github?return_to=${encodeURIComponent(returnTo)}`);
+      window.location.assign(`${authmeEndpoint("/login/github")}?return_to=${encodeURIComponent(returnTo)}`);
     });
   }, []);
 
   const tokenLogin = useCallback(async (token: string, methods: AuthMethod[]) => {
     setState({ status: "signing-in", method: "token", methods });
     try {
-      const response = await fetch("/auth/login/token", {
+      const response = await fetch(authmeEndpoint("/login/token"), {
         body: JSON.stringify({ token }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
