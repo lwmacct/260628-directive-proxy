@@ -25,7 +25,6 @@ import (
 	captureplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/capture"
 	llmperfplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmperf"
 	llmusageplugin "github.com/lwmacct/260628-directive-proxy/internal/plugin/llmusage"
-	"github.com/lwmacct/260628-directive-proxy/internal/types"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12
@@ -127,32 +126,29 @@ func newObservabilityPipeline(ctx context.Context, fluentConfig fluent.Config) (
 }
 
 func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, error) {
-	methods := make([]authme.Method, 0, len(cfg.Auth.Methods))
+	methods := make([]authme.Method, 0, 2)
 	var authorizers []authme.Authorizer
-	for _, configured := range cfg.Auth.Methods {
-		switch configured {
-		case config.AuthMethodStaticToken:
-			tokenConfig := cfg.Auth.StaticToken
-			tokenConfig.Namespace = types.AdminTokenNamespace
-			tokenMethod, err := statictoken.New(tokenConfig)
-			if err != nil {
-				return nil, err
-			}
-			methods = append(methods, tokenMethod)
-		case config.AuthMethodDexGitHub:
-			oidcMethod, err := dexgithub.New(ctx, cfg.Auth.DexGitHub)
-			if err != nil {
-				return nil, err
-			}
-			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.Auth.AllowedGitHubUsers)
-			if err != nil {
-				return nil, err
-			}
-			authorizers = append(authorizers, authorizer)
-			methods = append(methods, oidcMethod)
+	if cfg.AuthMe.StaticToken.Enabled {
+		tokenConfig := cfg.AuthMe.StaticToken
+		tokenMethod, err := statictoken.New(tokenConfig)
+		if err != nil {
+			return nil, err
 		}
+		methods = append(methods, tokenMethod)
 	}
-	return authme.New(authme.Config{Origins: cfg.Auth.Origins, Session: cfg.Auth.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
+	if cfg.AuthMe.DexGitHub.Enabled {
+		oidcMethod, err := dexgithub.New(ctx, cfg.AuthMe.DexGitHub)
+		if err != nil {
+			return nil, err
+		}
+		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.AuthMe.AllowedGitHubUsers)
+		if err != nil {
+			return nil, err
+		}
+		authorizers = append(authorizers, authorizer)
+		methods = append(methods, oidcMethod)
+	}
+	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
 func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {

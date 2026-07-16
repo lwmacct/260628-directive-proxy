@@ -2,12 +2,10 @@ package config
 
 import (
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
@@ -38,7 +36,7 @@ type Server struct {
 type ServerHTTP struct {
 	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
 	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
-	Auth            Auth             `json:"auth"              desc:"Admin API 认证配置"`
+	AuthMe          AuthMe           `json:"authme"            desc:"Authme Admin API 认证配置"`
 	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
 	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
 	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
@@ -46,17 +44,10 @@ type ServerHTTP struct {
 	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
 }
 
-type AuthMethod string
-
-const (
-	AuthMethodDexGitHub   AuthMethod = "dexgithub"
-	AuthMethodStaticToken AuthMethod = "statictoken"
-)
-
-type Auth struct {
-	Origins            []string             `json:"origins"       desc:"允许浏览器访问应用的可信 origin"`
-	Session            authme.SessionConfig `json:"session"       desc:"统一浏览器 Session 配置"`
-	Methods            []AuthMethod         `json:"methods"       desc:"启用的认证方式，可选 statictoken,dexgithub"`
+type AuthMe struct {
+	PathPrefix         string               `json:"path-prefix"      desc:"认证 HTTP 路由前缀"`
+	Origins            []string             `json:"origins"          desc:"允许浏览器访问应用的可信 origin"`
+	Session            authme.SessionConfig `json:"session"          desc:"统一浏览器 Session 配置"`
 	StaticToken        statictoken.Config   `json:"statictoken" desc:"Static token 认证配置"`
 	DexGitHub          dexgithub.Config     `json:"dexgithub" desc:"Dex GitHub OIDC 认证配置"`
 	AllowedGitHubUsers []string             `json:"allowed-github-users" desc:"允许访问应用的 GitHub 用户名"`
@@ -124,17 +115,15 @@ func DefaultConfig() Config {
 		Server: Server{
 			HTTP: ServerHTTP{
 				Listen: ":23198",
-				Auth: Auth{
-					Methods: []AuthMethod{AuthMethodStaticToken},
+				AuthMe: AuthMe{
 					Origins: []string{"http://localhost:23199"},
 					Session: authme.SessionConfig{
-						Keys: []authme.SessionKey{{ID: "default", Secret: "${AUTH_SESSION_KEY}"}},
-						TTL:  24 * time.Hour,
+						Keys: []authme.SessionKey{{ID: "default", Secret: "${AUTHME_SESSION_KEY}"}},
 					},
 					StaticToken: func() statictoken.Config {
 						config := statictoken.DefaultConfig()
-						config.Namespace = types.AdminTokenNamespace
-						config.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: "${AUTH_TOKEN_SHA256}"}}
+						config.Enabled = true
+						config.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Token: "${AUTHME_ACCESS_TOKEN}"}}
 						return config
 					}(),
 					DexGitHub: func() dexgithub.Config {
@@ -217,10 +206,6 @@ func DefaultConfig() Config {
 			}(),
 		},
 	}
-}
-
-func (c Auth) HasMethod(method AuthMethod) bool {
-	return slices.Contains(c.Methods, method)
 }
 
 var Manager = cfgm.New(

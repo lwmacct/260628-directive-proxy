@@ -4,7 +4,6 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
@@ -30,53 +29,38 @@ func Validate(cfg Server) (Server, error) {
 			return cfg, ErrInvalidHTTP
 		}
 	}
-	if len(cfg.HTTP.Auth.Methods) == 0 {
-		return cfg, ErrInvalidAuth
-	}
-	coreConfig := authme.Config{Origins: cfg.HTTP.Auth.Origins, Session: cfg.HTTP.Auth.Session}
+	coreConfig := authme.Config{Prefix: cfg.HTTP.AuthMe.PathPrefix, Origins: cfg.HTTP.AuthMe.Origins, Session: cfg.HTTP.AuthMe.Session}
 	validatedCore, err := coreConfig.Normalize()
 	if err != nil {
 		return cfg, ErrInvalidAuth
 	}
-	cfg.HTTP.Auth.Origins = validatedCore.Origins
-	cfg.HTTP.Auth.Session = validatedCore.Session
-	seen := make(map[AuthMethod]struct{}, len(cfg.HTTP.Auth.Methods))
-	for _, method := range cfg.HTTP.Auth.Methods {
-		if _, exists := seen[method]; exists {
+	cfg.HTTP.AuthMe.PathPrefix = validatedCore.Prefix
+	cfg.HTTP.AuthMe.Origins = validatedCore.Origins
+	cfg.HTTP.AuthMe.Session = validatedCore.Session
+	if cfg.HTTP.AuthMe.StaticToken.Enabled {
+		validatedToken, err := cfg.HTTP.AuthMe.StaticToken.Normalize()
+		if err != nil {
 			return cfg, ErrInvalidAuth
 		}
-		seen[method] = struct{}{}
-		switch method {
-		case AuthMethodStaticToken:
-			tokenConfig := cfg.HTTP.Auth.StaticToken
-			if tokenConfig.Namespace == "" {
-				tokenConfig.Namespace = types.AdminTokenNamespace
-			}
-			validatedToken, err := tokenConfig.Normalize()
-			if err != nil {
-				return cfg, ErrInvalidAuth
-			}
-			cfg.HTTP.Auth.StaticToken = validatedToken
-		case AuthMethodDexGitHub:
-			if cfg.HTTP.Auth.DexGitHub.SessionTTL <= 0 {
-				return cfg, ErrInvalidAuth
-			}
-			validatedAuth, err := cfg.HTTP.Auth.DexGitHub.Normalize()
-			if err != nil {
-				return cfg, ErrInvalidAuth
-			}
-			cfg.HTTP.Auth.DexGitHub = validatedAuth
-			authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.HTTP.Auth.AllowedGitHubUsers)
-			if err != nil {
-				return cfg, ErrInvalidAuth
-			}
-			_ = authorizer
-			for index, username := range cfg.HTTP.Auth.AllowedGitHubUsers {
-				cfg.HTTP.Auth.AllowedGitHubUsers[index] = strings.ToLower(strings.TrimSpace(username))
-			}
-		default:
+		cfg.HTTP.AuthMe.StaticToken = validatedToken
+	}
+	if cfg.HTTP.AuthMe.DexGitHub.Enabled {
+		validatedAuth, err := cfg.HTTP.AuthMe.DexGitHub.Normalize()
+		if err != nil {
 			return cfg, ErrInvalidAuth
 		}
+		cfg.HTTP.AuthMe.DexGitHub = validatedAuth
+		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.HTTP.AuthMe.AllowedGitHubUsers)
+		if err != nil {
+			return cfg, ErrInvalidAuth
+		}
+		_ = authorizer
+		for index, username := range cfg.HTTP.AuthMe.AllowedGitHubUsers {
+			cfg.HTTP.AuthMe.AllowedGitHubUsers[index] = strings.ToLower(strings.TrimSpace(username))
+		}
+	}
+	if !cfg.HTTP.AuthMe.StaticToken.Enabled && !cfg.HTTP.AuthMe.DexGitHub.Enabled {
+		return cfg, ErrInvalidAuth
 	}
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
 		validatedAccess, err := validateDirectiveSourceAccess(cfg.Proxy.Directive.SourceAccess)

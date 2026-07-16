@@ -80,7 +80,7 @@ func pathWithin(requestPath, prefix string) bool {
 func newFallbackHTTPHandler(rt *runtime, systemAPI http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	if rt.adminAuth != nil {
-		mux.Handle("/auth/", rt.adminAuth.Handler())
+		mux.Handle(rt.adminAuth.PathPrefix()+"/", rt.adminAuth.Handler())
 	}
 	mux.Handle("/health", systemAPI)
 	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {

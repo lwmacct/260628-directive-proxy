@@ -23,8 +23,9 @@ server:
       poll-jitter-ratio: 0.1 # 成功轮询后的向下随机抖动比例
       allow-insecure-http: false # 允许通过明文 HTTP 读取证书材料
 
-    # Admin API 认证配置
-    auth:
+    # Authme Admin API 认证配置
+    authme:
+      path-prefix: "" # 认证 HTTP 路由前缀
 
       # 允许浏览器访问应用的可信 origin
       origins:
@@ -36,28 +37,25 @@ server:
         # Session encryption key ring; first key writes, all keys read
         keys:
           - id: "default" # Session key ID
-            secret: "${AUTH_SESSION_KEY}" # Base64url-encoded 32-byte AES key
-        ttl: 24h0m0s # Maximum browser session lifetime
+            secret: "${AUTHME_SESSION_KEY}" # Base64url-encoded 32-byte AES key
+        ttl: 0s # Maximum browser session lifetime
         cookie-name: "" # Optional browser session cookie name
-
-      # 启用的认证方式，可选 statictoken,dexgithub
-      methods:
-        - statictoken
 
       # Static token 认证配置
       statictoken:
+        enabled: true # Whether to enable static token authentication
         id: "token" # Authentication method ID
         label: "Access token" # Authentication method display label
-        namespace: "dpctl" # Token namespace
 
         # Static access token credentials
         credentials:
           - id: "admin" # Credential ID
             name: "Administrator" # Display name
-            token-sha256: "${AUTH_TOKEN_SHA256}" # Lowercase hexadecimal SHA-256 digest of the complete access token
+            token: "${AUTHME_ACCESS_TOKEN}" # Opaque access token
 
       # Dex GitHub OIDC 认证配置
       dexgithub:
+        enabled: false # Whether to enable Dex GitHub authentication
         id: "github" # Authentication method ID
         label: "GitHub" # Authentication method display label
         issuer: "https://2008.s.lwmacct.com:20088" # Dex OIDC issuer URL

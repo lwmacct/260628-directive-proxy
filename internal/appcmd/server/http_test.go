@@ -21,7 +21,6 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
-	"github.com/lwmacct/260628-directive-proxy/internal/types"
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
@@ -102,14 +101,10 @@ func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
 
 func TestHTTPServerAllowsRequesterRetryByRetryIDWithoutAdminAuthentication(t *testing.T) {
 	cfg := config.DefaultConfig().Server
-	adminToken := "dpctl.10.admin." + strings.Repeat("Z", 32)
-	digest, err := statictoken.Digest(types.AdminTokenNamespace, adminToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.HTTP.Auth.Origins = []string{"http://localhost"}
-	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
-	cfg.HTTP.Auth.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: digest}}
+	adminToken := "admin-token/with.punctuation"
+	cfg.HTTP.AuthMe.Origins = []string{"http://localhost"}
+	cfg.HTTP.AuthMe.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("p", 32)))
+	cfg.HTTP.AuthMe.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Token: adminToken}}
 	adminAuth, err := newAdminAuth(t.Context(), cfg.HTTP)
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +485,7 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/auth/session", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/authme/session", nil))
 
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("unexpected Cache-Control: %q", got)
@@ -498,15 +493,11 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 }
 
 func TestTokenAuthProtectsAdminAPI(t *testing.T) {
-	token := "dpctl.10.admin." + strings.Repeat("Y", 32)
-	digest, err := statictoken.Digest(types.AdminTokenNamespace, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	token := "admin-token/with.punctuation"
 	cfg := config.DefaultConfig().Server
-	cfg.HTTP.Auth.Origins = []string{"http://localhost"}
-	cfg.HTTP.Auth.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.HTTP.Auth.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", TokenSHA256: digest}}
+	cfg.HTTP.AuthMe.Origins = []string{"http://localhost"}
+	cfg.HTTP.AuthMe.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
+	cfg.HTTP.AuthMe.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Token: token}}
 	auth, err := newAdminAuth(t.Context(), cfg.HTTP)
 	if err != nil {
 		t.Fatalf("configure access token auth: %v", err)
@@ -515,7 +506,7 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 	handler := newHTTPServer(&cfg, rt).Handler
 
 	authSession := httptest.NewRecorder()
-	handler.ServeHTTP(authSession, httptest.NewRequest(http.MethodGet, "http://localhost/auth/session", nil))
+	handler.ServeHTTP(authSession, httptest.NewRequest(http.MethodGet, "http://localhost/authme/session", nil))
 	if authSession.Code != http.StatusOK || authSession.Header().Get("Cache-Control") != "no-store" ||
 		!strings.Contains(authSession.Body.String(), `"id":"token"`) || !strings.Contains(authSession.Body.String(), `"status":"signed-out"`) {
 		t.Fatalf("unexpected auth session: status=%d body=%s", authSession.Code, authSession.Body.String())
@@ -527,7 +518,7 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
 	}
 
-	loginRequest := httptest.NewRequest(http.MethodPost, "http://localhost/auth/login/token", strings.NewReader(`{"token":"`+token+`"}`))
+	loginRequest := httptest.NewRequest(http.MethodPost, "http://localhost/authme/login/token", strings.NewReader(`{"token":"`+token+`"}`))
 	loginRequest.Header.Set("Origin", "http://localhost")
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, loginRequest)

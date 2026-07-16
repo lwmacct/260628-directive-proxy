@@ -68,7 +68,7 @@ Admin API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/admi
 
 ## Admin API 登录
 
-`server.http.auth.methods` 是唯一的认证启用状态，可包含 `token`、`oidc` 或两者，默认只启用 `token`。列表顺序决定登录方式顺序；只有启用的配置会在启动时校验和初始化。
+`server.http.authme.statictoken.enabled` 和 `server.http.authme.dexgithub.enabled` 分别控制两种认证方式；默认只启用静态 token。至少启用一种方式，只有启用的配置会在启动时校验和初始化。
 
 同时启用时，浏览器登录页以 Access token 表单为主体，并提供可选的 GitHub 登录按钮。两种方式签发同一个加密浏览器 Session；显式 Bearer 无效时不会降级使用 Session Cookie。
 
@@ -77,60 +77,59 @@ Admin API 支持 Dex OIDC 和静态 Access token 两种认证模式。`/api/admi
 ```yaml
 server:
   http:
-    auth:
+    authme:
       external-urls:
         - https://proxy.example.com
       session:
         keys:
           - id: primary
-            secret: "${AUTH_SESSION_KEY}"
+            secret: "${AUTHME_SESSION_KEY}"
         ttl: 24h
 ```
 
-`AUTH_SESSION_KEY` 必须是 base64url 编码的 32 字节随机值，可用 `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` 生成。第一把 key 用于写入，所有 key 均可解密，便于轮换。
+`AUTHME_SESSION_KEY` 必须是 base64url 编码的 32 字节随机值，可用 `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` 生成。第一把 key 用于写入，所有 key 均可解密，便于轮换。
+
+Session TTL 默认由 Authme 提供，为 24 小时；需要更短或更长的生命周期时，再在 `authme.session.ttl` 显式覆盖。
 
 ### Access token 模式
 
-使用 OpenSSL 生成 24 个随机字节的无填充 Base64URL secret，并组装 token：
+`AUTHME_ACCESS_TOKEN` 是 opaque Bearer secret，不要求固定前缀、版本或编码。可以直接使用已有的
+Redis ACL 密码、API key 或其他非空 token；只要不包含空白和控制字符即可。
+这是破坏式变更：旧版 `dpctl.10...` token、`token-sha256` 配置和 namespace 字段不再兼容，升级后需要重新配置 token。
+
+例如直接设置任意已有值：
 
 ```shell
-_id=admin
-_secret="$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '=')"
-AUTH_TOKEN="dpctl.10.${_id}.${_secret}"
+export AUTHME_ACCESS_TOKEN="change-me"
 ```
 
-将完整 token 计算为服务端配置需要的 SHA-256 摘要：
+需要新建高熵 token 时，可选用 OpenSSL：
 
 ```shell
-AUTH_TOKEN_SHA256="$(printf '%s' "${AUTH_TOKEN}" | openssl sha256 -r | awk '{print $1}')"
-printf 'AUTH_TOKEN=%s\nAUTH_TOKEN_SHA256=%s\n' "${AUTH_TOKEN}" "${AUTH_TOKEN_SHA256}"
+export AUTHME_ACCESS_TOKEN="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
 ```
 
-token 固定使用 `dpctl.10.<credential-id>.<secret>` 格式，其中 secret 是 24 个随机字节的无填充 Base64URL 编码。旧式任意字符串、UUID、其他版本、非规范 Base64URL 和带前后空白的 token 均不接受。
-
-通过环境变量注入摘要，避免把原始 token 或摘要提交到仓库：
+同时生成 Session key：
 
 ```shell
-export AUTH_TOKEN_SHA256="<token-sha256>"
-export AUTH_SESSION_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
+export AUTHME_SESSION_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
 ```
 
-默认配置会读取该摘要环境变量；未设置、为空或不是 64 字符小写十六进制时，服务会拒绝启动。显式配置方式如下：
+默认配置读取 `AUTHME_ACCESS_TOKEN`；未设置、为空、包含空白/控制字符或超过 4096 字节时，服务会拒绝启动。显式配置方式如下：
 
 ```yaml
 server:
   http:
-    auth:
-      methods:
-        - statictoken
+    authme:
       statictoken:
+        enabled: true
         credentials:
           - id: admin
             name: Administrator
-            token-sha256: "${AUTH_TOKEN_SHA256}"
+            token: "${AUTHME_ACCESS_TOKEN}"
 ```
 
-浏览器输入 token 后，服务只把 credential ID 和完整 secret revision 写入统一加密 Session，不保存原始 token。删除 credential 或轮换摘要会立即撤销对应登录，不需要 Session 数据库。
+浏览器输入 token 后，统一加密 Session 只保存 credential ID 和 token 的 SHA-256 revision，不保存原始 token；适配器认证索引同样只保存摘要。删除 credential 或轮换 token 会立即撤销对应登录，不需要 Session 数据库。
 
 自动化客户端无需调用登录端点，可直接访问 Admin API：
 
@@ -138,7 +137,7 @@ server:
 Authorization: Bearer <access-token>
 ```
 
-配置使用带显式 ID 的 credential 列表，支持多个凭据以便审计和轮换。ID 最长 56 字节，只接受小写字母、数字、`-` 和 `_`，并且必须以字母或数字开头、结尾。
+配置使用带显式 ID 的 credential 列表，支持多个凭据以便审计和轮换。不同 credential 不能配置相同 token。ID 最长 56 字节，只接受小写字母、数字、`-` 和 `_`，并且必须以字母或数字开头、结尾。
 
 ### OIDC 模式
 
@@ -147,12 +146,11 @@ Authorization: Bearer <access-token>
 ```yaml
 server:
   http:
-    auth:
-      methods:
-        - dexgithub
+    authme:
       origins:
         - http://localhost:23199
       dexgithub:
+        enabled: true
         issuer: https://2008.s.lwmacct.com:20088
         client-id: dproxy
         session-ttl: 24h
@@ -164,7 +162,7 @@ server:
 
 登录回调验证 issuer、audience、签名、有效期、nonce、PKCE 和 GitHub connector 后签发本地 AES-256-GCM Session；Cookie 不保存 Dex ID Token 或 GitHub access token。本地管理员策略在每次请求时重新执行。
 
-生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `origins`。OIDC callback 固定为 `<origin>/auth/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
+生产部署必须为每个工具注册独立 Dex client，并配置 HTTPS `origins`。OIDC callback 固定为 `<origin>/authme/callback/github`，且必须全部注册到 Dex client。服务按请求 Host 精确选择 origin；不同域名各自持有 Host-only Cookie。
 
 当前服务只通过 Dex GitHub connector 使用标准 OIDC：provider 必须提供 OIDC discovery 和可验证的 ID Token，GitHub 身份由 Dex 转换为 OIDC claims。
 
@@ -173,18 +171,17 @@ server:
 ```yaml
 server:
   http:
-    auth:
-      methods:
-        - statictoken
-        - dexgithub
+    authme:
       origins:
         - https://proxy.example.com
       statictoken:
+        enabled: true
         credentials:
           - id: admin
             name: Administrator
-            token-sha256: "${AUTH_TOKEN_SHA256}"
+            token: "${AUTHME_ACCESS_TOKEN}"
       dexgithub:
+        enabled: true
         issuer: https://auth.example.com
         client-id: dproxy
         session-ttl: 24h
@@ -378,11 +375,11 @@ go run . server
 
 ```text
 HTTP (:23198)
-  GET /auth/session
-  DELETE /auth/session
-  POST /auth/login/token
-  GET /auth/login/github
-  GET /auth/callback/github
+  GET /authme/session
+  DELETE /authme/session
+  POST /authme/login/token
+  GET /authme/login/github
+  GET /authme/callback/github
   GET /health
   PUT /api/public/retry
   GET /api/admin/proxy-requests
