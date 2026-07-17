@@ -1,6 +1,6 @@
 import { CopyOutlined, ImportOutlined } from "@ant-design/icons";
 import { WorkbenchPage, WorkbenchPanel } from "@lwmacct/260627-antd-workbench";
-import { Alert, App as AntdApp, Button, Flex, Space, Tabs, Tag } from "antd";
+import { Alert, App as AntdApp, Button, Flex, Input, Space, Tabs, Tag } from "antd";
 import { useMemo } from "react";
 import { useText } from "../../shared/i18n";
 import { formatDirectiveJSON } from "./codec";
@@ -17,7 +17,7 @@ export function DirectiveWorkbenchPage() {
   const sourceDirty = state.activeSource === "json"
     ? state.jsonInput !== formatDirectiveJSON(state.envelope)
     : state.tokenInput !== state.directiveToken;
-  const tokenPrefix = `dp.18.${state.envelope.kind}`;
+  const tokenPrefix = `dp.19.${state.envelope.kind}`;
   const items = useMemo(() => [
     {
       key: "json",
@@ -31,7 +31,7 @@ export function DirectiveWorkbenchPage() {
     {
       key: "token",
       label: "Token",
-      children: <SourceEditor placeholder={`${tokenPrefix}.<base64url-json>`} value={state.tokenInput} onChange={state.setTokenInput} />,
+      children: <SourceEditor placeholder={`${tokenPrefix}.<base64url-json>.<hmac>`} value={state.tokenInput} onChange={state.setTokenInput} />,
     },
   ], [state.envelope.kind, state.jsonInput, state.tokenInput, t.authConsole.tokenJSON, tokenPrefix]);
   const activeValue = state.activeSource === "json" ? state.jsonInput : state.tokenInput;
@@ -47,6 +47,10 @@ export function DirectiveWorkbenchPage() {
         title={t.authConsole.editableSources}
       >
         <Alert showIcon style={{ marginBottom: 12 }} title={t.authConsole.tokenJSONDescription(tokenPrefix)} type="info" />
+        <Flex align="center" gap="small" style={{ marginBottom: 12 }}>
+          <span>{t.authConsole.tokenSecret}</span>
+          <Input.Password aria-label={t.authConsole.tokenSecret} placeholder={t.authConsole.tokenSecretPlaceholder} value={state.tokenSecret} onChange={(event) => state.setTokenSecret(event.target.value)} />
+        </Flex>
         <Tabs activeKey={state.activeSource} items={items} onChange={(key: string) => state.setActiveSource(key as "json" | "token")} />
         <Flex align="center" gap="small" justify="space-between" wrap>
           <Tag color={sourceDirty ? "orange" : "green"}>{sourceDirty ? t.authConsole.dirty : t.authConsole.synced}</Tag>

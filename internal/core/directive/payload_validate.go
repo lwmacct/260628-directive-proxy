@@ -10,7 +10,9 @@ import (
 )
 
 var (
-	ErrInvalidPayload = errors.New("invalid proxy payload")
+	ErrInvalidPayload     = errors.New("invalid proxy payload")
+	ErrInvalidTokenSecret = errors.New("invalid directive token secret")
+	ErrTokenUnauthorized  = errors.New("directive token authentication failed")
 )
 
 func Validate(payload Payload) error {

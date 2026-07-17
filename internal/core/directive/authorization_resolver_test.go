@@ -10,7 +10,7 @@ import (
 )
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
-	raw, err := Encode(Payload{
+	raw, err := Encode(testTokenSecret, Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1"},
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
@@ -24,7 +24,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
-	resolution, err := resolveRequest(NewResolver(), req)
+	resolution, err := resolveRequest(newTestResolver(), req)
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 }
 
 func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
-	raw, err := Encode(Payload{
+	raw, err := Encode(testTokenSecret, Payload{
 		Target: TargetSection{URL: "https://api.example.com"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
 			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test", Values: []string{"original"}},
@@ -56,7 +56,7 @@ func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
 	}
 	req := httptest.NewRequest("GET", "http://proxy.local/", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
-	prepared, err := NewResolver().Prepare(req)
+	prepared, err := newTestResolver().Prepare(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestResolverReturnsNoMatchForNonDirectiveBearerToken(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer opaque-upstream-token")
 
-	_, err := resolveRequest(NewResolver(), req)
+	_, err := resolveRequest(newTestResolver(), req)
 	if !errors.Is(err, proxy.ErrNoMatch) {
 		t.Fatalf("expected no match for non-directive bearer token, got %v", err)
 	}
@@ -92,13 +92,13 @@ func TestDirectiveTokenFromAuthorizationReservesDPTokenFamily(t *testing.T) {
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dp.18.inline.payload", want: true},
+		{name: "current version", authorization: "Bearer dp.19.inline.payload.mac", want: true},
 		{name: "unsupported version", authorization: "Bearer dp.999.inline.payload", want: true},
 		{name: "malformed family token", authorization: "Bearer dp.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dp.18.inline.payload", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dp.19.inline.payload.mac", want: true},
 		{name: "legacy family", authorization: "Bearer dproxy.18.i.payload", want: false},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dp.18.inline.payload", want: false},
+		{name: "other scheme", authorization: "Basic dp.19.inline.payload.mac", want: false},
 		{name: "missing", want: false},
 	}
 
@@ -130,7 +130,7 @@ func TestResolverReturnsInvalidDirectiveForUnsupportedDirectiveVersion(t *testin
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+".10.payload")
 
-	_, err := resolveRequest(NewResolver(), req)
+	_, err := resolveRequest(newTestResolver(), req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}
@@ -140,20 +140,36 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+TokenFamily+"."+TokenVersion+".not-valid-base64url")
 
-	_, err := resolveRequest(NewResolver(), req)
+	_, err := resolveRequest(newTestResolver(), req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
+	}
+}
+
+func TestResolverRejectsWrongTokenSecret(t *testing.T) {
+	raw, err := Encode(testTokenSecret, Payload{Target: TargetSection{URL: "https://api.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	_, err = resolveRequest(NewResolver(ResolverOptions{TokenSecret: "wrong-secret"}), req)
+	if !errors.Is(err, proxy.ErrDirectiveUnauthorized) {
+		t.Fatalf("unexpected authorization error: %v", err)
 	}
 }
 
 func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T) {
 	const decodedSecret = "decoded-auth-secret"
 
-	raw := encodeToken(TokenInline, []byte(`{"target":{"url":"`+decodedSecret+`"}}`))
+	raw, err := encodeToken(testTokenSecret, TokenInline, []byte(`{"target":{"url":"`+decodedSecret+`"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
 
-	_, err := resolveRequest(NewResolver(), req)
+	_, err = resolveRequest(newTestResolver(), req)
 	if !errors.Is(err, proxy.ErrInvalidDirective) {
 		t.Fatalf("expected invalid directive, got %v", err)
 	}

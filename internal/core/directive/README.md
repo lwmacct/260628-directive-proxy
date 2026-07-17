@@ -1,6 +1,6 @@
 # `directive`
 
-`directive` 负责解析 `Authorization: Bearer dp.<version>.<inline|remote>.<base64url-json>`，必要时通过 HTTP、Redis 或 File 读取完整 directive，并转换成 `proxy.Plan`。
+`directive` 负责解析 `Authorization: Bearer dp.19.<inline|remote>.<base64url-json>.<hmac>`，先校验 TokenSecret 的 HMAC，再按需通过 HTTP、Redis 或 File 读取完整 directive，并转换成 `proxy.Plan`。
 
 面向使用者的 payload 示例和字段说明放在根目录 [README.md](../../../README.md)；这里只保留包内部维护说明，避免两处文档重复。
 
@@ -9,7 +9,7 @@
 ## 职责
 
 - 从 `Authorization: Bearer <token>` 提取 `dp.` family token
-- 将 dp family 请求与保留 API 请求分流，decoder 只接受当前 `dp.<version>.inline/remote` 四段格式
+- 将 dp family 请求与保留 API 请求分流，decoder 只接受当前 `dp.19.<kind>.<base64url-json>.<hmac>` 五段格式并校验 HMAC
 - inline 第四段直接解码为 `Payload`；remote 第四段直接解码为 `RemoteSpec`，编译为 typed reference 后通过 HTTP/Redis/File reader 读取同一 `Payload`
 - 校验当前版本 token、RemoteSpec 与 directive payload schema
 - 将 target、proxy、headers 等 payload 字段组装成 `proxy.Plan`
@@ -25,7 +25,7 @@
 ## 实现约定
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
-- `dp.<version>.` 后的 `inline`/`remote` 明确区分 inline directive 与自包含 RemoteSpec；实际版本只由 `TokenVersion` 定义。
+- `dp.19.<kind>.<base64url-json>.<hmac>` 明确区分 inline directive 与自包含 RemoteSpec；实际版本只由 `TokenVersion` 定义。
 - inline JSON 本身就是 Payload；remote JSON 本身就是 RemoteSpec。
 - RemoteSpec 只包含读取信息，声明 payload、program、recovery 或其他执行字段必须拒绝。
 - RemoteSpec 顶层必须且只能包含 `http`、`redis`、`file` 之一，不使用共享 `type` 和跨 backend 可选字段。

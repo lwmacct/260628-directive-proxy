@@ -1,6 +1,6 @@
 # Directive Proxy
 
-Directive Proxy 是由 `Authorization: Bearer dp.<version>.<inline|remote>.<base64url-json>` 指令驱动的通用 HTTP 反向代理。
+Directive Proxy 是由 `Authorization: Bearer dp.19.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
 
 项目的主要职责是 data plane：解析指令、改写请求、访问上游，并在异常发生时通过 Recovery Controller 让调用方同步修订远程指令或决定下一步动作。服务端控制面只保留 AuthMe 登录；directive 的生成、解析和校验全部在浏览器工作台本地完成。
 
@@ -16,18 +16,22 @@ Directive Proxy 是由 `Authorization: Bearer dp.<version>.<inline|remote>.<base
 
 `/api/admin/*` 和已删除的 `/api/public/*` 都是保留前缀，不会因为携带 dp token 而进入代理。普通业务路径（包括其他 `/api/...`）仍可进入 data plane。
 
+TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校验 token HMAC；它不会写入 token。secret 错误或 MAC 篡改返回 `401 directive_unauthorized`。
+
 上游 HTTPS 连接显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1；连接池由 `server.proxy.transport` 配置。明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 
 前端只保留 directive workbench、登录和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
 
-## Directive v18
+## Directive v19
 
-当前 token 版本是 `18`，旧版本不兼容：
+当前 token 版本是 `19`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
 
 ```http
-Authorization: Bearer dp.18.inline.<base64url-json>
-Authorization: Bearer dp.18.remote.<base64url-json>
+Authorization: Bearer dp.19.inline.<base64url-json>.<hmac>
+Authorization: Bearer dp.19.remote.<base64url-json>.<hmac>
 ```
+
+`hmac` 是 `HMAC-SHA256(TokenSecret, "dp.19." + kind + "." + base64url-json)` 的 Base64URL 编码。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
 inline token 的解码内容是：
 

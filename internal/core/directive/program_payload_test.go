@@ -7,7 +7,7 @@ import (
 )
 
 func TestPayloadRoundTripsOrderedModuleProgram(t *testing.T) {
-	token, err := Encode(Payload{
+	token, err := Encode(testTokenSecret, Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1/responses"},
 		Program: module.Program{
 			Request: []module.Spec{{ID: "capture", Module: "builtin.capture", Config: []byte(`{}`)}},
@@ -17,7 +17,7 @@ func TestPayloadRoundTripsOrderedModuleProgram(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := Decode(token)
+	document, err := Decode(testTokenSecret, token)
 	if err != nil {
 		t.Fatal(err)
 	}

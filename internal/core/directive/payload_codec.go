@@ -2,6 +2,8 @@ package directive
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -15,15 +17,18 @@ const (
 	maxRemoteFilePathBytes = 4096
 )
 
-func Encode(payload Payload) (string, error) {
-	return EncodeDocument(Document{Kind: KindInline, Payload: &payload})
+func Encode(secret string, payload Payload) (string, error) {
+	return EncodeDocument(secret, Document{Kind: KindInline, Payload: &payload})
 }
 
-func EncodeRemote(spec RemoteSpec) (string, error) {
-	return EncodeDocument(Document{Kind: KindRemote, Remote: &spec})
+func EncodeRemote(secret string, spec RemoteSpec) (string, error) {
+	return EncodeDocument(secret, Document{Kind: KindRemote, Remote: &spec})
 }
 
-func EncodeDocument(document Document) (string, error) {
+func EncodeDocument(secret string, document Document) (string, error) {
+	if strings.TrimSpace(secret) == "" {
+		return "", ErrInvalidTokenSecret
+	}
 	document, err := ValidateDocument(document)
 	if err != nil {
 		return "", err
@@ -42,13 +47,25 @@ func EncodeDocument(document Document) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return encodeToken(kind, raw), nil
+	return encodeToken(secret, kind, raw)
 }
 
-func Decode(encoded string) (Document, error) {
+func Decode(secret, encoded string) (Document, error) {
 	parts := strings.Split(strings.TrimSpace(encoded), ".")
-	if len(parts) != 4 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[3] == "" {
+	if len(parts) != 5 || parts[0] != TokenFamily || parts[1] != TokenVersion ||
+		(parts[2] != TokenInline && parts[2] != TokenRemote) || parts[3] == "" || parts[4] == "" {
 		return Document{}, ErrInvalidPayload
+	}
+	if strings.TrimSpace(secret) == "" {
+		return Document{}, ErrTokenUnauthorized
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[4])
+	if err != nil || len(signature) != sha256.Size {
+		return Document{}, ErrTokenUnauthorized
+	}
+	expected := tokenMAC(secret, strings.Join(parts[:4], "."))
+	if !hmac.Equal(signature, expected) {
+		return Document{}, ErrTokenUnauthorized
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[3])
 	if err != nil || len(raw) == 0 {
@@ -130,13 +147,24 @@ func DecodePayload(raw []byte) (Payload, error) {
 	return normalizePayload(payload)
 }
 
-func encodeToken(kind string, raw []byte) string {
-	return strings.Join([]string{
+func encodeToken(secret, kind string, raw []byte) (string, error) {
+	payload := base64.RawURLEncoding.EncodeToString(raw)
+	signingInput := strings.Join([]string{
 		TokenFamily,
 		TokenVersion,
 		kind,
-		base64.RawURLEncoding.EncodeToString(raw),
+		payload,
 	}, ".")
+	if strings.TrimSpace(secret) == "" {
+		return "", ErrInvalidTokenSecret
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(secret, signingInput)), nil
+}
+
+func tokenMAC(secret, signingInput string) []byte {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(signingInput))
+	return mac.Sum(nil)
 }
 
 func decodeRemoteSpec(raw []byte) (RemoteSpec, error) {

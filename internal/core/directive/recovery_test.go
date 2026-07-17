@@ -22,11 +22,11 @@ func TestRecoveryPayloadRoundTripAndCompile(t *testing.T) {
 			Budget: RecoveryBudgetSpec{MaxAttempts: 3},
 		},
 	}
-	token, err := Encode(payload)
+	token, err := Encode(testTokenSecret, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := Decode(token)
+	decoded, err := Decode(testTokenSecret, token)
 	if err != nil {
 		t.Fatal(err)
 	}

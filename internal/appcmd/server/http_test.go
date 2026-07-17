@@ -23,6 +23,8 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
+const testDirectiveSecret = "${DIRECTIVE_TOKEN_SECRET}"
+
 func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
 	t.Helper()
 	if err := redisServer.Server().Register("JSON.GET", func(peer *miniredisServer.Peer, _ string, args []string) {
@@ -49,7 +51,7 @@ func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer upstream.Close()
-	token, err := directive.Encode(directive.Payload{
+	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Target: directive.TargetSection{URL: upstream.URL},
 	})
 	if err != nil {
@@ -117,7 +119,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	if err := redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Directive-Source","values":["redis"]}]}}`); err != nil {
 		t.Fatalf("seed Redis directive: %v", err)
 	}
-	token, err := directive.EncodeRemote(directive.RemoteSpec{
+	token, err := directive.EncodeRemote(testDirectiveSecret, directive.RemoteSpec{
 		Redis: &directive.RedisRemoteSpec{URL: "redis://" + redisServer.Addr() + "/0", Key: "team-a/service-a"},
 	})
 	if err != nil {
@@ -154,7 +156,7 @@ func TestHTTPServerResolvesFileDirectiveEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	remotes := newTestDirectiveRemotes(t, cfg)
-	token, err := directive.EncodeRemote(directive.RemoteSpec{File: &directive.FileRemoteSpec{Path: "team-a/services/primary.json"}})
+	token, err := directive.EncodeRemote(testDirectiveSecret, directive.RemoteSpec{File: &directive.FileRemoteSpec{Path: "team-a/services/primary.json"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +192,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Directive-Source","values":["http"]}]}}`)
 	}))
 	defer resolver.Close()
-	token, err := directive.EncodeRemote(directive.RemoteSpec{
+	token, err := directive.EncodeRemote(testDirectiveSecret, directive.RemoteSpec{
 		HTTP: &directive.HTTPRemoteSpec{
 			URL: resolver.URL + "/team-a/service-a",
 			Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{{
@@ -237,6 +239,25 @@ func TestHTTPServerReturnsProxyErrorForUnsupportedDPToken(t *testing.T) {
 	}
 }
 
+func TestHTTPServerRejectsWrongDirectiveTokenSecret(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	token, err := directive.Encode("wrong-directive-secret", directive.Payload{Target: directive.TargetSection{URL: "https://api.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+
+	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{})).Handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusUnauthorized || recorder.Header().Get("WWW-Authenticate") != "Bearer" ||
+		!strings.Contains(recorder.Body.String(), `"code":"directive_unauthorized"`) {
+		t.Fatalf("unexpected directive authorization response: status=%d headers=%#v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+}
+
 func TestHTTPServerForwardsProxyRequestBody(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	var proxyBody string
@@ -250,7 +271,7 @@ func TestHTTPServerForwardsProxyRequestBody(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer upstream.Close()
-	token, err := directive.Encode(directive.Payload{
+	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Target: directive.TargetSection{URL: upstream.URL},
 	})
 	if err != nil {
@@ -329,7 +350,7 @@ func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
+	token, err := directive.Encode(testDirectiveSecret, directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
 	if err != nil {
 		t.Fatalf("encode directive: %v", err)
 	}
@@ -370,7 +391,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	token, err := directive.Encode(directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
+	token, err := directive.Encode(testDirectiveSecret, directive.Payload{Target: directive.TargetSection{URL: upstream.URL}})
 	if err != nil {
 		t.Fatalf("encode directive: %v", err)
 	}

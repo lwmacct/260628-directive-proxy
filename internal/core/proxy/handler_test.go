@@ -119,6 +119,7 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 		body   string
 	}{
 		{ErrDirectiveNotFound, http.StatusNotFound, "directive_not_found", "directive: reference not found"},
+		{ErrDirectiveUnauthorized, http.StatusUnauthorized, "directive_unauthorized", "directive: token authentication failed"},
 		{ErrRemoteDirectiveUnavailable, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable"},
 		{ErrDirectiveTokenTooLarge, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large"},
 		{ErrRemoteDirectiveInvalid, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid"},
@@ -135,6 +136,9 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 		}
 		if recorder.Code != tt.status || body.Error.Code != tt.code || body.Error.Message != tt.body {
 			t.Fatalf("unexpected response for %v: status=%d body=%q", tt.err, recorder.Code, recorder.Body.String())
+		}
+		if errors.Is(tt.err, ErrDirectiveUnauthorized) && recorder.Header().Get("WWW-Authenticate") != "Bearer" {
+			t.Fatalf("missing bearer challenge for unauthorized directive: %#v", recorder.Header())
 		}
 	}
 }

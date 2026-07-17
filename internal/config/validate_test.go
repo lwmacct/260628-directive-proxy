@@ -248,6 +248,7 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 		t.Fatalf("file root was not normalized: root=%q err=%v", validated.Proxy.Directive.Remote.File.Root, err)
 	}
 	for _, mutate := range []func(*ProxyDirective){
+		func(cfg *ProxyDirective) { cfg.TokenSecret = " " },
 		func(cfg *ProxyDirective) { cfg.MaxTokenBytes = 0 },
 	} {
 		cfg := validDefaultConfig()

@@ -27,6 +27,7 @@ type ResolverOptions struct {
 	FileReader    FileRemoteReader
 	LookupTimeout time.Duration
 	MaxTokenBytes int64
+	TokenSecret   string
 }
 
 type Resolver struct {
@@ -35,6 +36,7 @@ type Resolver struct {
 	fileReader    FileRemoteReader
 	lookupTimeout time.Duration
 	maxTokenBytes int64
+	tokenSecret   string
 }
 
 type preparedDirective struct {
@@ -55,6 +57,7 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 		fileReader:    configured.FileReader,
 		lookupTimeout: configured.LookupTimeout,
 		maxTokenBytes: configured.MaxTokenBytes,
+		tokenSecret:   configured.TokenSecret,
 	}
 }
 
@@ -69,7 +72,14 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if r != nil && r.maxTokenBytes > 0 && int64(len(raw)) > r.maxTokenBytes {
 		return nil, proxy.ErrDirectiveTokenTooLarge
 	}
-	document, err := Decode(raw)
+	var tokenSecret string
+	if r != nil {
+		tokenSecret = r.tokenSecret
+	}
+	document, err := Decode(tokenSecret, raw)
+	if errors.Is(err, ErrTokenUnauthorized) {
+		return nil, proxy.ErrDirectiveUnauthorized
+	}
 	if err != nil {
 		return nil, proxy.ErrInvalidDirective
 	}

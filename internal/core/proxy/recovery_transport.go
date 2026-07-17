@@ -504,6 +504,8 @@ func directiveErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrInvalidDirective):
 		return "invalid_directive"
+	case errors.Is(err, ErrDirectiveUnauthorized):
+		return "directive_unauthorized"
 	case errors.Is(err, ErrDirectiveTokenTooLarge):
 		return "directive_token_too_large"
 	case errors.Is(err, ErrDirectiveNotFound):

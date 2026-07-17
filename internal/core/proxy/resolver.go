@@ -12,6 +12,7 @@ import (
 var (
 	ErrNoMatch                    = errors.New("proxy resolver did not match request")
 	ErrInvalidDirective           = errors.New("invalid proxy directive")
+	ErrDirectiveUnauthorized      = errors.New("directive token unauthorized")
 	ErrDirectiveNotFound          = errors.New("directive reference not found")
 	ErrRemoteDirectiveUnavailable = errors.New("remote directive unavailable")
 	ErrDirectiveTokenTooLarge     = errors.New("directive token is too large")

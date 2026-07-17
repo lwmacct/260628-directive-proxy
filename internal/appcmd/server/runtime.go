@@ -221,6 +221,7 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFact
 	resolverOptions := directive.ResolverOptions{
 		LookupTimeout: remoteConfig.Timeout,
 		MaxTokenBytes: cfg.Proxy.Directive.MaxTokenBytes,
+		TokenSecret:   cfg.Proxy.Directive.TokenSecret,
 	}
 	if remotes != nil {
 		resolverOptions.HTTPReader = remotes.http

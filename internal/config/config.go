@@ -75,7 +75,8 @@ type ProxyBodyStore struct {
 }
 
 type ProxyDirective struct {
-	MaxTokenBytes int64                 `json:"max-token-bytes" desc:"directive token 最大字节数"`
+	TokenSecret   string                `json:"token-secret"   desc:"directive token HMAC PSK"`
+	MaxTokenBytes int64                 `json:"max-token-bytes" desc:"完整 directive token 最大字节数"`
 	SourceAccess  DirectiveSourceAccess `json:"source-access"  desc:"Directive 入口来源白名单"`
 	Remote        RemoteDirective       `json:"remote"         desc:"远程指令解析资源限制"`
 }
@@ -164,6 +165,7 @@ func DefaultConfig() Config {
 					ReadTimeout:        30 * time.Second,
 				},
 				Directive: ProxyDirective{
+					TokenSecret:   "${DIRECTIVE_TOKEN_SECRET}",
 					MaxTokenBytes: 64 << 10,
 					SourceAccess: func() DirectiveSourceAccess {
 						access := sourceaccess.DefaultConfig()

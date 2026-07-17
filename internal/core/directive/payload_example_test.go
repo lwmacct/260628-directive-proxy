@@ -7,7 +7,7 @@ import (
 )
 
 func ExampleEncode() {
-	encoded, _ := directive.Encode(directive.Payload{
+	encoded, _ := directive.Encode("example-directive-secret", directive.Payload{
 		Target: directive.TargetSection{URL: "https://api.example.com/v1"},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
 			{Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "Authorization", Values: []string{"Bearer upstream-token"}},

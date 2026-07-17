@@ -2,7 +2,7 @@
 
 状态：已采纳
 
-本文定义 v18 remote directive 的唯一语义：Remote 只是取得 `Payload` 的方式，不拥有任何独立的执行字段。
+本文定义 v19 remote directive 的唯一语义：Remote 只是取得 `Payload` 的方式，不拥有任何独立的执行字段。
 
 RemoteSpec 是可信 directive 的一部分，并拥有最高优先级。动态 endpoint、Redis 连接信息、认证信息和 header policy 都是 `directive proxy` 的预期控制能力，不由 adapter 改写为服务端命名 source、allowlist 或其他间接引用。
 
@@ -11,14 +11,16 @@ RemoteSpec 是可信 directive 的一部分，并拥有最高优先级。动态 
 inline token 的第四段解码后直接是 `Payload`：
 
 ```text
-dp.18.inline.<base64url(Payload JSON)>
+dp.19.inline.<base64url(Payload JSON)>.<base64url(HMAC-SHA256)>
 ```
 
 remote token 的第四段解码后直接是 `RemoteSpec`：
 
 ```text
-dp.18.remote.<base64url(RemoteSpec JSON)>
+dp.19.remote.<base64url(RemoteSpec JSON)>.<base64url(HMAC-SHA256)>
 ```
+
+HMAC 输入是 token 前四段的原文拼接：`dp.19.<kind>.<base64url-json>`；服务端使用 `server.proxy.directive.token-secret` 计算并以 constant-time compare 校验。secret 不进入 token。
 
 统一处理流程：
 

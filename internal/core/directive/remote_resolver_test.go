@@ -32,14 +32,14 @@ func (f fileReaderFunc) Read(ctx context.Context, reference FileReference) ([]by
 
 func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *testing.T) {
 	var calls int
-	resolver := NewResolver(ResolverOptions{HTTPReader: httpReaderFunc(func(_ context.Context, _ HTTPReference, req RequestSnapshot) ([]byte, error) {
+	resolver := newTestResolver(ResolverOptions{HTTPReader: httpReaderFunc(func(_ context.Context, _ HTTPReference, req RequestSnapshot) ([]byte, error) {
 		calls++
 		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL != "http://proxy.local/v1/chat" || req.Headers.Get("X-Tenant") != "original" {
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Headers)
 		}
 		return []byte(`{"target":{"url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"program":{"request":[{"id":"capture","module":"builtin.capture","config":{}}],"attempt":[{"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}]},"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
 	})})
-	token, err := EncodeRemote(RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
+	token, err := EncodeRemote(testTokenSecret, RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 
 func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	var requested HTTPReference
-	resolver := NewResolver(ResolverOptions{
+	resolver := newTestResolver(ResolverOptions{
 		HTTPReader: httpReaderFunc(func(_ context.Context, reference HTTPReference, _ RequestSnapshot) ([]byte, error) {
 			requested = reference
 			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Source","values":["remote"]}]}}`), nil
@@ -92,7 +92,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 			},
 		},
 	}
-	token, err := EncodeRemote(spec)
+	token, err := EncodeRemote(testTokenSecret, spec)
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}
@@ -119,11 +119,11 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 
 func TestResolverLoadsCompleteFileDirective(t *testing.T) {
 	var requested FileReference
-	resolver := NewResolver(ResolverOptions{FileReader: fileReaderFunc(func(_ context.Context, reference FileReference) ([]byte, error) {
+	resolver := newTestResolver(ResolverOptions{FileReader: fileReaderFunc(func(_ context.Context, reference FileReference) ([]byte, error) {
 		requested = reference
 		return []byte(`{"target":{"url":"https://file.example.com/v1"}}`), nil
 	})})
-	token, err := EncodeRemote(RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}})
+	token, err := EncodeRemote(testTokenSecret, RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestResolverLoadsCompleteFileDirective(t *testing.T) {
 }
 
 func TestResolverRemoteFailures(t *testing.T) {
-	token, err := EncodeRemote(RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"}})
+	token, err := EncodeRemote(testTokenSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"}})
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestResolverRemoteFailures(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := resolveRequest(NewResolver(tt.opts), newRequest())
+			_, err := resolveRequest(newTestResolver(tt.opts), newRequest())
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("unexpected error: got %v want %v", err, tt.wantErr)
 			}
@@ -179,7 +179,7 @@ func TestResolverRemoteFailures(t *testing.T) {
 }
 
 func TestResolverRejectsOversizedTokenAndInlinePayload(t *testing.T) {
-	token, err := Encode(Payload{Target: TargetSection{URL: "https://api.example.com"}})
+	token, err := Encode(testTokenSecret, Payload{Target: TargetSection{URL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatalf("encode token: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestResolverRejectsOversizedTokenAndInlinePayload(t *testing.T) {
 	for _, opts := range []ResolverOptions{
 		{MaxTokenBytes: int64(len(token) - 1)},
 	} {
-		if _, err := resolveRequest(NewResolver(opts), request()); !errors.Is(err, proxy.ErrDirectiveTokenTooLarge) {
+		if _, err := resolveRequest(newTestResolver(opts), request()); !errors.Is(err, proxy.ErrDirectiveTokenTooLarge) {
 			t.Fatalf("unexpected size error: %v", err)
 		}
 	}

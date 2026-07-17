@@ -215,6 +215,9 @@ func writeDirectiveError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, ErrInvalidDirective):
 		WriteProxyErrorJSON(w, http.StatusBadRequest, "invalid_directive", "directive: invalid proxy directive payload")
+	case errors.Is(err, ErrDirectiveUnauthorized):
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		WriteProxyErrorJSON(w, http.StatusUnauthorized, "directive_unauthorized", "directive: token authentication failed")
 	case errors.Is(err, ErrDirectiveTokenTooLarge):
 		WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large")
 	case errors.Is(err, ErrDirectiveNotFound):

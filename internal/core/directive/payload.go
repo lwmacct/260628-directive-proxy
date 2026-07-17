@@ -4,7 +4,7 @@ import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
 const (
 	TokenFamily  = "dp"
-	TokenVersion = "18"
+	TokenVersion = "19"
 	TokenInline  = "inline"
 	TokenRemote  = "remote"
 )

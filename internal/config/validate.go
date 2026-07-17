@@ -93,7 +93,7 @@ func Validate(cfg Server) (Server, error) {
 	cfg.Fluent = validatedFluent
 	remote := cfg.Proxy.Directive.Remote
 	remote.File.Root = strings.TrimSpace(remote.File.Root)
-	if cfg.Proxy.Directive.MaxTokenBytes <= 0 ||
+	if strings.TrimSpace(cfg.Proxy.Directive.TokenSecret) == "" || cfg.Proxy.Directive.MaxTokenBytes <= 0 ||
 		remote.Timeout <= 0 || remote.MaxPayloadBytes <= 0 ||
 		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 ||
 		remote.File.Root == "" {
