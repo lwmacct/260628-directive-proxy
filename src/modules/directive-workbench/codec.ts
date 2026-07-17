@@ -5,6 +5,10 @@ import type { DirectiveEnvelope, TokenKind } from "./types";
 export const TOKEN_FAMILY = "dp";
 export const TOKEN_VERSION = "19";
 
+export function normalizeDirectiveToken(value: string) {
+	return value.trim().replace(/^Bearer[ \t]+/i, "");
+}
+
 function encodeBase64URL(value: string) {
 	const bytes = new TextEncoder().encode(value);
 	return encodeBase64URLBytes(bytes);
@@ -55,7 +59,7 @@ export async function encodeDirective(envelope: DirectiveEnvelope, secret: strin
 }
 
 export async function decodeDirective(value: string, secret: string, text: Text["authConsole"]): Promise<DirectiveEnvelope> {
-	const parts = value.trim().split(".");
+	const parts = normalizeDirectiveToken(value).split(".");
 	if (parts.length !== 5 || parts[0] !== TOKEN_FAMILY || parts[1] !== TOKEN_VERSION || parts[2] !== "inline" && parts[2] !== "remote" || !parts[3] || !parts[4]) {
 		throw new Error(text.tokenPrefix);
 	}

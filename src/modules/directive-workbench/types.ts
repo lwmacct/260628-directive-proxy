@@ -46,7 +46,6 @@ export type RecoveryEditorState = {
 };
 
 export type EditorState = {
-  source: DirectiveSource;
   remoteKey: string;
   httpURL: string;
   redisURL: string;

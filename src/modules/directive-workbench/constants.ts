@@ -52,25 +52,26 @@ export function initialRecovery(): RecoveryEditorState {
   };
 }
 
-export const initialEditor: EditorState = {
-  source: "inline",
-  remoteKey: "team-a/service-a",
-  httpURL: "https://policy.example.com/v1/resolve",
-  redisURL: "redis://user:password@redis.example.com:6379/1",
-  filePath: "team-a/services/primary.json",
-  resolverHeaderMode: "patch",
-  resolverPreserveProxyDisclosure: false,
-  resolverHeaderMutations: [newHeaderMutation("set", "name", "Authorization", ["Bearer policy-token"])],
-  targetURL: "https://httpbin.org/anything",
-  joinPath: true,
-  proxyURL: "",
-  requestHeaderMode: "patch",
-  preserveProxyDisclosure: false,
-  headerMutations: [
-    newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
-    newHeaderMutation("set", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
-  ],
-  requestProgram: [newModuleSpec("capture", "builtin.capture")],
-  attemptProgram: [],
-  recovery: initialRecovery(),
-};
+export function createInitialEditor(): EditorState {
+  return {
+    remoteKey: "team-a/service-a",
+    httpURL: "https://policy.example.com/v1/resolve",
+    redisURL: "redis://user:password@redis.example.com:6379/1",
+    filePath: "team-a/services/primary.json",
+    resolverHeaderMode: "patch",
+    resolverPreserveProxyDisclosure: false,
+    resolverHeaderMutations: [newHeaderMutation("set", "name", "Authorization", ["Bearer policy-token"])],
+    targetURL: "https://httpbin.org/anything",
+    joinPath: true,
+    proxyURL: "",
+    requestHeaderMode: "patch",
+    preserveProxyDisclosure: false,
+    headerMutations: [
+      newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
+      newHeaderMutation("set", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
+    ],
+    requestProgram: [newModuleSpec("capture", "builtin.capture")],
+    attemptProgram: [],
+    recovery: initialRecovery(),
+  };
+}

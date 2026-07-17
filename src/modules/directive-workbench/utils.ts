@@ -2,6 +2,7 @@ import type { Text } from "../../shared/i18n";
 import { newHeaderMutation, newModuleSpec, newResolverHeader, newStatusRange } from "./constants";
 import type {
   DirectiveEnvelope,
+  DirectiveSource,
   DirectiveHeaderMutation,
   DirectivePayload,
   EditorModuleSpec,
@@ -62,9 +63,9 @@ function buildHeaderMap(items: ResolverHeader[]) {
   return Object.fromEntries(entries);
 }
 
-export function buildRemoteSpec(editor: EditorState): RemoteSpec {
-  if (editor.source === "file") return { file: { path: editor.filePath.trim() } };
-  if (editor.source === "redis") return { redis: { url: editor.redisURL.trim(), key: editor.remoteKey } };
+export function buildRemoteSpec(source: Exclude<DirectiveSource, "inline">, editor: EditorState): RemoteSpec {
+  if (source === "file") return { file: { path: editor.filePath.trim() } };
+  if (source === "redis") return { redis: { url: editor.redisURL.trim(), key: editor.remoteKey } };
   const mutations = buildHeaderMutations(editor.resolverHeaderMutations);
   const headers = {
     ...(editor.resolverHeaderMode === "replace" ? { mode: "replace" as const } : {}),
@@ -105,11 +106,11 @@ export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefi
   };
 }
 
-export function buildEnvelope(editor: EditorState): DirectiveEnvelope {
-  if (editor.source === "inline") {
+export function buildEnvelope(source: DirectiveSource, editor: EditorState): DirectiveEnvelope {
+  if (source === "inline") {
     return { kind: "inline", document: buildPayload(editor) };
   }
-  return { kind: "remote", document: buildRemoteSpec(editor) };
+  return { kind: "remote", document: buildRemoteSpec(source, editor) };
 }
 
 function payloadToEditor(payload: DirectivePayload) {
@@ -149,21 +150,19 @@ export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvel
     const parsed = payloadToEditor(payload);
     return {
       ...previous,
-      source: "inline",
       ...parsed,
       recovery: recoveryToEditor(previous.recovery, parsed.recovery),
     };
   }
   const spec = envelope.document;
   if ("file" in spec) {
-    return { ...previous, source: "file", filePath: spec.file.path };
+    return { ...previous, filePath: spec.file.path };
   }
   if ("redis" in spec) {
-    return { ...previous, source: "redis", redisURL: spec.redis.url, remoteKey: spec.redis.key };
+    return { ...previous, redisURL: spec.redis.url, remoteKey: spec.redis.key };
   }
   return {
     ...previous,
-    source: "http",
     httpURL: spec.http.url,
     resolverHeaderMode: spec.http.headers?.mode ?? "patch",
     resolverPreserveProxyDisclosure: spec.http.headers?.preserve_proxy_disclosure ?? false,
@@ -181,7 +180,14 @@ function toEditorHeaderMutations(mutations: DirectiveHeaderMutation[]) {
   ));
 }
 
-export function sourceTokenKind(source: EditorState["source"]): TokenKind {
+export function envelopeSource(envelope: DirectiveEnvelope): DirectiveSource {
+  if (envelope.kind === "inline") return "inline";
+  if ("file" in envelope.document) return "file";
+  if ("redis" in envelope.document) return "redis";
+  return "http";
+}
+
+export function sourceTokenKind(source: DirectiveSource): TokenKind {
   return source === "inline" ? "inline" : "remote";
 }
 

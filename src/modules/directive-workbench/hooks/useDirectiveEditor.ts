@@ -2,9 +2,9 @@ import { App as AntdApp } from "antd";
 import { useRef, useState } from "react";
 import type { Text } from "../../../shared/i18n";
 import { decodeDirective, encodeDirective, formatDirectiveJSON, parseDirectiveJSON, validateDirective } from "../codec";
-import { initialEditor } from "../constants";
-import { buildEnvelope, envelopeToEditor, errorMessage, sourceTokenKind } from "../utils";
-import type { DirectiveEnvelope, EditorState } from "../types";
+import { createInitialEditor } from "../constants";
+import { buildEnvelope, envelopeSource, envelopeToEditor, errorMessage, sourceTokenKind } from "../utils";
+import type { DirectiveEnvelope, DirectiveSource, EditorState } from "../types";
 
 type Artifacts = {
   envelope: DirectiveEnvelope;
@@ -12,10 +12,10 @@ type Artifacts = {
   formError: string | null;
 };
 
-function createArtifacts(editor: EditorState, text: Text["authConsole"]): Artifacts {
-  const draft = buildEnvelope(editor);
+function createArtifacts(source: DirectiveSource, editor: EditorState, text: Text["authConsole"]): Artifacts {
+  const draft = buildEnvelope(source, editor);
   try {
-    if (editor.source === "inline" && [...editor.requestProgram, ...editor.attemptProgram].some((item) => !item.configValid)) throw new Error(text.invalidModuleConfig);
+    if (source === "inline" && [...editor.requestProgram, ...editor.attemptProgram].some((item) => !item.configValid)) throw new Error(text.invalidModuleConfig);
     const envelope = validateDirective(draft, text);
     return { envelope, json: formatDirectiveJSON(envelope), formError: null };
   } catch (error) {
@@ -23,10 +23,13 @@ function createArtifacts(editor: EditorState, text: Text["authConsole"]): Artifa
   }
 }
 
-export function useDirectiveEditor(text: Text["authConsole"]) {
+export function useDirectiveEditor(text: Text["authConsole"], source: DirectiveSource) {
   const { message } = AntdApp.useApp();
-  const [initial] = useState(() => createArtifacts(initialEditor, text));
-  const [editor, setEditor] = useState(initialEditor);
+  const [initial] = useState(() => {
+    const editor = createInitialEditor();
+    return { editor, ...createArtifacts(source, editor, text) };
+  });
+  const [editor, setEditor] = useState(initial.editor);
   const [envelope, setEnvelope] = useState(initial.envelope);
   const [jsonInput, setJSONInput] = useState(initial.json);
   const [tokenSecret, setTokenSecret] = useState("");
@@ -58,7 +61,7 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
   }
 
   function syncEditor(next: EditorState) {
-    const artifacts = createArtifacts(next, text);
+    const artifacts = createArtifacts(source, next, text);
     setEditor(next);
     setEnvelope(artifacts.envelope);
     setJSONInput(artifacts.json);
@@ -72,14 +75,19 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
   }
 
   function applyEnvelope(nextEnvelope: DirectiveEnvelope) {
+    if (envelopeSource(nextEnvelope) !== source) {
+      setError(text.sourceMismatch);
+      return false;
+    }
     const nextEditor = envelopeToEditor(editor, nextEnvelope);
-    const artifacts = createArtifacts(nextEditor, text);
+    const artifacts = createArtifacts(source, nextEditor, text);
     setEditor(nextEditor);
     setEnvelope(artifacts.envelope);
     setJSONInput(artifacts.json);
     setFormError(artifacts.formError);
     setError(null);
     void refreshToken(artifacts.envelope, tokenSecret, artifacts.formError);
+    return true;
   }
 
   function updateTokenSecret(secret: string) {
@@ -89,9 +97,8 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
 
   function applyJSONInput() {
     try {
-      const nextEnvelope = parseDirectiveJSON(sourceTokenKind(editor.source), jsonInput, text);
-      applyEnvelope(nextEnvelope);
-      void message.success(text.jsonApplied);
+      const nextEnvelope = parseDirectiveJSON(sourceTokenKind(source), jsonInput, text);
+      if (applyEnvelope(nextEnvelope)) void message.success(text.jsonApplied);
     } catch (err) {
       setError(errorMessage(err, text.jsonParseFailed));
     }
@@ -99,8 +106,7 @@ export function useDirectiveEditor(text: Text["authConsole"]) {
 
   async function applyTokenInput() {
     try {
-      applyEnvelope(await decodeDirective(tokenInput, tokenSecret, text));
-      void message.success(text.tokenApplied);
+      if (applyEnvelope(await decodeDirective(tokenInput, tokenSecret, text))) void message.success(text.tokenApplied);
     } catch (err) {
       setError(errorMessage(err, text.tokenParseFailed));
     }

@@ -1,27 +1,35 @@
-import { ApiOutlined } from "@ant-design/icons";
+import { ApiOutlined, CodeOutlined, DatabaseOutlined, FileTextOutlined, SwapOutlined } from "@ant-design/icons";
 import { WorkbenchSectionLayout } from "@lwmacct/260627-antd-workbench";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { DirectiveWorkbenchPage } from "../directive-workbench/DirectiveWorkbenchPage";
+import { DirectiveBuilderPage } from "../directive-workbench/DirectiveBuilderPage";
+import { PayloadCodecPage } from "../directive-workbench/PayloadCodecPage";
+import type { DirectiveSource } from "../directive-workbench/types";
 import { useText } from "../../shared/i18n";
 
-type ConsoleSectionKey = "auth-console";
+type ConsoleSectionKey = DirectiveSource | "payload-codec";
 
-const sectionKeys = new Set<ConsoleSectionKey>(["auth-console"]);
+const sectionKeys = new Set<ConsoleSectionKey>(["inline", "http", "redis", "file", "payload-codec"]);
 
 function activeSection(pathname: string): ConsoleSectionKey {
   const key = pathname.split("/")[2];
   if (sectionKeys.has(key as ConsoleSectionKey)) {
     return key as ConsoleSectionKey;
   }
-  return "auth-console";
+  return "inline";
 }
 
 export function ConsoleLayout() {
   const t = useText();
   const location = useLocation();
   const navigate = useNavigate();
-  const sectionItems = [
-    { key: "auth-console", label: t.app.authConsole, icon: <ApiOutlined /> },
+  const inlineItems = [
+    { key: "inline", label: t.authConsole.inlineSource, icon: <CodeOutlined /> },
+    { key: "payload-codec", label: t.authConsole.payloadCodec, icon: <SwapOutlined /> },
+  ] as const;
+  const remoteItems = [
+    { key: "http", label: t.authConsole.httpSource, icon: <ApiOutlined /> },
+    { key: "redis", label: t.authConsole.redisSource, icon: <DatabaseOutlined /> },
+    { key: "file", label: t.authConsole.fileSource, icon: <FileTextOutlined /> },
   ] as const;
 
   return (
@@ -30,17 +38,27 @@ export function ConsoleLayout() {
       nav={[
         {
           type: "group",
-          key: "debug-tools",
-          label: t.app.debugTools,
-          children: [...sectionItems],
+          key: "payload-tools",
+          label: t.authConsole.payloadGroup,
+          children: [...inlineItems],
+        },
+        {
+          type: "group",
+          key: "remote-tools",
+          label: t.authConsole.remoteGroup,
+          children: [...remoteItems],
         },
       ]}
       onSelect={(key) => navigate(`/console/${key}`)}
     >
       <Routes>
-        <Route element={<Navigate replace to="auth-console" />} index />
-        <Route element={<DirectiveWorkbenchPage />} path="auth-console" />
-        <Route element={<Navigate replace to="auth-console" />} path="*" />
+        <Route element={<Navigate replace to="inline" />} index />
+        <Route element={<DirectiveBuilderPage source="inline" />} path="inline" />
+        <Route element={<DirectiveBuilderPage source="http" />} path="http" />
+        <Route element={<DirectiveBuilderPage source="redis" />} path="redis" />
+        <Route element={<DirectiveBuilderPage source="file" />} path="file" />
+        <Route element={<PayloadCodecPage />} path="payload-codec" />
+        <Route element={<Navigate replace to="inline" />} path="*" />
       </Routes>
     </WorkbenchSectionLayout>
   );

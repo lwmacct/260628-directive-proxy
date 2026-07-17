@@ -2,8 +2,7 @@ import { useWorkbenchLocale } from "@lwmacct/260627-antd-workbench";
 
 const zh = {
   app: {
-    console: "控制台", settings: "设置", debugTools: "调试工具", preferences: "偏好设置",
-    authConsole: "Directive 工作台", appearance: "外观设置",
+    console: "控制台", settings: "设置", preferences: "偏好设置", appearance: "外观设置",
   },
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
@@ -11,10 +10,12 @@ const zh = {
   },
   appearance: { panel: "主题与界面" },
   authConsole: {
-    description: "完全在浏览器中编辑 dp v19：Inline JSON 直接是 Payload，Remote JSON 只包含 RemoteSpec。",
-    structured: "Directive Builder", editableSources: "可编辑输入源", localOnly: "纯前端",
-    directiveSource: "指令来源", inlineSource: "Inline", httpSource: "HTTP Remote", redisSource: "Redis Remote", fileSource: "File Remote",
-    basics: "基础", headers: "Headers", modules: "Modules", recovery: "Recovery",
+    inlineDescription: "构建直接嵌入 dp.19.inline 的完整 Payload。", httpDescription: "构建通过 HTTP endpoint 获取 Payload 的 RemoteSpec。", redisDescription: "构建通过 Redis key 获取 Payload 的 RemoteSpec。", fileDescription: "构建从配置根目录读取 Payload 的 RemoteSpec。",
+    payloadGroup: "Payload", remoteGroup: "Remote", directiveEncoding: "Directive 编码", localOnly: "纯前端",
+    payloadCodec: "Payload Codec", payloadCodecDescription: "双向转换 Inline Payload JSON 与签名 Token。", payloadJSON: "Payload JSON", payloadCodecInlineOnly: "Payload Codec 只接受 dp.19.inline Token",
+    payloadBuilder: "Payload", httpSpecBuilder: "HTTP RemoteSpec", redisSpecBuilder: "Redis RemoteSpec", fileSpecBuilder: "File RemoteSpec",
+    inlineSource: "Inline", httpSource: "HTTP Remote", redisSource: "Redis Remote", fileSource: "File Remote",
+    target: "Target", endpoint: "Endpoint", headers: "Headers", modules: "Modules", recovery: "Recovery",
     targetURL: "Target URL", proxyURL: "SOCKS5 Proxy URL", joinPath: "Join Path",
     redisKey: "Redis Key", httpResolverURL: "HTTP Resolver URL", redisURL: "Redis URL", filePath: "根目录内文件路径",
     resolverHeaders: "Resolver 直接请求头策略",
@@ -28,7 +29,6 @@ const zh = {
     requestModules: "Request-scope Modules", attemptModules: "Attempt-scope Modules",
     requestModulesDescription: "属于 Payload，并在整个请求生命周期内生效。",
     attemptModulesDescription: "属于 Payload，并在每个上游 Attempt 中生效。",
-    remoteSpecOnlyHint: "Remote Token JSON 必须且只能包含 http、redis 或 file 一个分支。需要制作远端返回内容时，可切换到 Inline 完成 Payload Builder 并复制 JSON，再切回 Remote；该 Payload 不会嵌入 Remote Token。",
     moduleID: "ID", moduleName: "Module", moduleConfig: "Config JSON", addModule: "添加 Module", removeModule: "删除 Module", invalidModuleConfig: "Config 必须是有效 JSON",
     recoveryController: "Recovery Controller", recoveryDescription: "Controller、触发条件和预算都属于 Payload。", controller: "Controller",
     controllerURL: "Controller URL", controllerTimeout: "回调超时", controllerHeaders: "Controller 请求头", addControllerHeader: "添加 Controller 请求头", removeControllerHeader: "删除 Controller 请求头",
@@ -37,8 +37,8 @@ const zh = {
     rangeFrom: "状态码起点", rangeTo: "状态码终点", addStatusRange: "添加状态码范围", removeStatusRange: "删除状态码范围", captureBodyBytes: "捕获响应正文上限（bytes）",
     budget: "Recovery Budget", maxAttempts: "最大 Attempts", maxElapsed: "最大总时长",
     tokenJSON: "Token JSON", tokenSecret: "Token Secret", tokenSecretPlaceholder: "输入 HMAC PSK", tokenSecretRequired: "Token Secret 不能为空", tokenAuthenticationFailed: "Token HMAC 校验失败", tokenJSONDescription: (prefix: string) => prefix.endsWith(".inline") ? `${prefix}.<base64url-json>.<hmac> 解码后直接是 Payload。` : `${prefix}.<base64url-json>.<hmac> 解码后只允许 RemoteSpec。`,
-    dirty: "有未应用修改", synced: "已同步", copyJSON: "复制 JSON", copyToken: "复制 Token", applyJSON: "应用 JSON", parseToken: "解析 Token",
-    jsonApplied: "Token JSON 已应用到 Builder 和 Token", jsonParseFailed: "Token JSON 解析失败", tokenApplied: "Token 已解析并应用到 Builder 和 JSON", tokenParseFailed: "Token 解析失败",
+    dirty: "有未应用修改", synced: "已同步", valid: "有效", invalid: "无效", pending: "等待输入", copyJSON: "复制 JSON", copyToken: "复制 Token", applyJSON: "应用 JSON", parseToken: "解析 Token",
+    jsonApplied: "Token JSON 已应用到 Builder 和 Token", jsonParseFailed: "Token JSON 解析失败", tokenApplied: "Token 已解析并应用到 Builder 和 JSON", tokenParseFailed: "Token 解析失败", sourceMismatch: "导入内容与当前 Builder 页面类型不匹配",
     invalidForm: "Builder 内容无效", invalidFormDetail: (detail: string) => `当前 Builder 无法生成 Token：${detail}`,
     requestDebug: "请求调试", requestDescription: "请求发送到当前站点的 data plane，并自动使用工作台本地生成的 Token。",
     cancel: "取消", send: "发起请求", bodyDisabled: (method: string) => `${method} 请求不会发送 Body`, waiting: "等待发起请求", requestCancelled: "请求已取消", requestFailed: "请求失败",
@@ -57,8 +57,7 @@ const zh = {
 
 const en: Text = {
   app: {
-    console: "Console", settings: "Settings", debugTools: "Debug tools", preferences: "Preferences",
-    authConsole: "Directive Workbench", appearance: "Appearance",
+    console: "Console", settings: "Settings", preferences: "Preferences", appearance: "Appearance",
   },
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
@@ -66,10 +65,12 @@ const en: Text = {
   },
   appearance: { panel: "Theme and interface" },
   authConsole: {
-    description: "Edit dp v19 entirely in the browser: Inline JSON is the Payload itself; Remote JSON contains only a RemoteSpec.",
-    structured: "Directive Builder", editableSources: "Editable sources", localOnly: "Browser only",
-    directiveSource: "Directive source", inlineSource: "Inline", httpSource: "HTTP Remote", redisSource: "Redis Remote", fileSource: "File Remote",
-    basics: "Basics", headers: "Headers", modules: "Modules", recovery: "Recovery",
+    inlineDescription: "Build the complete Payload embedded in dp.19.inline.", httpDescription: "Build a RemoteSpec that resolves its Payload through an HTTP endpoint.", redisDescription: "Build a RemoteSpec that resolves its Payload from a Redis key.", fileDescription: "Build a RemoteSpec that reads its Payload under the configured file root.",
+    payloadGroup: "Payload", remoteGroup: "Remote", directiveEncoding: "Directive encoding", localOnly: "Browser only",
+    payloadCodec: "Payload Codec", payloadCodecDescription: "Convert between an Inline Payload JSON document and its signed Token in either direction.", payloadJSON: "Payload JSON", payloadCodecInlineOnly: "Payload Codec only accepts dp.19.inline Tokens",
+    payloadBuilder: "Payload", httpSpecBuilder: "HTTP RemoteSpec", redisSpecBuilder: "Redis RemoteSpec", fileSpecBuilder: "File RemoteSpec",
+    inlineSource: "Inline", httpSource: "HTTP Remote", redisSource: "Redis Remote", fileSource: "File Remote",
+    target: "Target", endpoint: "Endpoint", headers: "Headers", modules: "Modules", recovery: "Recovery",
     targetURL: "Target URL", proxyURL: "SOCKS5 Proxy URL", joinPath: "Join Path",
     redisKey: "Redis key", httpResolverURL: "HTTP resolver URL", redisURL: "Redis URL", filePath: "File path under configured root",
     resolverHeaders: "Direct resolver request header policy",
@@ -83,7 +84,6 @@ const en: Text = {
     requestModules: "Request-scope Modules", attemptModules: "Attempt-scope Modules",
     requestModulesDescription: "Part of the Payload and active for the request lifecycle.",
     attemptModulesDescription: "Part of the Payload and active for each upstream Attempt.",
-    remoteSpecOnlyHint: "Remote Token JSON must contain exactly one of http, redis, or file. To author the returned document, switch to Inline, build and copy the Payload JSON, then switch back; that Payload is never embedded in the Remote Token.",
     moduleID: "ID", moduleName: "Module", moduleConfig: "Config JSON", addModule: "Add Module", removeModule: "Remove Module", invalidModuleConfig: "Config must be valid JSON",
     recoveryController: "Recovery Controller", recoveryDescription: "The controller, triggers, and budget are part of the Payload.", controller: "Controller",
     controllerURL: "Controller URL", controllerTimeout: "Callback timeout", controllerHeaders: "Controller headers", addControllerHeader: "Add controller header", removeControllerHeader: "Remove controller header",
@@ -92,8 +92,8 @@ const en: Text = {
     rangeFrom: "Status range start", rangeTo: "Status range end", addStatusRange: "Add status range", removeStatusRange: "Remove status range", captureBodyBytes: "Captured response body limit (bytes)",
     budget: "Recovery Budget", maxAttempts: "Maximum Attempts", maxElapsed: "Maximum elapsed time",
     tokenJSON: "Token JSON", tokenSecret: "Token Secret", tokenSecretPlaceholder: "Enter the HMAC PSK", tokenSecretRequired: "Token Secret is required", tokenAuthenticationFailed: "Token HMAC verification failed", tokenJSONDescription: (prefix: string) => prefix.endsWith(".inline") ? `${prefix}.<base64url-json>.<hmac> decodes directly to a Payload.` : `${prefix}.<base64url-json>.<hmac> decodes to a RemoteSpec only.`,
-    dirty: "Unapplied changes", synced: "Synced", copyJSON: "Copy JSON", copyToken: "Copy Token", applyJSON: "Apply JSON", parseToken: "Parse Token",
-    jsonApplied: "Token JSON applied to the Builder and Token", jsonParseFailed: "Failed to parse Token JSON", tokenApplied: "Token applied to the Builder and JSON", tokenParseFailed: "Failed to parse Token",
+    dirty: "Unapplied changes", synced: "Synced", valid: "Valid", invalid: "Invalid", pending: "Waiting for input", copyJSON: "Copy JSON", copyToken: "Copy Token", applyJSON: "Apply JSON", parseToken: "Parse Token",
+    jsonApplied: "Token JSON applied to the Builder and Token", jsonParseFailed: "Failed to parse Token JSON", tokenApplied: "Token applied to the Builder and JSON", tokenParseFailed: "Failed to parse Token", sourceMismatch: "The imported content does not match this Builder page",
     invalidForm: "Invalid Builder state", invalidFormDetail: (detail: string) => `The Builder cannot generate a Token: ${detail}`,
     requestDebug: "Request debugger", requestDescription: "Send a request to this site's data plane using the Token generated locally by the workbench.",
     cancel: "Cancel", send: "Send request", bodyDisabled: (method: string) => `${method} requests do not send a body`, waiting: "Waiting to send a request", requestCancelled: "Request cancelled", requestFailed: "Request failed",
