@@ -16,7 +16,7 @@ type Artifacts = {
 function createArtifacts(editor: EditorState, text: Text["authConsole"]): Artifacts {
   const draft = buildEnvelope(editor);
   try {
-    if ([...editor.requestProgram, ...editor.attemptProgram].some((item) => !item.configValid)) throw new Error(text.invalidModuleConfig);
+    if (editor.source === "inline" && [...editor.requestProgram, ...editor.attemptProgram].some((item) => !item.configValid)) throw new Error(text.invalidModuleConfig);
     const envelope = validateDirective(draft, text);
     return { envelope, json: formatDirectiveJSON(envelope), token: encodeDirective(envelope), formError: null };
   } catch (error) {

@@ -7,12 +7,9 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
-func TestRecoveryDocumentRoundTripAndCompile(t *testing.T) {
-	document := Document{
-		Kind: KindRemote,
-		Remote: &RemoteDocument{Source: RemoteSpec{
-			Type: RemoteTypeHTTP, URL: "https://policy.example.com/resolve", Key: "routing",
-		}},
+func TestRecoveryPayloadRoundTripAndCompile(t *testing.T) {
+	payload := Payload{
+		Target: TargetSection{URL: "https://api.example.com"},
 		Recovery: &RecoverySpec{
 			Controller: RecoveryControllerSpec{
 				URL: "https://control.example.com/recovery", Headers: map[string]string{"authorization": "Bearer secret"},
@@ -25,7 +22,7 @@ func TestRecoveryDocumentRoundTripAndCompile(t *testing.T) {
 			Budget: RecoveryBudgetSpec{MaxAttempts: 3},
 		},
 	}
-	token, err := EncodeDocument(document)
+	token, err := Encode(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,12 +30,15 @@ func TestRecoveryDocumentRoundTripAndCompile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Recovery == nil || decoded.Recovery.Controller.Headers["Authorization"] != "Bearer secret" ||
-		decoded.Recovery.Controller.Timeout != "3s" || decoded.Recovery.Budget.MaxElapsed != "30s" ||
-		decoded.Recovery.Triggers.UnexpectedStatus.CaptureBodyBytes != 64<<10 {
-		t.Fatalf("unexpected normalized recovery document: %#v", decoded.Recovery)
+	if decoded.Payload == nil || decoded.Payload.Recovery == nil {
+		t.Fatalf("missing recovery payload: %#v", decoded)
 	}
-	compiled, err := CompileRecovery(decoded.Recovery)
+	spec := decoded.Payload.Recovery
+	if spec.Controller.Headers["Authorization"] != "Bearer secret" || spec.Controller.Timeout != "3s" ||
+		spec.Budget.MaxElapsed != "30s" || spec.Triggers.UnexpectedStatus.CaptureBodyBytes != 64<<10 {
+		t.Fatalf("unexpected normalized recovery payload: %#v", spec)
+	}
+	compiled, err := CompileRecovery(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,9 +69,7 @@ func TestRecoveryValidationRejectsInvalidPolicies(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			spec := valid()
 			mutate(spec)
-			if _, err := ValidateDocument(Document{
-				Kind: KindInline, Payload: &Payload{Target: TargetSection{URL: "https://api.example.com"}}, Recovery: spec,
-			}); err == nil {
+			if err := Validate(Payload{Target: TargetSection{URL: "https://api.example.com"}, Recovery: spec}); err == nil {
 				t.Fatal("invalid recovery policy was accepted")
 			}
 		})

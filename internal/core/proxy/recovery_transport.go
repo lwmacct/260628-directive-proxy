@@ -100,25 +100,6 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		resolveDuration := time.Since(resolveStartedAt)
 		if resolveErr != nil {
 			attempt.DirectiveFailed(resolveDuration, directiveErrorCode(resolveErr))
-			if recoveryPolicy != nil && recoveryPolicy.Triggers.DirectiveError && attempt.BeginRecovery() {
-				decision, recoveryErr := t.recover(req.Context(), recoveryPolicy, attempt, prepared.directive.Source(), "", recovery.Trigger{
-					Type: recovery.TriggerDirectiveError, Code: directiveErrorCode(resolveErr),
-				}, nil)
-				if recoveryErr == nil {
-					switch decision.Action {
-					case recovery.ActionRetry:
-						if retryErr := attempt.RequestRecoveryRetry(); retryErr == nil {
-							attempt.FinishRoundTrip(false, context.Canceled)
-							cancel()
-							continue
-						}
-					case recovery.ActionFail:
-						attempt.FinishRoundTrip(false, ErrRecoveryFailed)
-						cancel()
-						return nil, ErrRecoveryFailed
-					}
-				}
-			}
 			attempt.FinishRoundTrip(false, resolveErr)
 			cancel()
 			return nil, resolveErr

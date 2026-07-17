@@ -5,13 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 const maxRemoteKeyBytes = 256
@@ -21,7 +17,7 @@ func Encode(payload Payload) (string, error) {
 }
 
 func EncodeRemote(spec RemoteSpec) (string, error) {
-	return EncodeDocument(Document{Kind: KindRemote, Remote: &RemoteDocument{Source: spec}})
+	return EncodeDocument(Document{Kind: KindRemote, Remote: &spec})
 }
 
 func EncodeDocument(document Document) (string, error) {
@@ -33,11 +29,9 @@ func EncodeDocument(document Document) (string, error) {
 	var value any
 	switch document.Kind {
 	case KindInline:
-		kind, value = TokenInline, inlineTokenDocument{Payload: *document.Payload, Recovery: document.Recovery}
+		kind, value = TokenInline, *document.Payload
 	case KindRemote:
-		kind, value = TokenRemote, remoteTokenDocument{
-			Source: document.Remote.Source, Program: document.Remote.Program, Recovery: document.Recovery,
-		}
+		kind, value = TokenRemote, *document.Remote
 	default:
 		return "", ErrInvalidPayload
 	}
@@ -70,77 +64,64 @@ func DecodeWithOptions(encoded string, opts DecodeOptions) (Document, error) {
 		if opts.MaxInlineBytes > 0 && int64(len(raw)) > opts.MaxInlineBytes {
 			return Document{}, ErrPayloadTooLarge
 		}
-		inline, err := decodeInlineDocument(raw)
+		payload, err := DecodePayload(raw)
 		if err != nil {
 			return Document{}, err
 		}
-		return ValidateDocument(Document{Kind: KindInline, Payload: &inline.Payload, Recovery: inline.Recovery})
+		return Document{Kind: KindInline, Payload: &payload}, nil
 	case TokenRemote:
-		remote, err := decodeRemoteDocument(raw)
+		spec, err := decodeRemoteSpec(raw)
 		if err != nil {
 			return Document{}, err
 		}
-		return ValidateDocument(Document{
-			Kind: KindRemote, Remote: &RemoteDocument{Source: remote.Source, Program: remote.Program}, Recovery: remote.Recovery,
-		})
+		return ValidateDocument(Document{Kind: KindRemote, Remote: &spec})
 	default:
 		return Document{}, ErrInvalidPayload
 	}
 }
 
 func ValidateDocument(document Document) (Document, error) {
-	recoverySpec, err := normalizeRecoverySpec(document.Recovery)
-	if err != nil {
-		return Document{}, err
-	}
-	document.Recovery = recoverySpec
 	switch document.Kind {
 	case KindInline:
-		if document.Payload == nil || document.Remote != nil || Validate(*document.Payload) != nil {
+		if document.Payload == nil || document.Remote != nil {
 			return Document{}, ErrInvalidPayload
 		}
+		payload, err := normalizePayload(*document.Payload)
+		if err != nil {
+			return Document{}, err
+		}
+		document.Payload = &payload
 		return document, nil
 	case KindRemote:
 		if document.Remote == nil || document.Payload != nil {
 			return Document{}, ErrInvalidPayload
 		}
-		spec, err := normalizeRemoteSpec(document.Remote.Source)
+		spec, err := normalizeRemoteSpec(*document.Remote)
 		if err != nil {
 			return Document{}, err
 		}
-		program, err := normalizeProgram(document.Remote.Program, true, false)
-		if err != nil {
-			return Document{}, err
-		}
-		document.Remote = &RemoteDocument{Source: spec, Program: program}
+		document.Remote = &spec
 		return document, nil
 	default:
 		return Document{}, ErrInvalidPayload
 	}
 }
 
-type inlineTokenDocument struct {
-	Payload  Payload       `json:"payload"`
-	Recovery *RecoverySpec `json:"recovery,omitempty"`
-}
-
-type remoteTokenDocument struct {
-	Source   RemoteSpec     `json:"source"`
-	Program  module.Program `json:"program,omitempty"`
-	Recovery *RecoverySpec  `json:"recovery,omitempty"`
-}
-
-func decodeInlineDocument(raw []byte) (inlineTokenDocument, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var inline inlineTokenDocument
-	if err := decoder.Decode(&inline); err != nil {
-		return inlineTokenDocument{}, ErrInvalidPayload
+func normalizePayload(payload Payload) (Payload, error) {
+	program, err := normalizeProgram(payload.Program, true, true)
+	if err != nil {
+		return Payload{}, err
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return inlineTokenDocument{}, ErrInvalidPayload
+	recoverySpec, err := normalizeRecoverySpec(payload.Recovery)
+	if err != nil {
+		return Payload{}, err
 	}
-	return inline, nil
+	payload.Program = program
+	payload.Recovery = recoverySpec
+	if _, err := ToPlan(payload, AssembleOptions{}); err != nil {
+		return Payload{}, err
+	}
+	return payload, nil
 }
 
 func DecodePayload(raw []byte) (Payload, error) {
@@ -154,7 +135,7 @@ func DecodePayload(raw []byte) (Payload, error) {
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return Payload{}, ErrInvalidPayload
 	}
-	return payload, nil
+	return normalizePayload(payload)
 }
 
 func encodeToken(kind string, raw []byte) string {
@@ -166,17 +147,17 @@ func encodeToken(kind string, raw []byte) string {
 	}, ".")
 }
 
-func decodeRemoteDocument(raw []byte) (remoteTokenDocument, error) {
+func decodeRemoteSpec(raw []byte) (RemoteSpec, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	var remote remoteTokenDocument
-	if err := decoder.Decode(&remote); err != nil {
-		return remoteTokenDocument{}, ErrInvalidPayload
+	var spec RemoteSpec
+	if err := decoder.Decode(&spec); err != nil {
+		return RemoteSpec{}, ErrInvalidPayload
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return remoteTokenDocument{}, ErrInvalidPayload
+		return RemoteSpec{}, ErrInvalidPayload
 	}
-	return remote, nil
+	return spec, nil
 }
 
 func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
@@ -192,7 +173,7 @@ func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 			return RemoteSpec{}, ErrInvalidPayload
 		}
 	case RemoteTypeRedis:
-		if (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || spec.Key == "" || len(spec.Headers) > 0 || len(spec.RequestHeaders) > 0 {
+		if (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || spec.Key == "" || spec.Headers != nil {
 			return RemoteSpec{}, ErrInvalidPayload
 		}
 	default:
@@ -203,31 +184,8 @@ func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 		return RemoteSpec{}, err
 	}
 	spec.Key = key
-	normalizedHeaders := make(map[string]string, len(spec.Headers))
-	for name, value := range spec.Headers {
-		canonicalName := http.CanonicalHeaderKey(strings.TrimSpace(name))
-		if !isValidHeaderName(canonicalName) || isForbiddenResolverHeader(canonicalName) || strings.ContainsAny(value, "\r\n") {
-			return RemoteSpec{}, ErrInvalidPayload
-		}
-		if _, exists := normalizedHeaders[canonicalName]; exists {
-			return RemoteSpec{}, ErrInvalidPayload
-		}
-		normalizedHeaders[canonicalName] = value
-	}
-	if len(normalizedHeaders) > 0 {
-		spec.Headers = normalizedHeaders
-	} else {
-		spec.Headers = nil
-	}
-	for index, pattern := range spec.RequestHeaders {
-		pattern = strings.TrimSpace(pattern)
-		if pattern == "" || strings.ContainsAny(pattern, "\x00\r\n") {
-			return RemoteSpec{}, ErrInvalidPayload
-		}
-		if _, err := path.Match(strings.ToLower(pattern), "x-header"); err != nil {
-			return RemoteSpec{}, ErrInvalidPayload
-		}
-		spec.RequestHeaders[index] = pattern
+	if _, err := CompileResolverRequestHeaders(spec.Headers); err != nil {
+		return RemoteSpec{}, err
 	}
 	return spec, nil
 }

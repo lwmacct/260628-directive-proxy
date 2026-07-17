@@ -9,7 +9,8 @@ export type ResolverHeader = {
 
 export type HeaderOp = {
   key: string;
-  op: "=" | "+" | "-";
+  side: "request" | "response";
+  op: "set" | "del" | "add";
   selector: "name" | "glob";
   pattern: string;
   values: string[];
@@ -40,7 +41,6 @@ export type RecoveryEditorState = {
   expectedStatuses: StatusRange[];
   captureBodyBytes?: number;
   transportError: boolean;
-  directiveError: boolean;
   maxAttempts: number;
   maxElapsed: string;
 };
@@ -50,15 +50,15 @@ export type EditorState = {
   remoteKey: string;
   httpURL: string;
   redisURL: string;
-  resolverHeaders: ResolverHeader[];
-  resolverRequestHeaders: string[];
+  resolverHeaderMode: "patch" | "replace";
+  resolverPreserveProxyDisclosure: boolean;
+  resolverHeaderOps: HeaderOp[];
   targetURL: string;
   joinPath: boolean;
   proxyURL: string;
   requestHeaderMode: "patch" | "replace";
   preserveProxyDisclosure: boolean;
-  requestHeaderOps: HeaderOp[];
-  responseHeaderOps: HeaderOp[];
+  headerOps: HeaderOp[];
   requestProgram: EditorModuleSpec[];
   attemptProgram: EditorModuleSpec[];
   recovery: RecoveryEditorState;
@@ -78,30 +78,30 @@ export type DirectiveProgram = {
 export type DirectivePayload = {
   target: { url: string; join_path?: boolean };
   proxy?: string;
-  headers?: {
-    request?: {
-      mode?: "patch" | "replace";
-      preserve_proxy_disclosure?: boolean;
-      ops?: DirectiveHeaderOp[];
-    };
-    response?: { ops?: DirectiveHeaderOp[] };
-  };
+  headers?: DirectiveHeaderPolicy;
   program?: DirectiveProgram;
+  recovery?: RecoverySpec;
 };
 
 export type DirectiveHeaderOp = {
-  op: "=" | "+" | "-";
+  side: "request" | "response";
+  op: "set" | "del" | "add";
   name?: string;
   glob?: string;
   values?: string[];
+};
+
+export type DirectiveHeaderPolicy = {
+  mode?: "patch" | "replace";
+  preserve_proxy_disclosure?: boolean;
+  ops?: DirectiveHeaderOp[];
 };
 
 export type RemoteSpec = {
   type: "http" | "redis";
   url: string;
   key?: string;
-  headers?: Record<string, string>;
-  request_headers?: string[];
+  headers?: DirectiveHeaderPolicy;
 };
 
 export type RecoverySpec = {
@@ -117,7 +117,6 @@ export type RecoverySpec = {
       capture_body_bytes?: number;
     };
     transport_error?: boolean;
-    directive_error?: boolean;
   };
   budget: {
     max_attempts: number;
@@ -125,20 +124,9 @@ export type RecoverySpec = {
   };
 };
 
-export type InlineTokenDocument = {
-  payload: DirectivePayload;
-  recovery?: RecoverySpec;
-};
-
-export type RemoteTokenDocument = {
-  source: RemoteSpec;
-  program?: Pick<DirectiveProgram, "request">;
-  recovery?: RecoverySpec;
-};
-
 export type DirectiveEnvelope =
-  | { kind: "inline"; document: InlineTokenDocument }
-  | { kind: "remote"; document: RemoteTokenDocument };
+  | { kind: "inline"; document: DirectivePayload }
+  | { kind: "remote"; document: RemoteSpec };
 
 export type RequestResult = {
   body: string;

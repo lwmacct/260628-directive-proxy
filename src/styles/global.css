@@ -38,6 +38,20 @@ body {
   color: var(--ant-color-text-secondary);
 }
 
+.policy-notice-list {
+  margin: 8px 0 0;
+  padding-inline-start: 20px;
+}
+
+.policy-notice-list li + li {
+  margin-top: 4px;
+}
+
+.help-icon {
+  color: var(--ant-color-text-secondary);
+  cursor: help;
+}
+
 .builder-card {
   padding: 16px;
   border: 1px solid var(--ant-color-border-secondary);

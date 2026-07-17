@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path"
-	"strings"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
 type Options struct {
@@ -34,15 +33,15 @@ type resolveRequest struct {
 }
 
 type requestMetadata struct {
-	Method  string              `json:"method"`
-	URL     string              `json:"url"`
-	Host    string              `json:"host"`
-	Headers map[string][]string `json:"headers,omitempty"`
+	Method string `json:"method"`
+	URL    string `json:"url"`
+	Host   string `json:"host"`
 }
 
 func New(opts Options) *Source {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	transport.DisableCompression = true
 	return &Source{
 		client: &http.Client{
 			Transport: transport,
@@ -65,10 +64,9 @@ func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.
 		Protocol: "dproxy.resolve.v1",
 		Key:      spec.Key,
 		Request: requestMetadata{
-			Method:  req.Method,
-			URL:     requestURL(req),
-			Host:    req.Host,
-			Headers: resolutionHeaders(req.Header, spec.RequestHeaders),
+			Method: req.Method,
+			URL:    requestURL(req),
+			Host:   req.Host,
 		},
 	})
 	if err != nil {
@@ -81,10 +79,13 @@ func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.
 	if err != nil {
 		return nil, err
 	}
-	resolverRequest.Header.Set("Content-Type", "application/json")
-	for name, value := range spec.Headers {
-		resolverRequest.Header.Set(name, value)
+	baseHeaders := req.Header.Clone()
+	baseHeaders.Set("Content-Type", "application/json")
+	headerPlan, err := directive.CompileResolverRequestHeaders(spec.Headers)
+	if err != nil {
+		return nil, directive.ErrRemoteInvalid
 	}
+	proxy.ApplyRequestHeaderPlan(resolverRequest, baseHeaders, headerPlan)
 	response, err := s.client.Do(resolverRequest)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", directive.ErrRemoteUnavailable, err)
@@ -108,41 +109,6 @@ func (s *Source) Close() error {
 		s.transport.CloseIdleConnections()
 	}
 	return nil
-}
-
-func resolutionHeaders(in http.Header, selectors []string) map[string][]string {
-	if len(selectors) == 0 {
-		return nil
-	}
-	headers := in.Clone()
-	for _, value := range headers.Values("Connection") {
-		for _, name := range strings.Split(value, ",") {
-			headers.Del(strings.TrimSpace(name))
-		}
-	}
-	for _, name := range []string{
-		"Authorization", "Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate",
-		"Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade",
-	} {
-		headers.Del(name)
-	}
-	for name := range headers {
-		if !matchesHeaderSelector(name, selectors) {
-			headers.Del(name)
-		}
-	}
-	return headers
-}
-
-func matchesHeaderSelector(name string, selectors []string) bool {
-	name = strings.ToLower(name)
-	for _, selector := range selectors {
-		matched, _ := path.Match(strings.ToLower(selector), name)
-		if matched {
-			return true
-		}
-	}
-	return false
 }
 
 func requestURL(req *http.Request) string {

@@ -18,17 +18,14 @@ func (f remoteReaderFunc) Read(ctx context.Context, spec RemoteSpec, req *http.R
 	return f(ctx, spec, req)
 }
 
-func TestRemotePreparedRefreshesEveryAttemptFromOriginalRequestMetadata(t *testing.T) {
+func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *testing.T) {
 	var calls int
 	resolver := NewResolver(ResolverOptions{RemoteReader: remoteReaderFunc(func(_ context.Context, _ RemoteSpec, req *http.Request) ([]byte, error) {
 		calls++
 		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL.Path != "/v1/chat" || req.Header.Get("X-Tenant") != "original" {
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Header)
 		}
-		if calls == 1 {
-			return []byte(`{"target":{"url":"https://one.example"},"headers":{"request":{"ops":[{"op":"=","name":"X-Route","values":["one"]}]}}}`), nil
-		}
-		return []byte(`{"target":{"url":"https://two.example"},"proxy":"socks5://127.0.0.1:1080","headers":{"request":{"mode":"replace","ops":[{"op":"=","name":"X-Route","values":["two"]}]}}}`), nil
+		return []byte(`{"target":{"url":"https://one.example"},"headers":{"ops":[{"side":"request","op":"set","name":"X-Route","values":["one"]}]},"program":{"request":[{"id":"capture","module":"builtin.capture","config":{}}],"attempt":[{"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}]},"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
 	})})
 	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeHTTP, URL: "https://resolver.example/resolve", Key: "routing"})
 	if err != nil {
@@ -54,13 +51,13 @@ func TestRemotePreparedRefreshesEveryAttemptFromOriginalRequestMetadata(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "two.example" {
-		t.Fatalf("remote directive was not refreshed: calls=%d first=%#v second=%#v", calls, first.Plan, second.Plan)
+	if calls != 1 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "one.example" {
+		t.Fatalf("remote payload was not dereferenced once: calls=%d first=%#v second=%#v", calls, first.Plan, second.Plan)
 	}
-	if second.Plan.Proxy == nil || second.Plan.Proxy.Scheme != "socks5" || second.Plan.Headers.Request.Mode != proxy.HeaderModeReplace {
-		t.Fatalf("second remote plan was not independently compiled: %#v", second.Plan)
+	if len(prepared.RequestProgram()) != 1 || len(first.Plan.Modules) != 1 || first.Plan.Recovery == nil {
+		t.Fatalf("remote payload did not preserve inline program/recovery semantics: prepared=%#v plan=%#v", prepared.RequestProgram(), first.Plan)
 	}
-	if first.Source.PayloadSHA256 == "" || second.Source.PayloadSHA256 == "" || first.Source.PayloadSHA256 == second.Source.PayloadSHA256 {
+	if first.Source.PayloadSHA256 == "" || first.Source.PayloadSHA256 != second.Source.PayloadSHA256 {
 		t.Fatalf("unexpected remote payload digests: first=%q second=%q", first.Source.PayloadSHA256, second.Source.PayloadSHA256)
 	}
 }
@@ -70,7 +67,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	resolver := NewResolver(ResolverOptions{
 		RemoteReader: remoteReaderFunc(func(_ context.Context, spec RemoteSpec, _ *http.Request) ([]byte, error) {
 			requested = spec
-			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"request":{"ops":[{"op":"=","name":"X-Source","values":["remote"]}]}}}`), nil
+			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"ops":[{"side":"request","op":"set","name":"X-Source","values":["remote"]}]}}`), nil
 		}),
 		LookupTimeout: time.Second,
 	})

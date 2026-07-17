@@ -23,9 +23,9 @@ type Resolver interface {
 	Prepare(*http.Request) (PreparedDirective, error)
 }
 
-// PreparedDirective is an immutable token envelope. Inline implementations
-// return the same compiled plan for every attempt; remote implementations must
-// fetch and compile a fresh payload for every ResolveAttempt call.
+// PreparedDirective is an immutable, fully resolved Payload. A remote token is
+// dereferenced before this boundary, so attempts do not distinguish how the
+// Payload was acquired.
 type PreparedDirective interface {
 	Kind() string
 	Source() SourceMetadata

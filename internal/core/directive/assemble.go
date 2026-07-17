@@ -28,32 +28,34 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	if err != nil || target.Scheme == "" || target.Host == "" || !isHTTPURL(target) {
 		return nil, ErrInvalidPayload
 	}
-	requestHeaders := RequestHeaderSection{}
-	responseHeaders := ResponseHeaderSection{}
+	headers := HeaderPolicy{}
 	if payload.Headers != nil {
-		if payload.Headers.Request != nil {
-			requestHeaders = *payload.Headers.Request
-		}
-		if payload.Headers.Response != nil {
-			responseHeaders = *payload.Headers.Response
-		}
+		headers = *payload.Headers
 	}
-	if err := validateHeaderMode(requestHeaders.Mode); err != nil {
+	if err := validateHeaderMode(headers.Mode); err != nil {
 		return nil, err
 	}
 	proxyURL, err := ParseProxy(payload.Proxy)
 	if err != nil {
 		return nil, err
 	}
-	requestOps, metadata, err := parseRequestHeaderOps(requestHeaders.Ops)
+	requestRaw, responseRaw, err := splitHeaderOps(headers.Ops, true)
 	if err != nil {
 		return nil, err
 	}
-	responseOps, err := parseResponseHeaderOps(responseHeaders.Ops)
+	requestOps, metadata, err := parseRequestHeaderOps(requestRaw)
+	if err != nil {
+		return nil, err
+	}
+	responseOps, err := parseResponseHeaderOps(responseRaw)
 	if err != nil {
 		return nil, err
 	}
 	program, err := normalizeProgram(payload.Program, true, true)
+	if err != nil {
+		return nil, err
+	}
+	recoveryPolicy, err := CompileRecovery(payload.Recovery)
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +78,8 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 		Proxy:  proxyURL,
 		Headers: proxy.HeaderPlan{
 			Request: proxy.RequestHeaderPlan{
-				Mode:                    toHeaderMode(requestHeaders.Mode),
-				PreserveProxyDisclosure: requestHeaders.PreserveProxyDisclosure,
+				Mode:                    toHeaderMode(headers.Mode),
+				PreserveProxyDisclosure: headers.PreserveProxyDisclosure,
 				StripBeforeOps:          stripBeforeOps,
 				Ops:                     requestOps,
 			},
@@ -85,6 +87,7 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 		},
 		Metadata: metadata,
 		Modules:  program.Attempt,
+		Recovery: recoveryPolicy,
 		JoinPath: joinPath,
 	}, nil
 }
@@ -133,6 +136,57 @@ func parseRequestHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, map[string][]strin
 	return out, metadata, nil
 }
 
+// CompileResolverRequestHeaders compiles the direct HTTP request header policy
+// used by an HTTP RemoteSpec. It intentionally does not extract x-dproxy
+// metadata; the resolver request applies the same header operations directly.
+func CompileResolverRequestHeaders(section *HeaderPolicy) (proxy.RequestHeaderPlan, error) {
+	if section == nil {
+		section = &HeaderPolicy{}
+	}
+	if err := validateHeaderMode(section.Mode); err != nil {
+		return proxy.RequestHeaderPlan{}, err
+	}
+	requestRaw, responseRaw, err := splitHeaderOps(section.Ops, false)
+	if err != nil || len(responseRaw) > 0 {
+		return proxy.RequestHeaderPlan{}, ErrInvalidPayload
+	}
+	ops, err := parseHeaderOps(requestRaw)
+	if err != nil {
+		return proxy.RequestHeaderPlan{}, err
+	}
+	for _, op := range ops {
+		if op.Selector.Kind == proxy.HeaderSelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") &&
+			(op.Action == proxy.HeaderAdd || len(op.Values) > 1) {
+			return proxy.RequestHeaderPlan{}, ErrInvalidPayload
+		}
+	}
+	return proxy.RequestHeaderPlan{
+		Mode:                    toHeaderMode(section.Mode),
+		PreserveProxyDisclosure: section.PreserveProxyDisclosure,
+		StripBeforeOps:          []string{"Authorization", "Content-Length"},
+		Ops:                     ops,
+	}, nil
+}
+
+func splitHeaderOps(raw []HeaderOp, allowResponse bool) ([]HeaderOp, []HeaderOp, error) {
+	request := make([]HeaderOp, 0, len(raw))
+	response := make([]HeaderOp, 0, len(raw))
+	for _, op := range raw {
+		switch op.Side {
+		case HeaderSideRequest:
+			request = append(request, op)
+		case HeaderSideResponse:
+			if !allowResponse {
+				return nil, nil, ErrInvalidPayload
+			}
+			response = append(response, op)
+		default:
+			return nil, nil, ErrInvalidPayload
+		}
+	}
+	return request, response, nil
+}
+
 func parseResponseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 	ops, err := parseHeaderOps(raw)
 	if err != nil {
@@ -152,8 +206,17 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 	}
 	ops := make([]proxy.HeaderOp, 0, len(raw))
 	for _, rawOp := range raw {
-		actionRaw := strings.TrimSpace(rawOp.Op)
-		action := proxy.HeaderAction(actionRaw)
+		var action proxy.HeaderAction
+		switch rawOp.Op {
+		case HeaderOperationSet:
+			action = proxy.HeaderSet
+		case HeaderOperationDelete:
+			action = proxy.HeaderRemove
+		case HeaderOperationAdd:
+			action = proxy.HeaderAdd
+		default:
+			return nil, ErrInvalidPayload
+		}
 		name := strings.TrimSpace(rawOp.Name)
 		glob := strings.TrimSpace(rawOp.Glob)
 		if (name == "") == (glob == "") {
@@ -182,8 +245,6 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 			if len(rawOp.Values) != 0 {
 				return nil, ErrInvalidPayload
 			}
-		default:
-			return nil, ErrInvalidPayload
 		}
 		ops = append(ops, proxy.HeaderOp{
 			Action:   action,

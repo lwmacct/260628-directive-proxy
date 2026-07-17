@@ -10,16 +10,14 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	input := Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1"},
 		Proxy:  "socks5://user:pass@127.0.0.1:1080",
-		Headers: &HeaderSection{
-			Request: &RequestHeaderSection{
-				Mode:                    "replace",
-				PreserveProxyDisclosure: true,
-				Ops: []HeaderOp{
-					{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
-					{Op: "=", Name: "X-Test", Values: []string{"a"}},
-				},
+		Headers: &HeaderPolicy{
+			Mode:                    "replace",
+			PreserveProxyDisclosure: true,
+			Ops: []HeaderOp{
+				{Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer secret"}},
+				{Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "X-Test", Values: []string{"a"}},
+				{Side: HeaderSideResponse, Op: HeaderOperationDelete, Name: "Server"},
 			},
-			Response: &ResponseHeaderSection{Ops: []HeaderOp{{Op: "-", Name: "Server"}}},
 		},
 	}
 
@@ -45,14 +43,12 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if decoded.Proxy != input.Proxy {
 		t.Fatalf("unexpected proxy: %#v", decoded.Proxy)
 	}
-	if decoded.Headers == nil || decoded.Headers.Request == nil || decoded.Headers.Request.Mode != "replace" || !decoded.Headers.Request.PreserveProxyDisclosure {
+	if decoded.Headers == nil || decoded.Headers.Mode != "replace" || !decoded.Headers.PreserveProxyDisclosure {
 		t.Fatalf("unexpected header mode: %#v", decoded.Headers)
 	}
-	if len(decoded.Headers.Request.Ops) != 2 ||
-		decoded.Headers.Request.Ops[0].Name != "Authorization" ||
-		len(decoded.Headers.Request.Ops[0].Values) != 1 ||
-		decoded.Headers.Request.Ops[0].Values[0] != "Bearer secret" ||
-		decoded.Headers.Response == nil || len(decoded.Headers.Response.Ops) != 1 {
+	if len(decoded.Headers.Ops) != 3 || decoded.Headers.Ops[0].Name != "Authorization" ||
+		len(decoded.Headers.Ops[0].Values) != 1 || decoded.Headers.Ops[0].Values[0] != "Bearer secret" ||
+		decoded.Headers.Ops[2].Side != HeaderSideResponse {
 		t.Fatalf("unexpected headers: %#v", decoded.Headers)
 	}
 }
@@ -62,10 +58,13 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 		Type: RemoteTypeHTTP,
 		URL:  "https://policy.example.com/v1/resolve",
 		Key:  "team-a/生产/service-a",
-		Headers: map[string]string{
-			"authorization": "Bearer policy-token",
+		Headers: &HeaderPolicy{
+			Mode:                    "replace",
+			PreserveProxyDisclosure: true,
+			Ops: []HeaderOp{{
+				Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
+			}},
 		},
-		RequestHeaders: []string{"Content-Type", "X-Tenant-*"},
 	}
 	encoded, err := EncodeRemote(input)
 	if err != nil {
@@ -78,9 +77,9 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode remote failed: %v", err)
 	}
-	if token.Kind != KindRemote || token.Remote.Source.Type != RemoteTypeHTTP || token.Remote.Source.URL != input.URL ||
-		token.Remote.Source.Key != input.Key || token.Remote.Source.Headers["Authorization"] != "Bearer policy-token" ||
-		len(token.Remote.Source.RequestHeaders) != 2 {
+	if token.Kind != KindRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
+		token.Remote.Key != input.Key || token.Remote.Headers == nil || token.Remote.Headers.Mode != "replace" ||
+		!token.Remote.Headers.PreserveProxyDisclosure || len(token.Remote.Headers.Ops) != 1 || token.Remote.Headers.Ops[0].Values[0] != "Bearer policy-token" {
 		t.Fatalf("unexpected decoded token: %#v", token)
 	}
 }
@@ -102,11 +101,10 @@ func TestRemoteSpecValidation(t *testing.T) {
 		{Type: "unknown", URL: "https://policy.example.com"},
 		{Type: RemoteTypeHTTP, URL: "file:///tmp/directive"},
 		{Type: RemoteTypeHTTP, URL: "https://user:pass@policy.example.com"},
-		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: map[string]string{"Host": "other.example.com"}},
+		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: &HeaderPolicy{Mode: "invalid"}},
 		{Type: RemoteTypeRedis, URL: "http://redis.example.com", Key: "key"},
-		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", Headers: map[string]string{"X-Test": "value"}},
-		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", RequestHeaders: []string{"X-Tenant"}},
-		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", RequestHeaders: []string{"[invalid"}},
+		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", Headers: &HeaderPolicy{}},
+		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: &HeaderPolicy{Ops: []HeaderOp{{Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "X-Test"}}}},
 	}
 	for _, spec := range invalidSpecs {
 		if _, err := EncodeRemote(spec); err == nil {
@@ -144,6 +142,36 @@ func TestDecodeRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestInlineTokenBodyIsPayloadAndRejectsEnvelope(t *testing.T) {
+	if _, err := Decode(encodeRawToken([]byte(`{"payload":{"target":{"url":"https://api.example.com/v1"}}}`))); err == nil {
+		t.Fatal("inline token envelope must be rejected")
+	}
+	if _, err := Decode(encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))); err != nil {
+		t.Fatalf("direct inline payload was rejected: %v", err)
+	}
+}
+
+func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
+	valid := encodeRawRemoteToken([]byte(`{"type":"http","url":"https://resolver.example/resolve","key":"routing"}`))
+	if _, err := Decode(valid); err != nil {
+		t.Fatalf("direct remote spec was rejected: %v", err)
+	}
+	invalid := []string{
+		`{"source":{"type":"http","url":"https://resolver.example/resolve"}}`,
+		`{"type":"http","url":"https://resolver.example/resolve","payload":{"target":{"url":"https://api.example.com"}}}`,
+		`{"type":"http","url":"https://resolver.example/resolve","program":{}}`,
+		`{"type":"http","url":"https://resolver.example/resolve","recovery":{}}`,
+		`{"type":"http","url":"https://resolver.example/resolve","headers":{"Authorization":"Bearer legacy"}}`,
+		`{"type":"http","url":"https://resolver.example/resolve","headers":{"request_mode":"replace"}}`,
+		`{"type":"http","url":"https://resolver.example/resolve","request_headers":["X-Tenant"]}`,
+	}
+	for _, raw := range invalid {
+		if _, err := Decode(encodeRawRemoteToken([]byte(raw))); err == nil {
+			t.Fatalf("invalid remote token body was accepted: %s", raw)
+		}
+	}
+}
+
 func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
 	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"transport":{"proxy":"socks5://127.0.0.1:1080"}}`))
 
@@ -155,7 +183,7 @@ func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
 func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &HeaderSection{Request: &RequestHeaderSection{Mode: "invalid"}},
+		Headers: &HeaderPolicy{Mode: "invalid"},
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -165,7 +193,7 @@ func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
 func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "=", Name: "X-Test"}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationSet, Name: "X-Test"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -175,7 +203,7 @@ func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 func TestValidateRejectsMultiValueHost(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "=", Name: "Host", Values: []string{"a.example.com", "b.example.com"}}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationSet, Name: "Host", Values: []string{"a.example.com", "b.example.com"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -185,7 +213,7 @@ func TestValidateRejectsMultiValueHost(t *testing.T) {
 func TestValidateRejectsAppendHost(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "+", Name: "Host", Values: []string{"api.example.com"}}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationAdd, Name: "Host", Values: []string{"api.example.com"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -195,7 +223,7 @@ func TestValidateRejectsAppendHost(t *testing.T) {
 func TestValidateRejectsHeaderOpWithBothNameAndGlob(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "-", Name: "X-Test", Glob: "X-*"}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationDelete, Name: "X-Test", Glob: "X-*"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -203,16 +231,52 @@ func TestValidateRejectsHeaderOpWithBothNameAndGlob(t *testing.T) {
 }
 
 func TestDecodeRejectsLegacyHeaderSchema(t *testing.T) {
-	raw := []byte(`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"op":"-","preset":"proxy-disclosure"}]}}`)
-	if _, err := DecodePayload(raw); err == nil {
-		t.Fatal("expected legacy header schema to be rejected")
+	invalid := []string{
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"direction":"request","op":"del","name":"X-Test"}]}}`,
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"request":{"ops":[]}}}`,
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"response":{"ops":[]}}}`,
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"request_mode":"replace"}}`,
+	}
+	for _, raw := range invalid {
+		if _, err := DecodePayload([]byte(raw)); err == nil {
+			t.Fatalf("expected legacy header schema to be rejected: %s", raw)
+		}
+	}
+}
+
+func TestDecodeRejectsMissingOrInvalidHeaderSide(t *testing.T) {
+	invalid := []string{
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"op":"del","name":"Server"}]}}`,
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"side":"upstream","op":"del","name":"Server"}]}}`,
+		`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"side":" request ","op":"del","name":"Server"}]}}`,
+	}
+	for _, raw := range invalid {
+		if _, err := DecodePayload([]byte(raw)); err == nil {
+			t.Fatalf("expected invalid header side to be rejected: %s", raw)
+		}
+	}
+}
+
+func TestDecodeRejectsLegacySymbolicHeaderOperations(t *testing.T) {
+	for _, operation := range []string{"=", "-", "+"} {
+		raw := []byte(`{"target":{"url":"https://api.example.com/v1"},"headers":{"ops":[{"side":"request","op":"` + operation + `","name":"X-Test","values":["value"]}]}}`)
+		if _, err := DecodePayload(raw); err == nil {
+			t.Fatalf("expected legacy header operation %q to be rejected", operation)
+		}
+	}
+}
+
+func TestRemoteHeadersRejectResponseSide(t *testing.T) {
+	raw := []byte(`{"type":"http","url":"https://resolver.example/resolve","headers":{"ops":[{"side":"response","op":"del","name":"Server"}]}}`)
+	if _, err := Decode(encodeRawRemoteToken(raw)); err == nil {
+		t.Fatal("expected remote response header side to be rejected")
 	}
 }
 
 func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "-", Glob: "X-["}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationDelete, Glob: "X-["}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -222,17 +286,17 @@ func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "-", Name: "Bad Header"}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationDelete, Name: "Bad Header"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
 }
 
-func TestValidateRejectsRemoveWithValues(t *testing.T) {
+func TestValidateRejectsDeleteWithValues(t *testing.T) {
 	err := Validate(Payload{
 		Target:  TargetSection{URL: "https://api.example.com/v1"},
-		Headers: requestHeaders(HeaderOp{Op: "-", Glob: "X-*", Values: []string{"value"}}),
+		Headers: requestHeaders(HeaderOp{Op: HeaderOperationDelete, Glob: "X-*", Values: []string{"value"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -242,10 +306,8 @@ func TestValidateRejectsRemoveWithValues(t *testing.T) {
 func TestValidateRejectsProtectedResponseHeader(t *testing.T) {
 	for _, name := range []string{"Connection", "Content-Length", "Date", "Host", "X-Dproxy-Trace-ID"} {
 		err := Validate(Payload{
-			Target: TargetSection{URL: "https://api.example.com/v1"},
-			Headers: &HeaderSection{Response: &ResponseHeaderSection{Ops: []HeaderOp{{
-				Op: "-", Name: name,
-			}}}},
+			Target:  TargetSection{URL: "https://api.example.com/v1"},
+			Headers: &HeaderPolicy{Ops: []HeaderOp{{Side: HeaderSideResponse, Op: HeaderOperationDelete, Name: name}}},
 		})
 		if err == nil {
 			t.Fatalf("expected protected response header %s to be rejected", name)
@@ -254,11 +316,9 @@ func TestValidateRejectsProtectedResponseHeader(t *testing.T) {
 }
 
 func TestValidateRejectsInvalidHeaderValue(t *testing.T) {
-	for _, headers := range []*HeaderSection{
-		requestHeaders(HeaderOp{Op: "=", Name: "X-Test", Values: []string{"bad\rvalue"}}),
-		&HeaderSection{Response: &ResponseHeaderSection{Ops: []HeaderOp{
-			{Op: "=", Name: "X-Test", Values: []string{"bad\nvalue"}},
-		}}},
+	for _, headers := range []*HeaderPolicy{
+		requestHeaders(HeaderOp{Op: HeaderOperationSet, Name: "X-Test", Values: []string{"bad\rvalue"}}),
+		&HeaderPolicy{Ops: []HeaderOp{{Side: HeaderSideResponse, Op: HeaderOperationSet, Name: "X-Test", Values: []string{"bad\nvalue"}}}},
 	} {
 		if err := Validate(Payload{Target: TargetSection{URL: "https://api.example.com/v1"}, Headers: headers}); err == nil {
 			t.Fatal("expected invalid header value to be rejected")
@@ -304,6 +364,10 @@ func TestParseProxy(t *testing.T) {
 
 func encodeRawToken(raw []byte) string {
 	return TokenFamily + "." + TokenVersion + "." + TokenInline + "." + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func encodeRawRemoteToken(raw []byte) string {
+	return TokenFamily + "." + TokenVersion + "." + TokenRemote + "." + base64.RawURLEncoding.EncodeToString(raw)
 }
 
 func decodeInlinePayload(encoded string) (Payload, error) {

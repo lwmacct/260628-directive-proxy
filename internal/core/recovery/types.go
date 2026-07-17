@@ -16,7 +16,6 @@ const (
 	TriggerUnexpectedStatus      TriggerType = "unexpected_status"
 	TriggerResponseHeaderTimeout TriggerType = "response_header_timeout"
 	TriggerTransportError        TriggerType = "transport_error"
-	TriggerDirectiveError        TriggerType = "directive_error"
 )
 
 type Action string
@@ -47,7 +46,6 @@ type TriggerPolicy struct {
 	ResponseHeaderTimeout time.Duration
 	UnexpectedStatus      *UnexpectedStatusPolicy
 	TransportError        bool
-	DirectiveError        bool
 }
 
 type Budget struct {

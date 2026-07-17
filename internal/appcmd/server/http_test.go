@@ -108,7 +108,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
-	if err := redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"request":{"ops":[{"op":"=","name":"X-Directive-Source","values":["redis"]}]}}}`); err != nil {
+	if err := redisServer.Set("team-a/service-a", `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"side":"request","op":"set","name":"X-Directive-Source","values":["redis"]}]}}`); err != nil {
 		t.Fatalf("seed Redis directive: %v", err)
 	}
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
@@ -151,16 +151,16 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 			body.Protocol != "dproxy.resolve.v1" || body.Key != "team-a/service-a" {
 			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
 		}
-		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"request":{"ops":[{"op":"=","name":"X-Directive-Source","values":["http"]}]}}}`)
+		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"ops":[{"side":"request","op":"set","name":"X-Directive-Source","values":["http"]}]}}`)
 	}))
 	defer resolver.Close()
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP,
 		URL:  resolver.URL,
 		Key:  "team-a/service-a",
-		Headers: map[string]string{
-			"Authorization": "Bearer policy-token",
-		},
+		Headers: &directive.HeaderPolicy{Ops: []directive.HeaderOp{{
+			Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
+		}}},
 	})
 	if err != nil {
 		t.Fatalf("encode HTTP token failed: %v", err)

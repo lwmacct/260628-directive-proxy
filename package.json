@@ -3,7 +3,7 @@
   "version": "0.63.260717",
   "private": true,
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.13.0",
+  "packageManager": "pnpm@11.13.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
-    "@lwmacct/260627-antd-workbench": "^0.53.260713",
+    "@lwmacct/260627-antd-workbench": "^0.55.260717",
     "antd": "^6.5.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
@@ -27,6 +27,6 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "typescript": "~7.0.2",
-    "vite": "^8.1.4"
+    "vite": "^8.1.5"
   }
 }

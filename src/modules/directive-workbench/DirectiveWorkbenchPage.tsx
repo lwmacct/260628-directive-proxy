@@ -23,7 +23,7 @@ export function DirectiveWorkbenchPage() {
       key: "json",
       label: t.authConsole.tokenJSON,
       children: <SourceEditor
-        placeholder={state.envelope.kind === "inline" ? '{ "payload": { "target": { "url": "https://api.example.com" } } }' : '{ "source": { "type": "http", "url": "https://resolver.example.com" } }'}
+        placeholder={state.envelope.kind === "inline" ? '{ "target": { "url": "https://api.example.com" } }' : '{ "type": "http", "url": "https://resolver.example.com" }'}
         value={state.jsonInput}
         onChange={state.setJSONInput}
       />,

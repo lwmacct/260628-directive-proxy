@@ -19,8 +19,9 @@ export function newHeaderOp(
   selector: HeaderOp["selector"],
   pattern: string,
   values: string[],
+  side: HeaderOp["side"] = "request",
 ): HeaderOp {
-  return { key: nextKey("header-op"), op, selector, pattern, values };
+  return { key: nextKey("header-op"), side, op, selector, pattern, values };
 }
 
 export function newResolverHeader(name: string, value: string): ResolverHeader {
@@ -46,7 +47,6 @@ export function initialRecovery(): RecoveryEditorState {
     expectedStatuses: [newStatusRange()],
     captureBodyBytes: 65536,
     transportError: true,
-    directiveError: false,
     maxAttempts: 3,
     maxElapsed: "30s",
   };
@@ -57,18 +57,18 @@ export const initialEditor: EditorState = {
   remoteKey: "team-a/service-a",
   httpURL: "https://policy.example.com/v1/resolve",
   redisURL: "redis://user:password@redis.example.com:6379/1",
-  resolverHeaders: [newResolverHeader("Authorization", "Bearer policy-token")],
-  resolverRequestHeaders: ["Content-Type", "X-Tenant"],
+  resolverHeaderMode: "patch",
+  resolverPreserveProxyDisclosure: false,
+  resolverHeaderOps: [newHeaderOp("set", "name", "Authorization", ["Bearer policy-token"])],
   targetURL: "https://httpbin.org/anything",
   joinPath: true,
   proxyURL: "",
   requestHeaderMode: "patch",
   preserveProxyDisclosure: false,
-  requestHeaderOps: [
-    newHeaderOp("=", "name", "Authorization", ["Bearer upstream-token"]),
-    newHeaderOp("=", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
+  headerOps: [
+    newHeaderOp("set", "name", "Authorization", ["Bearer upstream-token"]),
+    newHeaderOp("set", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
   ],
-  responseHeaderOps: [],
   requestProgram: [newModuleSpec("capture", "builtin.capture")],
   attemptProgram: [],
   recovery: initialRecovery(),

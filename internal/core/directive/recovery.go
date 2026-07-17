@@ -76,7 +76,7 @@ func normalizeRecoverySpec(spec *RecoverySpec) (*RecoverySpec, error) {
 		out.Triggers.UnexpectedStatus = &status
 	}
 	if out.Triggers.ResponseHeaderTimeout == "" && out.Triggers.UnexpectedStatus == nil &&
-		!out.Triggers.TransportError && !out.Triggers.DirectiveError {
+		!out.Triggers.TransportError {
 		return nil, ErrInvalidPayload
 	}
 	if out.Budget.MaxAttempts < 1 || out.Budget.MaxAttempts > 100 {
@@ -106,7 +106,6 @@ func CompileRecovery(spec *RecoverySpec) (*recovery.Policy, error) {
 		Triggers: recovery.TriggerPolicy{
 			ResponseHeaderTimeout: responseTimeout,
 			TransportError:        normalized.Triggers.TransportError,
-			DirectiveError:        normalized.Triggers.DirectiveError,
 		},
 		Budget: recovery.Budget{MaxAttempts: normalized.Budget.MaxAttempts, MaxElapsed: maxElapsed},
 	}

@@ -44,12 +44,7 @@ export function RecoveryEditor(props: {
         <Divider />
         <Row gutter={[16, 0]}>
           <Col xs={24} lg={12}><Form.Item label={text.responseHeaderTimeout}><Input allowClear placeholder="10s" value={value.responseHeaderTimeout} onChange={(event: ChangeEvent<HTMLInputElement>) => update({ responseHeaderTimeout: event.target.value })} /></Form.Item></Col>
-          <Col xs={24} lg={12}><Form.Item label={text.errorTriggers}>
-            <Flex gap="large" wrap>
-              <Checkbox checked={value.transportError} onChange={(event: CheckboxChangeEvent) => update({ transportError: event.target.checked })}>{text.transportError}</Checkbox>
-              <Checkbox checked={value.directiveError} onChange={(event: CheckboxChangeEvent) => update({ directiveError: event.target.checked })}>{text.directiveError}</Checkbox>
-            </Flex>
-          </Form.Item></Col>
+          <Col xs={24} lg={12}><Form.Item label={text.errorTriggers}><Checkbox checked={value.transportError} onChange={(event: CheckboxChangeEvent) => update({ transportError: event.target.checked })}>{text.transportError}</Checkbox></Form.Item></Col>
         </Row>
         <Divider />
         <Flex align="center" gap="small" justify="space-between" style={{ marginBottom: 12 }} wrap>

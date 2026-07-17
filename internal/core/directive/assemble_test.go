@@ -7,8 +7,8 @@ func TestToPlan(t *testing.T) {
 		Target: TargetSection{URL: "https://api.example.com/base"},
 		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: requestHeaders(
-			HeaderOp{Op: "=", Name: "Authorization", Values: []string{"Bearer secret"}},
-			HeaderOp{Op: "=", Name: "X-Test", Values: []string{"a"}},
+			HeaderOp{Op: HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer secret"}},
+			HeaderOp{Op: HeaderOperationSet, Name: "X-Test", Values: []string{"a"}},
 		),
 	}, AssembleOptions{
 		StripHeaders: []string{"Authorization"},
@@ -33,12 +33,9 @@ func TestToPlan(t *testing.T) {
 func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
-		Headers: &HeaderSection{Request: &RequestHeaderSection{
-			Mode: "replace",
-			Ops: []HeaderOp{
-				{Op: "=", Name: "Host", Values: []string{"custom.example.com"}},
-			},
-		}},
+		Headers: &HeaderPolicy{Mode: "replace", Ops: []HeaderOp{{
+			Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "Host", Values: []string{"custom.example.com"},
+		}}},
 	}, AssembleOptions{})
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
@@ -55,7 +52,7 @@ func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
 		Headers: requestHeaders(
-			HeaderOp{Op: "-", Glob: "M-Runtime-*"},
+			HeaderOp{Op: HeaderOperationDelete, Glob: "M-Runtime-*"},
 		),
 	}, AssembleOptions{})
 	if err != nil {
@@ -69,16 +66,35 @@ func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 func TestToPlanBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
-		Headers: &HeaderSection{
-			Request:  &RequestHeaderSection{PreserveProxyDisclosure: true},
-			Response: &ResponseHeaderSection{Ops: []HeaderOp{{Op: "-", Name: "Server"}}},
-		},
+		Headers: &HeaderPolicy{PreserveProxyDisclosure: true, Ops: []HeaderOp{{
+			Side: HeaderSideResponse, Op: HeaderOperationDelete, Name: "Server",
+		}}},
 	}, AssembleOptions{})
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
 	if !plan.Headers.Request.PreserveProxyDisclosure || len(plan.Headers.Response.Ops) != 1 || plan.Headers.Response.Ops[0].Selector.Pattern != "Server" {
 		t.Fatalf("unexpected header plan: %#v", plan.Headers)
+	}
+}
+
+func TestToPlanSplitsMixedHeaderSides(t *testing.T) {
+	plan, err := ToPlan(Payload{
+		Target: TargetSection{URL: "https://api.example.com/base"},
+		Headers: &HeaderPolicy{Ops: []HeaderOp{
+			{Side: HeaderSideResponse, Op: HeaderOperationDelete, Name: "Server"},
+			{Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "X-Request", Values: []string{"request"}},
+			{Side: HeaderSideResponse, Op: HeaderOperationSet, Name: "X-Response", Values: []string{"response"}},
+		}},
+	}, AssembleOptions{})
+	if err != nil {
+		t.Fatalf("assemble failed: %v", err)
+	}
+	if len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Selector.Pattern != "X-Request" {
+		t.Fatalf("unexpected request ops: %#v", plan.Headers.Request.Ops)
+	}
+	if len(plan.Headers.Response.Ops) != 2 || plan.Headers.Response.Ops[0].Selector.Pattern != "Server" || plan.Headers.Response.Ops[1].Selector.Pattern != "X-Response" {
+		t.Fatalf("unexpected response ops: %#v", plan.Headers.Response.Ops)
 	}
 }
 
@@ -102,9 +118,9 @@ func TestToPlanExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com"},
 		Headers: requestHeaders(
-			HeaderOp{Op: "=", Name: "x-dproxy-request-id", Values: []string{"request-1"}},
-			HeaderOp{Op: "+", Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
-			HeaderOp{Op: "=", Name: "X-Upstream", Values: []string{"forwarded"}},
+			HeaderOp{Op: HeaderOperationSet, Name: "x-dproxy-request-id", Values: []string{"request-1"}},
+			HeaderOp{Op: HeaderOperationAdd, Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
+			HeaderOp{Op: HeaderOperationSet, Name: "X-Upstream", Values: []string{"forwarded"}},
 		),
 	}, AssembleOptions{})
 	if err != nil {
@@ -120,10 +136,10 @@ func TestToPlanExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
 
 func TestToPlanRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
 	for _, op := range []HeaderOp{
-		{Op: "=", Name: "X-Dproxy-Trace-ID", Values: []string{"forged"}},
-		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{""}},
-		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
-		{Op: "=", Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
+		{Op: HeaderOperationSet, Name: "X-Dproxy-Trace-ID", Values: []string{"forged"}},
+		{Op: HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{""}},
+		{Op: HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
+		{Op: HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
 	} {
 		if _, err := ToPlan(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: requestHeaders(op)}, AssembleOptions{}); err == nil {
 			t.Fatalf("expected invalid metadata op: %#v", op)
@@ -131,6 +147,9 @@ func TestToPlanRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
 	}
 }
 
-func requestHeaders(ops ...HeaderOp) *HeaderSection {
-	return &HeaderSection{Request: &RequestHeaderSection{Ops: ops}}
+func requestHeaders(ops ...HeaderOp) *HeaderPolicy {
+	for index := range ops {
+		ops[index].Side = HeaderSideRequest
+	}
+	return &HeaderPolicy{Ops: ops}
 }

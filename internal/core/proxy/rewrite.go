@@ -49,9 +49,27 @@ func applyPlan(out *http.Request, originalHeaders http.Header, d *Plan) {
 		return
 	}
 
-	transportHeaders := trustedTransportHeaders(originalHeaders)
+	applyRequestHeaderPlan(out, originalHeaders, d.Headers.Request, true)
+	// Capture parses SSE at the downstream byte boundary. Force identity encoding so
+	// event framing is observable without changing the response representation.
+	out.Header.Set("Accept-Encoding", "identity")
+}
+
+// ApplyRequestHeaderPlan applies the reusable request-header rewrite semantics
+// to an HTTP request without changing its URL.
+func ApplyRequestHeaderPlan(out *http.Request, originalHeaders http.Header, requestHeaders RequestHeaderPlan) {
+	applyRequestHeaderPlan(out, originalHeaders, requestHeaders, false)
+}
+
+func applyRequestHeaderPlan(out *http.Request, originalHeaders http.Header, requestHeaders RequestHeaderPlan, preserveTransport bool) {
+	if out == nil {
+		return
+	}
+	var transportHeaders http.Header
+	if preserveTransport {
+		transportHeaders = trustedTransportHeaders(originalHeaders)
+	}
 	out.Host = ""
-	requestHeaders := d.Headers.Request
 	replaceHeaders := requestHeaders.Mode == HeaderModeReplace
 	if replaceHeaders {
 		out.Header = make(http.Header)
@@ -68,10 +86,9 @@ func applyPlan(out *http.Request, originalHeaders http.Header, d *Plan) {
 	applyRequestHeaderOps(out, requestHeaders.Ops)
 	stripDproxyHeaders(out.Header)
 	stripHopByHopHeaders(out.Header)
-	copyHeaders(out.Header, transportHeaders)
-	// Capture parses SSE at the downstream byte boundary. Force identity encoding so
-	// event framing is observable without changing the response representation.
-	out.Header.Set("Accept-Encoding", "identity")
+	if len(transportHeaders) > 0 {
+		copyHeaders(out.Header, transportHeaders)
+	}
 	if replaceHeaders {
 		suppressDefaultUserAgent(out.Header)
 	}

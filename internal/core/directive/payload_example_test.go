@@ -9,10 +9,10 @@ import (
 func ExampleEncode() {
 	encoded, _ := directive.Encode(directive.Payload{
 		Target: directive.TargetSection{URL: "https://api.example.com/v1"},
-		Headers: &directive.HeaderSection{Request: &directive.RequestHeaderSection{Ops: []directive.HeaderOp{
-			{Op: "=", Name: "Authorization", Values: []string{"Bearer upstream-token"}},
-			{Op: "=", Name: "X-Tenant", Values: []string{"tenant-a"}},
-		}}},
+		Headers: &directive.HeaderPolicy{Ops: []directive.HeaderOp{
+			{Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer upstream-token"}},
+			{Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "X-Tenant", Values: []string{"tenant-a"}},
+		}},
 	})
 	fmt.Println(len(encoded) > 0)
 	// Output:

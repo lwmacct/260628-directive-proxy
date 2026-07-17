@@ -10,7 +10,7 @@
 
 - 从 `Authorization: Bearer <token>` 提取 `dp.` family token
 - 将 dp family 请求与保留 API 请求分流，decoder 只接受当前 `dp.<version>.inline/remote` 四段格式
-- inline 解码 directive JSON；remote 解码自包含 `RemoteSpec` 并通过 `RemoteReader` 读取完整 JSON
+- inline 第四段直接解码为 `Payload`；remote 第四段直接解码为 `RemoteSpec` 并通过 `RemoteReader` 读取同一 `Payload`
 - 校验当前版本 token、RemoteSpec 与 directive payload schema
 - 将 target、proxy、headers 等 payload 字段组装成 `proxy.Plan`
 
@@ -18,21 +18,25 @@
 
 1. `resolver.go` 读取 `Authorization` bearer token。
 2. 非 dp family token 由 proxy handler 交给下一个 HTTP handler；dp family token 必须是当前 `dp.<version>.inline/remote.<base64url-json>`。
-3. `payload_codec.go` 将 token 完整解码为领域 `Document`；inline payload 和 remote spec 在返回前已经校验。
-4. remote document 由 `RemoteReader` 取得裸 payload JSON，再进入与 inline 相同的严格解码流程。
+3. `payload_codec.go` 直接解码 inline `Payload` 或 remote `RemoteSpec`，不接受额外 envelope。
+4. remote spec 在 Prepare 阶段由 `RemoteReader` 解引用一次，取得的 payload 进入与 inline 相同的严格解码流程。
 5. `assemble.go` 将合法 payload 直接编译成 `proxy.Plan`；resolver 另行返回来源观测信息。
 
 ## 实现约定
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - `dp.<version>.` 后的 `inline`/`remote` 明确区分 inline directive 与自包含 RemoteSpec；实际版本只由 `TokenVersion` 定义。
-- HTTP RemoteSpec 默认不披露原请求 header，只有 `request_headers` 显式选择的 header 才会发送给 resolver。
-- HTTP 返回体和 Redis 8+ JSON 根文档必须是完整 payload，不做合并、回退、value 缓存或递归引用。
+- inline JSON 本身就是 Payload；remote JSON 本身就是 RemoteSpec。
+- RemoteSpec 只包含读取信息，声明 payload、program、recovery 或其他执行字段必须拒绝。
+- HTTP RemoteSpec 的直接请求头复用 Inline request header policy；默认 patch 原请求头，Authorization、Content-Length 和代理披露头在 ops 前清理，`x-dproxy-*` 与 hop-by-hop header 在 ops 后统一清理。
+- HTTP 返回体和 Redis 8+ JSON 根文档必须是完整 payload；program 与 recovery 只属于 Payload。
+- remote Payload 每个请求只读取一次，不做字段合并、Attempt 重读、回退、value 缓存或递归引用。
 - Redis directive 只使用 `JSON.GET key` 读取根文档；String key 不兼容，由写入方使用 `JSON.SET key $` 管理。
-- `headers.request` 和 `headers.response` 的 op 必须且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
-- 请求 header 默认使用 patch 模式并移除代理披露 header；只有 `preserve_proxy_disclosure: true` 才保留入站值。
+- `headers` 是单一 HeaderPolicy；每条 op 必须显式声明 `side: request|response`，操作只允许 `set|del|add`，并且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
+- `mode` 和 `preserve_proxy_disclosure` 只作用于 request；请求 header 默认使用 patch 模式并移除代理披露 header。
+- HTTP RemoteSpec 复用同一 HeaderPolicy，但只允许 `side: request`；旧 `direction`、符号操作、request/response 子容器、旧 `request_mode` 和缺少 side 的 op 均不兼容。
 - 响应 header op 只应用于最终上游响应，不应用于被重试丢弃的响应、informational response、trailer 或本地代理错误。
-- `Host` 只接受 exact selector；Remove 删除完整 header，不接受 `values`。
+- `Host` 只接受 exact selector；`del` 删除完整 header，不接受 `values`。
 - malformed 或不支持版本的 dp family token 返回 `proxy.ErrInvalidDirective`。
 - 未识别到 dp family token 返回 `proxy.ErrNoMatch`，不会启动代理请求生命周期。
 

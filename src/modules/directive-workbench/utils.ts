@@ -6,19 +6,21 @@ import type {
   DirectivePayload,
   EditorModuleSpec,
   EditorState,
+  HeaderOp,
   ModuleSpec,
   RecoveryEditorState,
   RecoverySpec,
   RemoteSpec,
+  ResolverHeader,
   TokenKind,
 } from "./types";
 
-function buildHeaderOps(items: EditorState["requestHeaderOps"]): DirectiveHeaderOp[] {
+function buildHeaderOps(items: HeaderOp[]): DirectiveHeaderOp[] {
   return items.flatMap<DirectiveHeaderOp>((item) => {
     const pattern = item.pattern.trim();
     if (!pattern) return [];
     const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
-    return [{ op: item.op, ...selector, ...(item.op === "-" ? {} : { values: item.values }) }];
+    return [{ side: item.side, op: item.op, ...selector, ...(item.op === "del" ? {} : { values: item.values }) }];
   });
 }
 
@@ -31,32 +33,28 @@ function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
 }
 
 export function buildPayload(input: EditorState): DirectivePayload {
-  const requestOps = buildHeaderOps(input.requestHeaderOps);
-  const responseOps = buildHeaderOps(input.responseHeaderOps);
+  const ops = buildHeaderOps(input.headerOps);
   const payload: DirectivePayload = { target: { url: input.targetURL.trim() } };
   if (!input.joinPath) payload.target.join_path = false;
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
-  const request = {
+  const headers = {
     ...(input.requestHeaderMode === "replace" ? { mode: input.requestHeaderMode } : {}),
     ...(input.preserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
-    ...(requestOps.length ? { ops: requestOps } : {}),
+    ...(ops.length ? { ops } : {}),
   };
-  if (Object.keys(request).length || responseOps.length) {
-    payload.headers = {
-      ...(Object.keys(request).length ? { request } : {}),
-      ...(responseOps.length ? { response: { ops: responseOps } } : {}),
-    };
-  }
+  if (Object.keys(headers).length) payload.headers = headers;
   if (input.requestProgram.length || input.attemptProgram.length) {
     payload.program = {
       ...(input.requestProgram.length ? { request: buildProgram(input.requestProgram) } : {}),
       ...(input.attemptProgram.length ? { attempt: buildProgram(input.attemptProgram) } : {}),
     };
   }
+  const recovery = buildRecovery(input.recovery);
+  if (recovery) payload.recovery = recovery;
   return payload;
 }
 
-function buildHeaderMap(items: EditorState["resolverHeaders"]) {
+function buildHeaderMap(items: ResolverHeader[]) {
   const entries = items.flatMap((header) => {
     const name = header.name.trim();
     return name ? [[name, header.value] as const] : [];
@@ -65,13 +63,17 @@ function buildHeaderMap(items: EditorState["resolverHeaders"]) {
 }
 
 export function buildRemoteSpec(editor: EditorState): RemoteSpec {
-  const headers = buildHeaderMap(editor.resolverHeaders);
+  const ops = buildHeaderOps(editor.resolverHeaderOps);
+  const headers = {
+    ...(editor.resolverHeaderMode === "replace" ? { mode: "replace" as const } : {}),
+    ...(editor.resolverPreserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
+    ...(ops.length ? { ops } : {}),
+  };
   return {
     type: editor.source === "redis" ? "redis" : "http",
     url: (editor.source === "redis" ? editor.redisURL : editor.httpURL).trim(),
     ...(editor.remoteKey ? { key: editor.remoteKey } : {}),
     ...(editor.source === "http" && Object.keys(headers).length ? { headers } : {}),
-    ...(editor.source === "http" && editor.resolverRequestHeaders.length ? { request_headers: editor.resolverRequestHeaders } : {}),
   };
 }
 
@@ -93,7 +95,6 @@ export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefi
         },
       } : {}),
       ...(input.transportError ? { transport_error: true } : {}),
-      ...(input.directiveError ? { directive_error: true } : {}),
     },
     budget: {
       max_attempts: input.maxAttempts,
@@ -103,40 +104,23 @@ export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefi
 }
 
 export function buildEnvelope(editor: EditorState): DirectiveEnvelope {
-  const recovery = buildRecovery(editor.recovery);
   if (editor.source === "inline") {
-    return {
-      kind: "inline",
-      document: { payload: buildPayload(editor), ...(recovery ? { recovery } : {}) },
-    };
+    return { kind: "inline", document: buildPayload(editor) };
   }
-  return {
-    kind: "remote",
-    document: {
-      source: buildRemoteSpec(editor),
-      ...(editor.requestProgram.length ? { program: { request: buildProgram(editor.requestProgram) } } : {}),
-      ...(recovery ? { recovery } : {}),
-    },
-  };
+  return { kind: "remote", document: buildRemoteSpec(editor) };
 }
 
 function payloadToEditor(payload: DirectivePayload) {
-  const toEditorOps = (ops: DirectiveHeaderOp[]) => ops.map((item) => newHeaderOp(
-    item.op,
-    item.glob !== undefined ? "glob" : "name",
-    item.name ?? item.glob ?? "",
-    item.values ?? [],
-  ));
   return {
     targetURL: payload.target.url,
     joinPath: payload.target.join_path ?? true,
     proxyURL: payload.proxy ?? "",
-    requestHeaderMode: payload.headers?.request?.mode ?? "patch",
-    preserveProxyDisclosure: payload.headers?.request?.preserve_proxy_disclosure ?? false,
-    requestHeaderOps: toEditorOps(payload.headers?.request?.ops ?? []),
-    responseHeaderOps: toEditorOps(payload.headers?.response?.ops ?? []),
+    requestHeaderMode: payload.headers?.mode ?? "patch",
+    preserveProxyDisclosure: payload.headers?.preserve_proxy_disclosure ?? false,
+    headerOps: toEditorHeaderOps(payload.headers?.ops ?? []),
     requestProgram: (payload.program?.request ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
     attemptProgram: (payload.program?.attempt ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
+    recovery: payload.recovery,
   };
 }
 
@@ -152,7 +136,6 @@ function recoveryToEditor(previous: RecoveryEditorState, recovery?: RecoverySpec
     expectedStatuses: (recovery.triggers.unexpected_status?.expected ?? [{ from: 200, to: 299 }]).map((range) => newStatusRange(range.from, range.to)),
     captureBodyBytes: recovery.triggers.unexpected_status?.capture_body_bytes ?? 65536,
     transportError: recovery.triggers.transport_error ?? false,
-    directiveError: recovery.triggers.directive_error ?? false,
     maxAttempts: recovery.budget.max_attempts,
     maxElapsed: recovery.budget.max_elapsed ?? "30s",
   };
@@ -160,29 +143,39 @@ function recoveryToEditor(previous: RecoveryEditorState, recovery?: RecoverySpec
 
 export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvelope): EditorState {
   if (envelope.kind === "inline") {
+    const payload = envelope.document;
+    const parsed = payloadToEditor(payload);
     return {
       ...previous,
       source: "inline",
-      ...payloadToEditor(envelope.document.payload),
-      recovery: recoveryToEditor(previous.recovery, envelope.document.recovery),
+      ...parsed,
+      recovery: recoveryToEditor(previous.recovery, parsed.recovery),
     };
   }
-  const spec = envelope.document.source;
+  const spec = envelope.document;
   return {
     ...previous,
     source: spec.type,
     remoteKey: spec.key ?? "",
-    requestProgram: (envelope.document.program?.request ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
-    attemptProgram: [],
-    recovery: recoveryToEditor(previous.recovery, envelope.document.recovery),
     ...(spec.type === "http"
       ? {
           httpURL: spec.url,
-          resolverHeaders: Object.entries(spec.headers ?? {}).map(([name, value]) => newResolverHeader(name, value)),
-          resolverRequestHeaders: spec.request_headers ?? [],
+          resolverHeaderMode: spec.headers?.mode ?? "patch",
+          resolverPreserveProxyDisclosure: spec.headers?.preserve_proxy_disclosure ?? false,
+          resolverHeaderOps: toEditorHeaderOps(spec.headers?.ops ?? []),
         }
       : { redisURL: spec.url }),
   };
+}
+
+function toEditorHeaderOps(ops: DirectiveHeaderOp[]) {
+  return ops.map((item) => newHeaderOp(
+    item.op,
+    item.glob !== undefined ? "glob" : "name",
+    item.name ?? item.glob ?? "",
+    item.values ?? [],
+    item.side,
+  ));
 }
 
 export function sourceTokenKind(source: EditorState["source"]): TokenKind {

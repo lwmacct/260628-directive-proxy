@@ -19,7 +19,8 @@ func testSource() *Source {
 func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	var got resolveRequest
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer policy-token" || r.Header.Get("Content-Type") != "application/json" {
+		if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer policy-token" || r.Header.Get("Content-Type") != "application/json" ||
+			r.Header.Get("X-Tenant") != "team-a" || r.Header.Get("X-Hop") != "" {
 			t.Errorf("unexpected resolver request: method=%s headers=%#v", r.Method, r.Header)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
@@ -39,8 +40,9 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 
 	raw, err := source.Read(context.Background(), directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP, URL: resolver.URL, Key: "team-a/service-a",
-		RequestHeaders: []string{"Authorization", "X-Hop", "X-Tenant"},
-		Headers:        map[string]string{"Authorization": "Bearer policy-token"},
+		Headers: &directive.HeaderPolicy{Ops: []directive.HeaderOp{{
+			Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
+		}}},
 	}, req)
 	if err != nil || string(raw) != `{"target":{"url":"https://api.example.com/v1"}}` {
 		t.Fatalf("unexpected response: raw=%s err=%v", raw, err)
@@ -49,19 +51,12 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 		got.Request.URL != "https://gateway.example.com/v1/resources?region=cn" || got.Request.Host != "gateway.example.com" {
 		t.Fatalf("unexpected metadata: %#v", got)
 	}
-	if got.Request.Headers["X-Tenant"][0] != "team-a" || got.Request.Headers["Authorization"] != nil || got.Request.Headers["X-Hop"] != nil {
-		t.Fatalf("unexpected forwarded headers: %#v", got.Request.Headers)
-	}
 }
 
-func TestSourceDoesNotDiscloseHeadersByDefault(t *testing.T) {
+func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var got resolveRequest
-		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Errorf("decode request: %v", err)
-		}
-		if len(got.Request.Headers) != 0 {
-			t.Errorf("unexpected disclosed headers: %#v", got.Request.Headers)
+		if r.Header.Get("Cookie") != "" || r.Header.Get("X-Policy") != "resolver" {
+			t.Errorf("unexpected resolver headers: %#v", r.Header)
 		}
 		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
 	}))
@@ -70,6 +65,36 @@ func TestSourceDoesNotDiscloseHeadersByDefault(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)
 	req.Header.Set("Cookie", "session=secret")
+	if _, err := source.Read(context.Background(), directive.RemoteSpec{
+		Type: directive.RemoteTypeHTTP,
+		URL:  resolver.URL,
+		Headers: &directive.HeaderPolicy{Mode: "replace", Ops: []directive.HeaderOp{{
+			Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "X-Policy", Values: []string{"resolver"},
+		}}},
+	}, req); err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+}
+
+func TestSourceDefaultPolicyStripsReservedHeaders(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Dproxy-Secret") != "" || r.Header.Get("X-Forwarded-For") != "" ||
+			r.Header.Get("Connection") != "" || r.Header.Get("Upgrade") != "" || r.Header.Get("X-Tenant") != "team-a" ||
+			r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("unexpected resolver headers: %#v", r.Header)
+		}
+		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+	}))
+	defer resolver.Close()
+	source := testSource()
+	t.Cleanup(func() { _ = source.Close() })
+	req := httptest.NewRequest(http.MethodPost, "http://gateway.local/", nil)
+	req.Header.Set("Authorization", "Bearer dp.18.remote.secret")
+	req.Header.Set("X-Dproxy-Secret", "drop")
+	req.Header.Set("X-Forwarded-For", "192.0.2.1")
+	req.Header.Set("X-Tenant", "team-a")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
 	if _, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: resolver.URL}, req); err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
