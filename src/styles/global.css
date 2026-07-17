@@ -228,25 +228,6 @@ body {
   display: none;
 }
 
-.appearance-drawer-trigger {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--ant-color-border-secondary);
-  border-radius: 8px;
-  color: var(--ant-color-text-secondary);
-}
-
-.appearance-drawer-trigger:hover,
-.appearance-drawer-trigger:focus-visible {
-  border-color: var(--ant-color-primary-border-hover) !important;
-  color: var(--ant-color-primary-hover) !important;
-  background: var(--ant-color-primary-bg) !important;
-}
-
-.appearance-drawer .ant-drawer-body {
-  padding-bottom: 32px;
-}
-
 .directive-console-secret {
   display: flex;
   width: 100%;

@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
-    "@lwmacct/260627-antd-workbench": "^0.55.260717",
+    "@lwmacct/260627-antd-workbench": "^0.56.260718",
     "antd": "^6.5.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
