@@ -83,11 +83,13 @@ function arrayValue(value: unknown, label: string, text: Text["authConsole"]) {
   return value;
 }
 
-function parseURL(value: unknown, label: string, schemes: string[], text: Text["authConsole"], userInfo = true) {
+function parseURL(value: unknown, label: string, schemes: string[], text: Text["authConsole"], userInfo = true, fragment = true) {
   const raw = stringValue(value, label, text);
   let parsed: URL;
   try { parsed = new URL(raw); } catch { throw new Error(text.mustBe(label, `${schemes.join("/")} URL`)); }
-  if (!schemes.includes(parsed.protocol.slice(0, -1)) || !parsed.hostname || !userInfo && (parsed.username || parsed.password)) {
+  const disallowedUserInfo = !userInfo && Boolean(parsed.username || parsed.password);
+  const disallowedFragment = !fragment && Boolean(parsed.hash);
+  if (!schemes.includes(parsed.protocol.slice(0, -1)) || !parsed.hostname || disallowedUserInfo || disallowedFragment) {
     throw new Error(text.mustBe(label, `${schemes.join("/")} URL`));
   }
   return raw;
@@ -318,34 +320,50 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
 
 function parseRemoteSpec(value: unknown, text: Text["authConsole"]): RemoteSpec {
   const input = record(value, "remote", text);
-  knownKeys(input, ["type", "url", "key", "headers"], "remote", text);
-  if (input.type !== "http" && input.type !== "redis") throw new Error(text.onlyValues("remote.type", "http, redis"));
-  let key: string | undefined;
-  if (input.key !== undefined) {
-    if (typeof input.key !== "string" || !isRemoteKeyValid(input.key)) throw new Error(text.invalidRedisKey);
-    key = input.key;
+  knownKeys(input, ["http", "redis", "file"], "remote", text);
+  const backends = ["http", "redis", "file"].filter((name) => input[name] !== undefined);
+  if (backends.length !== 1) throw new Error(text.mustBe("remote", "object with exactly one of http, redis, file"));
+  if (input.file !== undefined) {
+    const file = record(input.file, "remote.file", text);
+    knownKeys(file, ["path"], "remote.file", text);
+    if (typeof file.path !== "string" || !isRemoteFilePathValid(file.path)) throw new Error(text.invalidFilePath);
+    return { file: { path: file.path } };
   }
-  if (input.type === "redis") {
-    if (!key || input.headers !== undefined) throw new Error(text.invalidRedisKey);
-    return { type: input.type, url: parseURL(input.url, "remote.url", ["redis", "rediss"], text), key };
+  if (input.redis !== undefined) {
+    const redis = record(input.redis, "remote.redis", text);
+    knownKeys(redis, ["url", "key"], "remote.redis", text);
+    if (typeof redis.key !== "string" || !isRemoteKeyValid(redis.key)) throw new Error(text.invalidRedisKey);
+    return { redis: { url: parseURL(redis.url, "remote.redis.url", ["redis", "rediss"], text, true, false), key: redis.key } };
   }
-  let headers: RemoteSpec["headers"];
-  if (input.headers !== undefined) {
-    const headerInput = record(input.headers, "remote.headers", text);
-    knownKeys(headerInput, ["mode", "preserve_proxy_disclosure", "mutations"], "remote.headers", text);
-    if (headerInput.mode !== undefined && headerInput.mode !== "patch" && headerInput.mode !== "replace") throw new Error(text.onlyValues("remote.headers.mode", "patch, replace"));
+  const http = record(input.http, "remote.http", text);
+  knownKeys(http, ["url", "headers"], "remote.http", text);
+  let headers: Extract<RemoteSpec, { http: unknown }>["http"]["headers"];
+  if (http.headers !== undefined) {
+    const headerInput = record(http.headers, "remote.http.headers", text);
+    knownKeys(headerInput, ["mode", "preserve_proxy_disclosure", "mutations"], "remote.http.headers", text);
+    if (headerInput.mode !== undefined && headerInput.mode !== "patch" && headerInput.mode !== "replace") throw new Error(text.onlyValues("remote.http.headers.mode", "patch, replace"));
     headers = {
       ...(headerInput.mode === undefined ? {} : { mode: headerInput.mode }),
-      ...(headerInput.preserve_proxy_disclosure === undefined ? {} : { preserve_proxy_disclosure: booleanValue(headerInput.preserve_proxy_disclosure, "remote.headers.preserve_proxy_disclosure", text) }),
-      ...(headerInput.mutations === undefined ? {} : { mutations: arrayValue(headerInput.mutations, "remote.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `remote.headers.mutations[${index}]`, text, true)) }),
+      ...(headerInput.preserve_proxy_disclosure === undefined ? {} : { preserve_proxy_disclosure: booleanValue(headerInput.preserve_proxy_disclosure, "remote.http.headers.preserve_proxy_disclosure", text) }),
+      ...(headerInput.mutations === undefined ? {} : { mutations: arrayValue(headerInput.mutations, "remote.http.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `remote.http.headers.mutations[${index}]`, text, true)) }),
     };
   }
   return {
-    type: input.type,
-    url: parseURL(input.url, "remote.url", ["http", "https"], text, false),
-    ...(key ? { key } : {}),
-    ...(headers ? { headers } : {}),
+    http: {
+      url: parseURL(http.url, "remote.http.url", ["http", "https"], text, false, false),
+      ...(headers ? { headers } : {}),
+    },
   };
+}
+
+export function isRemoteFilePathValid(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  if (!value || value === "." || value !== value.trim() || bytes.length > 4096 || value.includes("\\")) return false;
+  const segments = value.split("/");
+  return segments.every((segment) => Boolean(segment) && segment !== "." && segment !== ".." && ![...segment].some((character) => {
+    const point = character.codePointAt(0) ?? 0;
+    return point === 0 || point < 0x20 || point === 0x7f;
+  }));
 }
 
 export function isRemoteKeyValid(value: string) {

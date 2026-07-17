@@ -29,7 +29,7 @@ type recoveryPrepared struct {
 func (*recoveryPrepared) Kind() string                  { return "remote" }
 func (*recoveryPrepared) RequestProgram() []module.Spec { return nil }
 func (*recoveryPrepared) Source() SourceMetadata {
-	return SourceMetadata{Mode: "remote", Backend: "redis", Endpoint: "redis://redis.example/1", Key: "routing"}
+	return SourceMetadata{Mode: "remote", Backend: "redis", Endpoint: "redis://redis.example/1", Resource: "routing"}
 }
 func (prepared *recoveryPrepared) Recovery() *recovery.Policy {
 	return recovery.ClonePolicy(prepared.policy)
@@ -112,6 +112,9 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	}
 	if callbackEvent.TraceID != current.TraceID() || callbackEvent.Attempt.Number != 1 || callbackEvent.Trigger.Type != recovery.TriggerUnexpectedStatus {
 		t.Fatalf("unexpected callback identity: %#v", callbackEvent)
+	}
+	if callbackEvent.Directive.Endpoint != "redis://redis.example/1" || callbackEvent.Directive.Resource != "routing" {
+		t.Fatalf("unexpected directive source: %#v", callbackEvent.Directive)
 	}
 	current.Complete()
 }

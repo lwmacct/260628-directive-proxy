@@ -1,4 +1,4 @@
-export type DirectiveSource = "inline" | "http" | "redis";
+export type DirectiveSource = "inline" | "http" | "redis" | "file";
 export type TokenKind = "inline" | "remote";
 
 export type ResolverHeader = {
@@ -50,6 +50,7 @@ export type EditorState = {
   remoteKey: string;
   httpURL: string;
   redisURL: string;
+  filePath: string;
   resolverHeaderMode: "patch" | "replace";
   resolverPreserveProxyDisclosure: boolean;
   resolverHeaderMutations: HeaderMutation[];
@@ -97,12 +98,10 @@ export type DirectiveHeaderPolicy = {
   mutations?: DirectiveHeaderMutation[];
 };
 
-export type RemoteSpec = {
-  type: "http" | "redis";
-  url: string;
-  key?: string;
-  headers?: DirectiveHeaderPolicy;
-};
+export type RemoteSpec =
+  | { http: { url: string; headers?: DirectiveHeaderPolicy } }
+  | { redis: { url: string; key: string } }
+  | { file: { path: string } };
 
 export type RecoverySpec = {
   controller: {

@@ -227,6 +227,7 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFact
 	if remotes != nil {
 		resolverOptions.HTTPReader = remotes.http
 		resolverOptions.RedisReader = remotes.redis
+		resolverOptions.FileReader = remotes.file
 	}
 	return proxy.NewHandler(directive.NewResolver(resolverOptions), transport, options)
 }

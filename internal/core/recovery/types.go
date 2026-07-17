@@ -108,7 +108,7 @@ type DirectiveInfo struct {
 	Mode          string `json:"mode"`
 	Backend       string `json:"backend,omitempty"`
 	Endpoint      string `json:"endpoint,omitempty"`
-	Key           string `json:"key,omitempty"`
+	Resource      string `json:"resource,omitempty"`
 	PayloadSHA256 string `json:"payload_sha256,omitempty"`
 }
 

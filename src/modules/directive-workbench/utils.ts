@@ -63,6 +63,8 @@ function buildHeaderMap(items: ResolverHeader[]) {
 }
 
 export function buildRemoteSpec(editor: EditorState): RemoteSpec {
+  if (editor.source === "file") return { file: { path: editor.filePath.trim() } };
+  if (editor.source === "redis") return { redis: { url: editor.redisURL.trim(), key: editor.remoteKey } };
   const mutations = buildHeaderMutations(editor.resolverHeaderMutations);
   const headers = {
     ...(editor.resolverHeaderMode === "replace" ? { mode: "replace" as const } : {}),
@@ -70,10 +72,10 @@ export function buildRemoteSpec(editor: EditorState): RemoteSpec {
     ...(mutations.length ? { mutations } : {}),
   };
   return {
-    type: editor.source === "redis" ? "redis" : "http",
-    url: (editor.source === "redis" ? editor.redisURL : editor.httpURL).trim(),
-    ...(editor.remoteKey ? { key: editor.remoteKey } : {}),
-    ...(editor.source === "http" && Object.keys(headers).length ? { headers } : {}),
+    http: {
+      url: editor.httpURL.trim(),
+      ...(Object.keys(headers).length ? { headers } : {}),
+    },
   };
 }
 
@@ -153,18 +155,19 @@ export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvel
     };
   }
   const spec = envelope.document;
+  if ("file" in spec) {
+    return { ...previous, source: "file", filePath: spec.file.path };
+  }
+  if ("redis" in spec) {
+    return { ...previous, source: "redis", redisURL: spec.redis.url, remoteKey: spec.redis.key };
+  }
   return {
     ...previous,
-    source: spec.type,
-    remoteKey: spec.key ?? "",
-    ...(spec.type === "http"
-      ? {
-          httpURL: spec.url,
-          resolverHeaderMode: spec.headers?.mode ?? "patch",
-          resolverPreserveProxyDisclosure: spec.headers?.preserve_proxy_disclosure ?? false,
-          resolverHeaderMutations: toEditorHeaderMutations(spec.headers?.mutations ?? []),
-        }
-      : { redisURL: spec.url }),
+    source: "http",
+    httpURL: spec.http.url,
+    resolverHeaderMode: spec.http.headers?.mode ?? "patch",
+    resolverPreserveProxyDisclosure: spec.http.headers?.preserve_proxy_disclosure ?? false,
+    resolverHeaderMutations: toEditorHeaderMutations(spec.http.headers?.mutations ?? []),
   };
 }
 

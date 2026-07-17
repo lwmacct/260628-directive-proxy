@@ -151,7 +151,7 @@ type AttemptStarted struct {
 	Mode     string
 	Backend  string
 	Endpoint string
-	Key      string
+	Resource string
 }
 
 type DirectiveResolved struct {

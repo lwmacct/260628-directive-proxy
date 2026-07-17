@@ -29,7 +29,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	}
 	target := mustURL(t, "https://upstream.example/v1/chat?token=upstream-secret")
 	firstCanceled := false
-	first, err := current.BeginAttempt(func() { firstCanceled = true }, AttemptSource{Mode: "remote", Backend: "redis", Key: "routing"})
+	first, err := current.BeginAttempt(func() { firstCanceled = true }, AttemptSource{Mode: "remote", Backend: "redis", Resource: "routing"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if decision := first.FinishRoundTrip(false, context.Canceled); decision != DecisionRetry {
 		t.Fatalf("unexpected first decision: %v", decision)
 	}
-	second, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "remote", Backend: "redis", Key: "routing"})
+	second, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "remote", Backend: "redis", Resource: "routing"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -55,15 +55,15 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 
 func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	input := RemoteSpec{
-		Type: RemoteTypeHTTP,
-		URL:  "https://policy.example.com/v1/resolve",
-		Key:  "team-a/生产/service-a",
-		Headers: &HeaderPolicy{
-			Mode:                    "replace",
-			PreserveProxyDisclosure: true,
-			Mutations: []HeaderMutation{{
-				Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
-			}},
+		HTTP: &HTTPRemoteSpec{
+			URL: "https://policy.example.com/v1/team-a/service-a",
+			Headers: &HeaderPolicy{
+				Mode:                    "replace",
+				PreserveProxyDisclosure: true,
+				Mutations: []HeaderMutation{{
+					Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
+				}},
+			},
 		},
 	}
 	encoded, err := EncodeRemote(input)
@@ -77,34 +77,80 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode remote failed: %v", err)
 	}
-	if token.Kind != KindRemote || token.Remote.Type != RemoteTypeHTTP || token.Remote.URL != input.URL ||
-		token.Remote.Key != input.Key || token.Remote.Headers == nil || token.Remote.Headers.Mode != "replace" ||
-		!token.Remote.Headers.PreserveProxyDisclosure || len(token.Remote.Headers.Mutations) != 1 || token.Remote.Headers.Mutations[0].Values[0] != "Bearer policy-token" {
+	if token.Kind != KindRemote || token.Remote.HTTP == nil || token.Remote.Redis != nil || token.Remote.File != nil ||
+		token.Remote.HTTP.URL != input.HTTP.URL || token.Remote.HTTP.Headers == nil || token.Remote.HTTP.Headers.Mode != "replace" ||
+		!token.Remote.HTTP.Headers.PreserveProxyDisclosure || len(token.Remote.HTTP.Headers.Mutations) != 1 || token.Remote.HTTP.Headers.Mutations[0].Values[0] != "Bearer policy-token" {
 		t.Fatalf("unexpected decoded token: %#v", token)
+	}
+}
+
+func TestEncodeDecodeFileRemoteRoundTrip(t *testing.T) {
+	input := RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}}
+	encoded, err := EncodeRemote(input)
+	if err != nil {
+		t.Fatalf("encode file remote failed: %v", err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("decode file remote failed: %v", err)
+	}
+	if decoded.Kind != KindRemote || decoded.Remote.File == nil || decoded.Remote.HTTP != nil || decoded.Remote.Redis != nil ||
+		decoded.Remote.File.Path != input.File.Path {
+		t.Fatalf("unexpected file remote: %#v", decoded.Remote)
+	}
+}
+
+func TestDecodeRemoteRejectsInvalidBackendUnion(t *testing.T) {
+	for _, raw := range []string{
+		`{}`,
+		`{"http":null}`,
+		`{"http":null,"redis":{"url":"redis://redis.example/0","key":"directive"}}`,
+		`{"http":{"url":"https://resolver.example"},"file":{"path":"directive.json"}}`,
+		`{"http":{"url":"https://resolver.example","key":"legacy-key"}}`,
+		`{"redis":{"url":"redis://redis.example","key":"directive","headers":null}}`,
+		`{"file":{"path":"directive.json","url":"file:///tmp"}}`,
+		`{"type":"file","path":"directive.json"}`,
+		`{"type":"http","url":"https://resolver.example"}`,
+	} {
+		if _, err := Decode(encodeRawRemoteToken([]byte(raw))); err == nil {
+			t.Fatalf("invalid remote backend field combination was accepted: %s", raw)
+		}
 	}
 }
 
 func TestRemoteSpecValidation(t *testing.T) {
 	valid := []string{"team-a/service-a", "region:cn/service:primary", "客户甲/服务一", strings.Repeat("a", maxRemoteKeyBytes)}
 	for _, key := range valid {
-		if _, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "rediss://user:pass@redis.example.com:6380/1", Key: key}); err != nil {
+		if _, err := EncodeRemote(RemoteSpec{Redis: &RedisRemoteSpec{URL: "rediss://user:pass@redis.example.com:6380/1", Key: key}}); err != nil {
 			t.Fatalf("expected key %q to be valid: %v", key, err)
 		}
 	}
 	invalid := []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("a", maxRemoteKeyBytes+1)}
 	for _, key := range invalid {
-		if _, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "redis://redis.example.com:6379/0", Key: key}); err == nil {
+		if _, err := EncodeRemote(RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: key}}); err == nil {
 			t.Fatalf("expected key %q to be invalid", key)
 		}
 	}
+	for _, path := range []string{"directive.json", "team-a/services/primary.json", "客户甲/服务一.json"} {
+		if _, err := EncodeRemote(RemoteSpec{File: &FileRemoteSpec{Path: path}}); err != nil {
+			t.Fatalf("expected file path %q to be valid: %v", path, err)
+		}
+	}
 	invalidSpecs := []RemoteSpec{
-		{Type: "unknown", URL: "https://policy.example.com"},
-		{Type: RemoteTypeHTTP, URL: "file:///tmp/directive"},
-		{Type: RemoteTypeHTTP, URL: "https://user:pass@policy.example.com"},
-		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: &HeaderPolicy{Mode: "invalid"}},
-		{Type: RemoteTypeRedis, URL: "http://redis.example.com", Key: "key"},
-		{Type: RemoteTypeRedis, URL: "redis://redis.example.com", Key: "key", Headers: &HeaderPolicy{}},
-		{Type: RemoteTypeHTTP, URL: "https://policy.example.com", Headers: &HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test"}}}},
+		{},
+		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com"}, File: &FileRemoteSpec{Path: "directive.json"}},
+		{HTTP: &HTTPRemoteSpec{URL: "file:///tmp/directive"}},
+		{HTTP: &HTTPRemoteSpec{URL: "https://user:pass@policy.example.com"}},
+		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com/#fragment"}},
+		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com", Headers: &HeaderPolicy{Mode: "invalid"}}},
+		{Redis: &RedisRemoteSpec{URL: "http://redis.example.com", Key: "key"}},
+		{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com/0#fragment", Key: "key"}},
+		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com", Headers: &HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test"}}}}},
+		{File: &FileRemoteSpec{}},
+		{File: &FileRemoteSpec{Path: "."}},
+		{File: &FileRemoteSpec{Path: "../directive.json"}},
+		{File: &FileRemoteSpec{Path: "/directive.json"}},
+		{File: &FileRemoteSpec{Path: "team-a\\directive.json"}},
 	}
 	for _, spec := range invalidSpecs {
 		if _, err := EncodeRemote(spec); err == nil {
@@ -152,15 +198,15 @@ func TestInlineTokenBodyIsPayloadAndRejectsEnvelope(t *testing.T) {
 }
 
 func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
-	valid := encodeRawRemoteToken([]byte(`{"type":"http","url":"https://resolver.example/resolve","key":"routing"}`))
+	valid := encodeRawRemoteToken([]byte(`{"http":{"url":"https://resolver.example/resolve"}}`))
 	if _, err := Decode(valid); err != nil {
 		t.Fatalf("direct remote spec was rejected: %v", err)
 	}
 	invalid := []string{
-		`{"source":{"type":"http","url":"https://resolver.example/resolve"}}`,
-		`{"type":"http","url":"https://resolver.example/resolve","payload":{"target":{"url":"https://api.example.com"}}}`,
-		`{"type":"http","url":"https://resolver.example/resolve","program":{}}`,
-		`{"type":"http","url":"https://resolver.example/resolve","recovery":{}}`,
+		`{"source":{"http":{"url":"https://resolver.example/resolve"}}}`,
+		`{"http":{"url":"https://resolver.example/resolve"},"payload":{"target":{"url":"https://api.example.com"}}}`,
+		`{"http":{"url":"https://resolver.example/resolve"},"program":{}}`,
+		`{"http":{"url":"https://resolver.example/resolve"},"recovery":{}}`,
 	}
 	for _, raw := range invalid {
 		if _, err := Decode(encodeRawRemoteToken([]byte(raw))); err == nil {
@@ -241,7 +287,7 @@ func TestDecodeRejectsMissingOrInvalidHeaderSide(t *testing.T) {
 }
 
 func TestRemoteHeadersRejectResponseSide(t *testing.T) {
-	raw := []byte(`{"type":"http","url":"https://resolver.example/resolve","headers":{"mutations":[{"side":"response","action":"remove","name":"Server"}]}}`)
+	raw := []byte(`{"http":{"url":"https://resolver.example/resolve","headers":{"mutations":[{"side":"response","action":"remove","name":"Server"}]}}}`)
 	if _, err := Decode(encodeRawRemoteToken(raw)); err == nil {
 		t.Fatal("expected remote response header side to be rejected")
 	}

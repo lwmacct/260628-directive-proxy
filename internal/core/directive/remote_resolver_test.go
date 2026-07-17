@@ -24,6 +24,12 @@ func (f redisReaderFunc) Read(ctx context.Context, reference RedisReference) ([]
 	return f(ctx, reference)
 }
 
+type fileReaderFunc func(context.Context, FileReference) ([]byte, error)
+
+func (f fileReaderFunc) Read(ctx context.Context, reference FileReference) ([]byte, error) {
+	return f(ctx, reference)
+}
+
 func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *testing.T) {
 	var calls int
 	resolver := NewResolver(ResolverOptions{HTTPReader: httpReaderFunc(func(_ context.Context, _ HTTPReference, req RequestSnapshot) ([]byte, error) {
@@ -33,7 +39,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 		}
 		return []byte(`{"target":{"url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"program":{"request":[{"id":"capture","module":"builtin.capture","config":{}}],"attempt":[{"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}]},"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
 	})})
-	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeHTTP, URL: "https://resolver.example/resolve", Key: "routing"})
+	token, err := EncodeRemote(RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,12 +84,13 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		LookupTimeout: time.Second,
 	})
 	spec := RemoteSpec{
-		Type: RemoteTypeHTTP,
-		URL:  "https://policy.example.com/v1/resolve?secret=hidden",
-		Key:  "team-a/service-a",
-		Headers: &HeaderPolicy{Mutations: []HeaderMutation{{
-			Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer resolver"},
-		}}},
+		HTTP: &HTTPRemoteSpec{
+			URL: "https://policy.example.com/v1/team-a/service-a?secret=hidden",
+			Headers: &HeaderPolicy{Mutations: []HeaderMutation{{
+				Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer resolver"},
+			}},
+			},
+		},
 	}
 	token, err := EncodeRemote(spec)
 	if err != nil {
@@ -97,12 +104,12 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	plan := resolution.Plan
-	if requested.Key != spec.Key || requested.Endpoint.String() != spec.URL || len(requested.Headers.Ops) != 1 ||
+	if requested.Endpoint.String() != spec.HTTP.URL || len(requested.Headers.Ops) != 1 ||
 		requested.Headers.Ops[0].Values[0] != "Bearer resolver" || plan.Target.String() != "https://remote.example.com/v1" {
 		t.Fatalf("unexpected resolved directive: spec=%#v plan=%#v", requested, plan)
 	}
 	if resolution.Source.Mode != "remote" || resolution.Source.Backend != "http" ||
-		resolution.Source.Endpoint != spec.URL || resolution.Source.Key != spec.Key {
+		resolution.Source.Endpoint != spec.HTTP.URL || resolution.Source.Resource != "" {
 		t.Fatalf("unexpected directive metadata: %#v", resolution.Source)
 	}
 	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Values[0] != "remote" {
@@ -110,8 +117,32 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	}
 }
 
+func TestResolverLoadsCompleteFileDirective(t *testing.T) {
+	var requested FileReference
+	resolver := NewResolver(ResolverOptions{FileReader: fileReaderFunc(func(_ context.Context, reference FileReference) ([]byte, error) {
+		requested = reference
+		return []byte(`{"target":{"url":"https://file.example.com/v1"}}`), nil
+	})})
+	token, err := EncodeRemote(RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	resolution, err := resolveRequest(resolver, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requested.Path != "team-a/services/primary.json" || resolution.Plan.Target.String() != "https://file.example.com/v1" {
+		t.Fatalf("unexpected file resolution: reference=%#v plan=%#v", requested, resolution.Plan)
+	}
+	if resolution.Source.Backend != RemoteTypeFile || resolution.Source.Endpoint != "" || resolution.Source.Resource != requested.Path {
+		t.Fatalf("unexpected file source metadata: %#v", resolution.Source)
+	}
+}
+
 func TestResolverRemoteFailures(t *testing.T) {
-	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeRedis, URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"})
+	token, err := EncodeRemote(RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"}})
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}

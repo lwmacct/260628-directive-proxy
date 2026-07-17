@@ -30,7 +30,6 @@ var _ directive.HTTPRemoteReader = (*Source)(nil)
 
 type resolveRequest struct {
 	Protocol string          `json:"protocol"`
-	Key      string          `json:"key,omitempty"`
 	Request  requestMetadata `json:"request"`
 }
 
@@ -64,7 +63,6 @@ func (s *Source) Read(ctx context.Context, reference directive.HTTPReference, re
 	}
 	body, err := json.Marshal(resolveRequest{
 		Protocol: "dproxy.resolve.v1",
-		Key:      reference.Key,
 		Request: requestMetadata{
 			Method: request.Method,
 			URL:    request.URL,

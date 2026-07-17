@@ -5,11 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"strings"
 	"unicode/utf8"
 )
 
-const maxRemoteKeyBytes = 256
+const (
+	maxRemoteKeyBytes      = 256
+	maxRemoteFilePathBytes = 4096
+)
 
 func Encode(payload Payload) (string, error) {
 	return EncodeDocument(Document{Kind: KindInline, Payload: &payload})
@@ -156,30 +160,55 @@ func decodeRemoteSpec(raw []byte) (RemoteSpec, error) {
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return RemoteSpec{}, ErrInvalidPayload
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || len(fields) != 1 {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
 	return spec, nil
 }
 
 func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
-	spec.Type = strings.TrimSpace(spec.Type)
-	spec.URL = strings.TrimSpace(spec.URL)
-	if spec.Type != RemoteTypeHTTP && spec.Type != RemoteTypeRedis {
+	if countRemoteBackends(spec) != 1 {
 		return RemoteSpec{}, ErrInvalidPayload
 	}
-	key, err := normalizeRemoteKey(spec.Key, spec.Type == RemoteTypeRedis)
-	if err != nil {
-		return RemoteSpec{}, err
+	switch {
+	case spec.HTTP != nil:
+		value := *spec.HTTP
+		value.URL = strings.TrimSpace(value.URL)
+		spec.HTTP = &value
+	case spec.Redis != nil:
+		value := *spec.Redis
+		value.URL = strings.TrimSpace(value.URL)
+		key, err := normalizeRemoteKey(value.Key)
+		if err != nil {
+			return RemoteSpec{}, err
+		}
+		value.Key = key
+		spec.Redis = &value
+	case spec.File != nil:
+		value := *spec.File
+		path, err := normalizeRemoteFilePath(value.Path)
+		if err != nil {
+			return RemoteSpec{}, err
+		}
+		value.Path = path
+		spec.File = &value
 	}
-	spec.Key = key
 	if _, err := compileRemoteSpec(spec); err != nil {
 		return RemoteSpec{}, err
 	}
 	return spec, nil
 }
 
-func normalizeRemoteKey(key string, required bool) (string, error) {
-	if key == "" && !required {
-		return "", nil
+func normalizeRemoteFilePath(path string) (string, error) {
+	if path == "." || path != strings.TrimSpace(path) || len(path) > maxRemoteFilePathBytes ||
+		strings.Contains(path, "\\") || !fs.ValidPath(path) {
+		return "", ErrInvalidPayload
 	}
+	return path, nil
+}
+
+func normalizeRemoteKey(key string) (string, error) {
 	if !utf8.ValidString(key) || key != strings.TrimSpace(key) || key == "" || len(key) > maxRemoteKeyBytes {
 		return "", ErrInvalidPayload
 	}
@@ -189,6 +218,20 @@ func normalizeRemoteKey(key string, required bool) (string, error) {
 		}
 	}
 	return key, nil
+}
+
+func countRemoteBackends(spec RemoteSpec) int {
+	count := 0
+	if spec.HTTP != nil {
+		count++
+	}
+	if spec.Redis != nil {
+		count++
+	}
+	if spec.File != nil {
+		count++
+	}
+	return count
 }
 
 func isForbiddenResolverHeader(name string) bool {

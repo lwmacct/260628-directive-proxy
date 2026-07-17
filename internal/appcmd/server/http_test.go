@@ -112,9 +112,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 		t.Fatalf("seed Redis directive: %v", err)
 	}
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
-		Type: directive.RemoteTypeRedis,
-		URL:  "redis://" + redisServer.Addr() + "/0",
-		Key:  "team-a/service-a",
+		Redis: &directive.RedisRemoteSpec{URL: "redis://" + redisServer.Addr() + "/0", Key: "team-a/service-a"},
 	})
 	if err != nil {
 		t.Fatalf("encode redis token failed: %v", err)
@@ -132,6 +130,38 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	}
 }
 
+func TestHTTPServerResolvesFileDirectiveEndToEnd(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	cfg.Proxy.Directive.Remote.File.Root = t.TempDir()
+	path := filepath.Join(cfg.Proxy.Directive.Remote.File.Root, "team-a", "services")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var upstreamSource string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		upstreamSource = request.Header.Get("X-Directive-Source")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	payload := `{"target":{"url":"` + upstream.URL + `"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Directive-Source","values":["file"]}]}}`
+	if err := os.WriteFile(filepath.Join(path, "primary.json"), []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remotes := newTestDirectiveRemotes(t, cfg)
+	token, err := directive.EncodeRemote(directive.RemoteSpec{File: &directive.FileRemoteSpec{Path: "team-a/services/primary.json"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveRemotes: remotes})).Handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent || upstreamSource != "file" {
+		t.Fatalf("unexpected file resolver result: status=%d source=%q body=%s", recorder.Code, upstreamSource, recorder.Body.String())
+	}
+}
+
 func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	remotes := newTestDirectiveRemotes(t, cfg)
@@ -144,23 +174,24 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	defer upstream.Close()
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Protocol string `json:"protocol"`
-			Key      string `json:"key"`
+			Protocol  string          `json:"protocol"`
+			LegacyKey json.RawMessage `json:"key"`
 		}
 		if r.Header.Get("Authorization") != "Bearer policy-token" || json.NewDecoder(r.Body).Decode(&body) != nil ||
-			body.Protocol != "dproxy.resolve.v1" || body.Key != "team-a/service-a" {
+			body.Protocol != "dproxy.resolve.v1" || len(body.LegacyKey) != 0 || r.URL.Path != "/team-a/service-a" {
 			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
 		}
 		_, _ = io.WriteString(w, `{"target":{"url":"`+upstream.URL+`"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Directive-Source","values":["http"]}]}}`)
 	}))
 	defer resolver.Close()
 	token, err := directive.EncodeRemote(directive.RemoteSpec{
-		Type: directive.RemoteTypeHTTP,
-		URL:  resolver.URL,
-		Key:  "team-a/service-a",
-		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{{
-			Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
-		}}},
+		HTTP: &directive.HTTPRemoteSpec{
+			URL: resolver.URL + "/team-a/service-a",
+			Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{{
+				Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
+			}},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("encode HTTP token failed: %v", err)

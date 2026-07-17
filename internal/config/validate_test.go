@@ -242,12 +242,19 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 		func(cfg *RemoteDirective) { cfg.Redis.ClientCacheCapacity = 0 },
 		func(cfg *RemoteDirective) { cfg.Redis.ClientIdleTimeout = -1 },
 		func(cfg *RemoteDirective) { cfg.Redis.PoolSize = 0 },
+		func(cfg *RemoteDirective) { cfg.File.Root = "" },
 	} {
 		cfg := validDefaultConfig()
 		mutate(&cfg.Proxy.Directive.Remote)
 		if _, err := Validate(cfg); err != ErrInvalidDirective {
 			t.Fatalf("expected invalid directive config, got %v", err)
 		}
+	}
+	cfg := validDefaultConfig()
+	cfg.Proxy.Directive.Remote.File.Root = "  /srv/directives  "
+	validated, err := Validate(cfg)
+	if err != nil || validated.Proxy.Directive.Remote.File.Root != "/srv/directives" {
+		t.Fatalf("file root was not normalized: root=%q err=%v", validated.Proxy.Directive.Remote.File.Root, err)
 	}
 	for _, mutate := range []func(*ProxyDirective){
 		func(cfg *ProxyDirective) { cfg.MaxTokenBytes = 0 },

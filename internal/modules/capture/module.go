@@ -160,7 +160,7 @@ func (*instance) onAttemptStarted(ctx module.EventContext, value module.AttemptS
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.attempt.started", map[string]any{"attempt": ctx.Attempt})
 		ctx.Emitter.Emit("capture.directive.resolve.started", map[string]any{
-			"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "key": value.Key,
+			"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "resource": value.Resource,
 		})
 	}
 	return nil

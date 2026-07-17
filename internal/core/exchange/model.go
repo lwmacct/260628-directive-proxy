@@ -39,7 +39,7 @@ type AttemptSource struct {
 	Mode     string
 	Backend  string
 	Endpoint string
-	Key      string
+	Resource string
 }
 
 type ManagerOptions struct {

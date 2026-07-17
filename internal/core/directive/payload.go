@@ -56,6 +56,7 @@ type RecoveryBudgetSpec struct {
 const (
 	RemoteTypeHTTP  = "http"
 	RemoteTypeRedis = "redis"
+	RemoteTypeFile  = "file"
 )
 
 type HeaderSide string
@@ -74,10 +75,23 @@ const (
 )
 
 type RemoteSpec struct {
-	Type    string        `json:"type"`
+	HTTP  *HTTPRemoteSpec  `json:"http,omitempty"`
+	Redis *RedisRemoteSpec `json:"redis,omitempty"`
+	File  *FileRemoteSpec  `json:"file,omitempty"`
+}
+
+type HTTPRemoteSpec struct {
 	URL     string        `json:"url"`
-	Key     string        `json:"key,omitempty"`
 	Headers *HeaderPolicy `json:"headers,omitempty"`
+}
+
+type RedisRemoteSpec struct {
+	URL string `json:"url"`
+	Key string `json:"key"`
+}
+
+type FileRemoteSpec struct {
+	Path string `json:"path"`
 }
 
 type Payload struct {

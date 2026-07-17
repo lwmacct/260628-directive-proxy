@@ -55,21 +55,35 @@ remote token 的解码内容是：
 
 ```json
 {
-  "type": "http",
-  "url": "https://resolver.example.com/v1/directive",
-  "key": "team-a/service-a",
-  "headers": {
-    "mode": "patch",
-    "mutations": [
-      {"side": "request", "action": "set", "name": "Authorization", "values": ["Bearer resolver-token"]}
-    ]
+  "http": {
+    "url": "https://resolver.example.com/v1/team-a/service-a",
+    "headers": {
+      "mode": "patch",
+      "mutations": [
+        {"side": "request", "action": "set", "name": "Authorization", "values": ["Bearer resolver-token"]}
+      ]
+    }
   }
 }
 ```
 
+RemoteSpec 顶层必须且只能包含 `http`、`redis` 或 `file` 之一。Redis 使用标准连接 URL 与独立 key：
+
+```json
+{"redis":{"url":"redis://user:password@redis.example.com:6379/1","key":"team-a/service-a"}}
+```
+
+File 使用配置根目录内的 slash 相对路径：
+
+```json
+{"file":{"path":"team-a/services/primary.json"}}
+```
+
+文件根目录由 `server.proxy.directive.remote.file.root` 设置；支持子目录，但不接受绝对路径、`.`、`..` 或反斜杠路径。
+
 Inline 的 JSON 本身就是 `Payload`。Remote 的 JSON 本身就是 `RemoteSpec`，只描述如何取得同一种 `Payload`；不能声明 `payload`、`program`、`recovery` 或任何执行字段。
 
-HTTP/Redis resolver 返回完整 `Payload`，例如：
+HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 ```json
 {
@@ -151,8 +165,7 @@ Controller 接收同步 `POST`，协议为 `dproxy.recovery.v1`。`Idempotency-K
   "directive": {
     "mode": "remote",
     "backend": "http",
-    "endpoint": "https://resolver.example.com/v1/directive",
-    "key": "team-a/service-a",
+    "endpoint": "https://resolver.example.com/v1/team-a/service-a",
     "payload_sha256": "..."
   },
   "metadata": {"X-Dproxy-Request-Id": ["request-1"]},
@@ -169,7 +182,7 @@ Controller 接收同步 `POST`，协议为 `dproxy.recovery.v1`。`Idempotency-K
 }
 ```
 
-`response` 只在 `unexpected_status` 时存在。响应头完整回传；正文按 directive 与服务端上限截断并使用 base64，`size` 优先表示已知的原始 Content-Length。resolver endpoint 保留 RemoteSpec 中的完整 URL，包括 userinfo、query 和 fragment，作为正常观测信息。
+`response` 只在 `unexpected_status` 时存在。响应头完整回传；正文按 directive 与服务端上限截断并使用 base64，`size` 优先表示已知的原始 Content-Length。观测信息保留完整 endpoint 和 query；Redis key 或 File path 记录为 `resource`。认证信息和底层 adapter 错误不脱敏。
 
 Controller 必须返回一个小型 JSON 决策：
 

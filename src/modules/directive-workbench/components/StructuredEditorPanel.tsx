@@ -43,11 +43,9 @@ export function StructuredEditorPanel(props: {
     <HeaderMutationsTable items={editor[field]} showSide={showSide} text={text} onChange={(key, patch) => updateHeaderMutation(field, key, patch)} onRemove={(key) => updateHeaderMutations(field, editor[field].filter((item) => item.key !== key))} />
   </Flex>;
 
-  const basics = editor.source === "inline" ? <>
-    <Form.Item label={text.targetURL}><Input placeholder="https://api.example.com/v1" value={editor.targetURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ targetURL: event.target.value })} /></Form.Item>
-    <Form.Item label={text.proxyURL}><Input allowClear placeholder="socks5://user:pass@127.0.0.1:1080" value={editor.proxyURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ proxyURL: event.target.value })} /></Form.Item>
-    <Form.Item label={text.joinPath}><Checkbox checked={editor.joinPath} onChange={(event: CheckboxChangeEvent) => onUpdate({ joinPath: event.target.checked })}>{text.enabled}</Checkbox></Form.Item>
-  </> : <>
+  const remoteBasics = editor.source === "file" ? <Form.Item label={text.filePath}>
+    <Input placeholder="team-a/services/primary.json" value={editor.filePath} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ filePath: event.target.value })} />
+  </Form.Item> : <>
     <Form.Item label={editor.source === "http" ? text.httpResolverURL : text.redisURL}>
       <Input
         placeholder={editor.source === "http" ? "https://policy.example.com/v1/resolve" : "redis://user:password@redis.example.com:6379/1"}
@@ -55,7 +53,7 @@ export function StructuredEditorPanel(props: {
         onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate(editor.source === "http" ? { httpURL: event.target.value } : { redisURL: event.target.value })}
       />
     </Form.Item>
-    <Form.Item label={editor.source === "http" ? text.optionalRemoteKey : text.redisKey}><Input placeholder="team-a/service-a" value={editor.remoteKey} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ remoteKey: event.target.value })} /></Form.Item>
+    {editor.source === "redis" ? <Form.Item label={text.redisKey}><Input placeholder="team-a/service-a" value={editor.remoteKey} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ remoteKey: event.target.value })} /></Form.Item> : null}
     {editor.source === "http" ? <>
       <Form.Item><Checkbox checked={editor.resolverPreserveProxyDisclosure} onChange={(event: CheckboxChangeEvent) => onUpdate({ resolverPreserveProxyDisclosure: event.target.checked })}>{text.preserveProxyDisclosure}</Checkbox></Form.Item>
       <Form.Item label={<Space size={6}>{text.resolverHeaders}<Tooltip
@@ -70,6 +68,14 @@ export function StructuredEditorPanel(props: {
         {headerMutationsEditor("resolverHeaderMutations", false)}
       </Form.Item>
     </> : null}
+  </>;
+
+  const basics = editor.source === "inline" ? <>
+    <Form.Item label={text.targetURL}><Input placeholder="https://api.example.com/v1" value={editor.targetURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ targetURL: event.target.value })} /></Form.Item>
+    <Form.Item label={text.proxyURL}><Input allowClear placeholder="socks5://user:pass@127.0.0.1:1080" value={editor.proxyURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ proxyURL: event.target.value })} /></Form.Item>
+    <Form.Item label={text.joinPath}><Checkbox checked={editor.joinPath} onChange={(event: CheckboxChangeEvent) => onUpdate({ joinPath: event.target.checked })}>{text.enabled}</Checkbox></Form.Item>
+  </> : <>
+    {remoteBasics}
     <Alert showIcon title={text.remoteSpecOnlyHint} type="info" />
   </>;
 
@@ -105,6 +111,7 @@ export function StructuredEditorPanel(props: {
           { label: text.inlineSource, value: "inline" },
           { label: text.httpSource, value: "http" },
           { label: text.redisSource, value: "redis" },
+          { label: text.fileSource, value: "file" },
         ]}
         value={editor.source}
         onChange={(source: EditorState["source"]) => onUpdate({ source })}

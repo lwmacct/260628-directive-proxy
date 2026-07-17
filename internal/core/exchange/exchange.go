@@ -132,7 +132,7 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc, source AttemptS
 		startedAt: startedAt,
 		cancel:    cancel,
 		source: module.AttemptStarted{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Key: source.Key,
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
 		},
 	}
 	current.current = attempt

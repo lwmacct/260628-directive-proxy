@@ -29,7 +29,7 @@ type SourceMetadata struct {
 	Mode          string
 	Backend       string
 	Endpoint      string
-	Key           string
+	Resource      string
 	Duration      time.Duration
 	PayloadSHA256 string
 }

@@ -89,7 +89,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		attemptCtx, cancel := context.WithCancel(req.Context())
 		source := prepared.directive.Source()
 		attempt, beginErr := current.BeginAttempt(cancel, exchange.AttemptSource{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Key: source.Key,
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
 		})
 		if beginErr != nil {
 			cancel()
@@ -342,7 +342,7 @@ func (t *RecoveryTransport) recover(ctx context.Context, policy *recovery.Policy
 		},
 		Trigger: trigger,
 		Directive: recovery.DirectiveInfo{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Key: source.Key, PayloadSHA256: payloadSHA256,
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource, PayloadSHA256: payloadSHA256,
 		},
 		Metadata: info.Metadata, Response: response,
 	}

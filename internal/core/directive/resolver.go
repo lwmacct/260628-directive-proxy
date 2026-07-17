@@ -25,6 +25,7 @@ var (
 type ResolverOptions struct {
 	HTTPReader     HTTPRemoteReader
 	RedisReader    RedisRemoteReader
+	FileReader     FileRemoteReader
 	LookupTimeout  time.Duration
 	MaxTokenBytes  int64
 	MaxInlineBytes int64
@@ -33,6 +34,7 @@ type ResolverOptions struct {
 type Resolver struct {
 	httpReader     HTTPRemoteReader
 	redisReader    RedisRemoteReader
+	fileReader     FileRemoteReader
 	lookupTimeout  time.Duration
 	maxTokenBytes  int64
 	maxInlineBytes int64
@@ -53,6 +55,7 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 	return &Resolver{
 		httpReader:     configured.HTTPReader,
 		redisReader:    configured.RedisReader,
+		fileReader:     configured.FileReader,
 		lookupTimeout:  configured.LookupTimeout,
 		maxTokenBytes:  configured.MaxTokenBytes,
 		maxInlineBytes: configured.MaxInlineBytes,
@@ -109,8 +112,11 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 
 func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Payload, proxy.SourceMetadata, error) {
 	reference, err := compileRemoteSpec(spec)
+	source := proxy.SourceMetadata{
+		Mode: KindRemote, Backend: reference.backend, Endpoint: reference.endpoint, Resource: reference.resource,
+	}
 	if err != nil {
-		return Payload{}, proxy.SourceMetadata{Mode: KindRemote, Backend: spec.Type, Endpoint: spec.URL, Key: spec.Key}, proxy.ErrInvalidDirective
+		return Payload{}, source, proxy.ErrInvalidDirective
 	}
 	ctx := req.Context()
 	if r.lookupTimeout > 0 {
@@ -121,42 +127,46 @@ func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Pay
 	startedAt := time.Now()
 	requestSnapshot := snapshotRequest(req)
 	var payloadRaw []byte
-	switch spec.Type {
-	case RemoteTypeHTTP:
+	switch {
+	case reference.http != nil:
 		if r == nil || r.httpReader == nil {
 			err = ErrRemoteUnavailable
 			break
 		}
 		payloadRaw, err = r.httpReader.Read(ctx, *reference.http, requestSnapshot)
-	case RemoteTypeRedis:
+	case reference.redis != nil:
 		if r == nil || r.redisReader == nil {
 			err = ErrRemoteUnavailable
 			break
 		}
 		payloadRaw, err = r.redisReader.Read(ctx, *reference.redis)
+	case reference.file != nil:
+		if r == nil || r.fileReader == nil {
+			err = ErrRemoteUnavailable
+			break
+		}
+		payloadRaw, err = r.fileReader.Read(ctx, *reference.file)
 	default:
 		err = ErrRemoteInvalid
 	}
-	source := proxy.SourceMetadata{
-		Mode: KindRemote, Backend: spec.Type, Endpoint: spec.URL, Key: spec.Key, Duration: time.Since(startedAt),
-	}
+	source.Duration = time.Since(startedAt)
 	switch {
 	case errors.Is(err, ErrRemoteNotFound):
-		slog.Warn("remote directive not found", "directive_backend", spec.Type, "directive_endpoint", spec.URL, "directive_key", spec.Key, "error", err)
+		slog.Warn("remote directive not found", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrDirectiveNotFound
 	case errors.Is(err, ErrRemoteMetadataTooBig):
-		slog.Warn("remote directive metadata too large", "directive_backend", spec.Type, "directive_endpoint", spec.URL, "directive_key", spec.Key, "error", err)
+		slog.Warn("remote directive metadata too large", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrDirectiveMetadataTooLarge
 	case errors.Is(err, ErrRemoteInvalid):
-		slog.Warn("remote directive response invalid", "directive_backend", spec.Type, "directive_endpoint", spec.URL, "directive_key", spec.Key, "error", err)
+		slog.Warn("remote directive response invalid", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrRemoteDirectiveInvalid
 	case err != nil:
-		slog.Warn("resolve remote directive", "directive_backend", spec.Type, "directive_endpoint", spec.URL, "directive_key", spec.Key, "error", err)
+		slog.Warn("resolve remote directive", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrRemoteDirectiveUnavailable
 	}
 	payload, decodeErr := DecodePayload(payloadRaw)
 	if decodeErr != nil {
-		slog.Error("decode remote directive", "directive_backend", spec.Type, "directive_endpoint", spec.URL, "directive_key", spec.Key, "error", decodeErr)
+		slog.Error("decode remote directive", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", decodeErr)
 		return Payload{}, source, proxy.ErrRemoteDirectiveInvalid
 	}
 	digest := sha256.Sum256(payloadRaw)

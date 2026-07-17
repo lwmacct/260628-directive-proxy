@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directivefile"
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directivehttp"
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directiveredis"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -11,6 +12,7 @@ import (
 type directiveRemotes struct {
 	http  *directivehttp.Source
 	redis *directiveredis.Source
+	file  *directivefile.Source
 }
 
 func newDirectiveRemotes(cfg config.RemoteDirective) *directiveRemotes {
@@ -26,6 +28,10 @@ func newDirectiveRemotes(cfg config.RemoteDirective) *directiveRemotes {
 			ClientCacheCapacity: cfg.Redis.ClientCacheCapacity,
 			ClientIdleTimeout:   cfg.Redis.ClientIdleTimeout,
 			PoolSize:            cfg.Redis.PoolSize,
+		}),
+		file: directivefile.New(directivefile.Options{
+			Root:             cfg.File.Root,
+			MaxResponseBytes: cfg.MaxResponseBytes,
 		}),
 	}
 }

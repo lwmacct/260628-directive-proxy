@@ -94,12 +94,15 @@ func Validate(cfg Server) (Server, error) {
 	}
 	cfg.Fluent = validatedFluent
 	remote := cfg.Proxy.Directive.Remote
+	remote.File.Root = strings.TrimSpace(remote.File.Root)
 	if cfg.Proxy.Directive.MaxTokenBytes <= 0 || cfg.Proxy.Directive.MaxInlineBytes <= 0 ||
 		cfg.Proxy.Directive.MaxInlineBytes > cfg.Proxy.Directive.MaxTokenBytes ||
 		remote.Timeout <= 0 || remote.MaxResponseBytes <= 0 || remote.HTTP.MaxRequestBytes <= 0 ||
-		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 {
+		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 ||
+		remote.File.Root == "" {
 		return cfg, ErrInvalidDirective
 	}
+	cfg.Proxy.Directive.Remote = remote
 	return cfg, nil
 }
 

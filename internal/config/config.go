@@ -95,6 +95,7 @@ type RemoteDirective struct {
 	MaxResponseBytes int64                `json:"max-response-bytes" desc:"远程 directive JSON 最大字节数"`
 	HTTP             HTTPRemoteDirective  `json:"http"               desc:"HTTP resolver 资源限制"`
 	Redis            RedisRemoteDirective `json:"redis"              desc:"Redis adapter 资源限制"`
+	File             FileRemoteDirective  `json:"file"               desc:"File adapter 根目录配置"`
 }
 
 type HTTPRemoteDirective struct {
@@ -105,6 +106,10 @@ type RedisRemoteDirective struct {
 	ClientCacheCapacity int           `json:"client-cache-capacity" desc:"动态 Redis client 缓存容量"`
 	ClientIdleTimeout   time.Duration `json:"client-idle-timeout"   desc:"动态 Redis client 空闲回收时间"`
 	PoolSize            int           `json:"pool-size"             desc:"每个动态 Redis client 的连接池容量"`
+}
+
+type FileRemoteDirective struct {
+	Root string `json:"root" desc:"File directive 相对路径的读取根目录"`
 }
 
 type ProxyTransport struct {
@@ -196,6 +201,9 @@ func DefaultConfig() Config {
 							ClientCacheCapacity: 64,
 							ClientIdleTimeout:   10 * time.Minute,
 							PoolSize:            4,
+						},
+						File: FileRemoteDirective{
+							Root: "${APP_DATA:-.local/data}/directives",
 						},
 					},
 				},

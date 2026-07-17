@@ -10,13 +10,16 @@ import (
 
 type HTTPReference struct {
 	Endpoint url.URL
-	Key      string
 	Headers  httpheader.RequestPlan
 }
 
 type RedisReference struct {
 	Endpoint url.URL
 	Key      string
+}
+
+type FileReference struct {
+	Path string
 }
 
 type RequestSnapshot struct {
@@ -34,34 +37,72 @@ type RedisRemoteReader interface {
 	Read(context.Context, RedisReference) ([]byte, error)
 }
 
+type FileRemoteReader interface {
+	Read(context.Context, FileReference) ([]byte, error)
+}
+
 type compiledRemote struct {
-	http  *HTTPReference
-	redis *RedisReference
+	backend  string
+	endpoint string
+	resource string
+	http     *HTTPReference
+	redis    *RedisReference
+	file     *FileReference
 }
 
 func compileRemoteSpec(spec RemoteSpec) (compiledRemote, error) {
+	if countRemoteBackends(spec) != 1 {
+		return compiledRemote{}, ErrInvalidPayload
+	}
+	switch {
+	case spec.HTTP != nil:
+		reference, err := compileHTTPReference(*spec.HTTP)
+		return compiledRemote{backend: RemoteTypeHTTP, endpoint: spec.HTTP.URL, http: &reference}, err
+	case spec.Redis != nil:
+		reference, err := compileRedisReference(*spec.Redis)
+		return compiledRemote{backend: RemoteTypeRedis, endpoint: spec.Redis.URL, resource: spec.Redis.Key, redis: &reference}, err
+	case spec.File != nil:
+		reference, err := compileFileReference(*spec.File)
+		return compiledRemote{backend: RemoteTypeFile, resource: spec.File.Path, file: &reference}, err
+	}
+	return compiledRemote{}, ErrInvalidPayload
+}
+
+func compileHTTPReference(spec HTTPRemoteSpec) (HTTPReference, error) {
 	endpoint, err := url.Parse(spec.URL)
-	if err != nil || endpoint.Host == "" {
-		return compiledRemote{}, ErrInvalidPayload
+	if err != nil || endpoint.Host == "" || endpoint.Fragment != "" {
+		return HTTPReference{}, ErrInvalidPayload
 	}
-	switch spec.Type {
-	case RemoteTypeHTTP:
-		if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil {
-			return compiledRemote{}, ErrInvalidPayload
-		}
-		headers, err := CompileResolverRequestHeaders(spec.Headers)
-		if err != nil {
-			return compiledRemote{}, err
-		}
-		return compiledRemote{http: &HTTPReference{Endpoint: *endpoint, Key: spec.Key, Headers: headers}}, nil
-	case RemoteTypeRedis:
-		if (endpoint.Scheme != "redis" && endpoint.Scheme != "rediss") || spec.Key == "" || spec.Headers != nil {
-			return compiledRemote{}, ErrInvalidPayload
-		}
-		return compiledRemote{redis: &RedisReference{Endpoint: *endpoint, Key: spec.Key}}, nil
-	default:
-		return compiledRemote{}, ErrInvalidPayload
+	if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil {
+		return HTTPReference{}, ErrInvalidPayload
 	}
+	headers, err := CompileResolverRequestHeaders(spec.Headers)
+	if err != nil {
+		return HTTPReference{}, err
+	}
+	return HTTPReference{Endpoint: *endpoint, Headers: headers}, nil
+}
+
+func compileRedisReference(spec RedisRemoteSpec) (RedisReference, error) {
+	endpoint, err := url.Parse(spec.URL)
+	if err != nil || endpoint.Host == "" || endpoint.Fragment != "" {
+		return RedisReference{}, ErrInvalidPayload
+	}
+	if endpoint.Scheme != "redis" && endpoint.Scheme != "rediss" {
+		return RedisReference{}, ErrInvalidPayload
+	}
+	if _, err := normalizeRemoteKey(spec.Key); err != nil {
+		return RedisReference{}, err
+	}
+	return RedisReference{Endpoint: *endpoint, Key: spec.Key}, nil
+}
+
+func compileFileReference(spec FileRemoteSpec) (FileReference, error) {
+	path, err := normalizeRemoteFilePath(spec.Path)
+	if err != nil {
+		return FileReference{}, err
+	}
+	return FileReference{Path: path}, nil
 }
 
 func snapshotRequest(req *http.Request) RequestSnapshot {

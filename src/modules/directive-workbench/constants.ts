@@ -57,6 +57,7 @@ export const initialEditor: EditorState = {
   remoteKey: "team-a/service-a",
   httpURL: "https://policy.example.com/v1/resolve",
   redisURL: "redis://user:password@redis.example.com:6379/1",
+  filePath: "team-a/services/primary.json",
   resolverHeaderMode: "patch",
   resolverPreserveProxyDisclosure: false,
   resolverHeaderMutations: [newHeaderMutation("set", "name", "Authorization", ["Bearer policy-token"])],
