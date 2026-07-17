@@ -3,10 +3,10 @@ package directive
 import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
 const (
-	TokenFamily  = "dproxy"
+	TokenFamily  = "dp"
 	TokenVersion = "18"
-	TokenInline  = "i"
-	TokenRemote  = "r"
+	TokenInline  = "inline"
+	TokenRemote  = "remote"
 )
 
 const (

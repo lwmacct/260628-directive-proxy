@@ -32,7 +32,7 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodPost, "https://gateway.example.com/v1/resources?region=cn", nil)
 	req.Host = "gateway.example.com"
-	req.Header.Set("Authorization", "Bearer dproxy.18.r.secret")
+	req.Header.Set("Authorization", "Bearer dp.18.remote.secret")
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "X-Hop")
 	req.Header.Set("X-Hop", "drop")

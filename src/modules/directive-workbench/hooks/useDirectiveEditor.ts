@@ -1,90 +1,100 @@
 import { App as AntdApp } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import type { Text } from "../../../shared/i18n";
-import { directiveCodecRequest } from "../codec";
+import { decodeDirective, encodeDirective, formatDirectiveJSON, parseDirectiveJSON, validateDirective } from "../codec";
 import { initialEditor } from "../constants";
-import { buildPayload, encodeDocument, errorMessage, formatPayload, payloadToEditor, remoteDocumentToEditor } from "../utils";
-import type { DirectivePayload, EditorState } from "../types";
+import { buildEnvelope, envelopeToEditor, errorMessage, sourceTokenKind } from "../utils";
+import type { DirectiveEnvelope, EditorState } from "../types";
+
+type Artifacts = {
+  envelope: DirectiveEnvelope;
+  json: string;
+  token: string;
+  formError: string | null;
+};
+
+function createArtifacts(editor: EditorState, text: Text["authConsole"]): Artifacts {
+  const draft = buildEnvelope(editor);
+  try {
+    if ([...editor.requestProgram, ...editor.attemptProgram].some((item) => !item.configValid)) throw new Error(text.invalidModuleConfig);
+    const envelope = validateDirective(draft, text);
+    return { envelope, json: formatDirectiveJSON(envelope), token: encodeDirective(envelope), formError: null };
+  } catch (error) {
+    return { envelope: draft, json: formatDirectiveJSON(draft), token: "", formError: errorMessage(error, text.invalidForm) };
+  }
+}
 
 export function useDirectiveEditor(text: Text["authConsole"]) {
   const { message } = AntdApp.useApp();
+  const [initial] = useState(() => createArtifacts(initialEditor, text));
   const [editor, setEditor] = useState(initialEditor);
-  const payload = useMemo(() => buildPayload(editor), [editor]);
-  const [payloadInput, setPayloadInput] = useState(() => formatPayload(payload));
-  const [tokenInput, setTokenInput] = useState("");
-  const [directiveToken, setDirectiveToken] = useState("");
-  const [activeSource, setActiveSource] = useState<"payload" | "token">("payload");
+  const [envelope, setEnvelope] = useState(initial.envelope);
+  const [jsonInput, setJSONInput] = useState(initial.json);
+  const [tokenInput, setTokenInput] = useState(initial.token);
+  const [directiveToken, setDirectiveToken] = useState(initial.token);
+  const [formError, setFormError] = useState<string | null>(initial.formError);
+  const [activeSource, setActiveSource] = useState<"json" | "token">("json");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void directiveCodecRequest("encode", encodeDocument(editor, payload), controller.signal)
-        .then((result) => { setDirectiveToken(result.token); setTokenInput(result.token); })
-        .catch((err: unknown) => {
-          if (!(err instanceof DOMException && err.name === "AbortError")) setDirectiveToken("");
-        });
-    }, 200);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [editor, payload]);
+  function syncEditor(next: EditorState) {
+    const artifacts = createArtifacts(next, text);
+    setEditor(next);
+    setEnvelope(artifacts.envelope);
+    setJSONInput(artifacts.json);
+    setTokenInput(artifacts.token);
+    setDirectiveToken(artifacts.token);
+    setFormError(artifacts.formError);
+    setError(null);
+  }
 
   function updateEditor(patch: Partial<EditorState>) {
-    const next = { ...editor, ...patch };
-    setEditor(next);
-    setDirectiveToken("");
-    setPayloadInput(formatPayload(buildPayload(next)));
+    syncEditor({ ...editor, ...patch });
+  }
+
+  function applyEnvelope(nextEnvelope: DirectiveEnvelope) {
+    const nextEditor = envelopeToEditor(editor, nextEnvelope);
+    const artifacts = createArtifacts(nextEditor, text);
+    setEditor(nextEditor);
+    setEnvelope(artifacts.envelope);
+    setJSONInput(artifacts.json);
+    setTokenInput(artifacts.token);
+    setDirectiveToken(artifacts.token);
+    setFormError(artifacts.formError);
     setError(null);
-    if (patch.source) setActiveSource(patch.source === "inline" ? "payload" : "token");
   }
 
-  function applyPayload(nextPayload: DirectivePayload, recovery = editor.recovery) {
-    const next = { ...editor, source: "inline" as const, recovery, ...payloadToEditor(nextPayload) };
-    setEditor(next);
-    setPayloadInput(formatPayload(nextPayload));
-    setError(null);
-    setActiveSource("payload");
-  }
-
-  async function applyPayloadInput() {
+  function applyJSONInput() {
     try {
-      const parsed = JSON.parse(payloadInput) as DirectivePayload;
-      const result = await directiveCodecRequest("encode", { kind: "inline", payload: parsed, ...(editor.recovery ? { recovery: editor.recovery } : {}) });
-      if (result.document.kind !== "inline") throw new Error(text.payloadParseFailed);
-      applyPayload(result.document.payload, result.document.recovery);
-      setDirectiveToken(result.token);
-      setTokenInput(result.token);
-      void message.success(text.payloadApplied);
-    } catch (err) { setError(errorMessage(err, text.payloadParseFailed)); }
+      const nextEnvelope = parseDirectiveJSON(sourceTokenKind(editor.source), jsonInput, text);
+      applyEnvelope(nextEnvelope);
+      void message.success(text.jsonApplied);
+    } catch (err) {
+      setError(errorMessage(err, text.jsonParseFailed));
+    }
   }
 
-  async function applyTokenInput() {
+  function applyTokenInput() {
     try {
-      const decoded = await directiveCodecRequest("decode", { token: tokenInput });
-      if (decoded.document.kind === "inline") {
-        applyPayload(decoded.document.payload, decoded.document.recovery);
-      } else {
-        setEditor({ ...remoteDocumentToEditor(editor, decoded.document.remote), recovery: decoded.document.recovery });
-        setActiveSource("token");
-        setError(null);
-      }
-      setDirectiveToken(decoded.token);
-      setTokenInput(decoded.token);
+      applyEnvelope(decodeDirective(tokenInput, text));
       void message.success(text.tokenApplied);
-    } catch (err) { setError(errorMessage(err, text.tokenParseFailed)); }
+    } catch (err) {
+      setError(errorMessage(err, text.tokenParseFailed));
+    }
   }
 
   return {
     activeSource,
-    applyPayloadInput,
+    applyJSONInput,
     applyTokenInput,
     directiveToken,
     editor,
+    envelope,
     error,
-    payload,
-    payloadInput,
+    formError,
+    jsonInput,
     setActiveSource,
     setError,
-    setPayloadInput,
+    setJSONInput,
     setTokenInput,
     tokenInput,
     updateEditor,

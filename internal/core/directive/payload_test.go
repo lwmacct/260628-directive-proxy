@@ -123,6 +123,19 @@ func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsLegacyTokenFamilyAndKinds(t *testing.T) {
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"payload":{"target":{"url":"https://api.example.com/v1"}}}`))
+	for _, token := range []string{
+		"dproxy.18.i." + encoded,
+		"dp.18.i." + encoded,
+		"dp.18.r." + encoded,
+	} {
+		if _, err := Decode(token); err == nil {
+			t.Fatalf("expected legacy token %q to be rejected", token)
+		}
+	}
+}
+
 func TestDecodeRejectsUnknownField(t *testing.T) {
 	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"key":"secret"}`))
 

@@ -27,14 +27,11 @@ export default defineConfig({
       "/authme": {
         target: "http://localhost:23198",
       },
-      "/api": {
-        target: "http://localhost:23198",
-      },
       "/": {
         target: "http://localhost:23198",
         bypass(request) {
           const authorization = request.headers.authorization ?? "";
-          if (authorization.startsWith("Bearer dproxy.")) {
+          if (authorization.startsWith("Bearer dp.")) {
             return undefined;
           }
           return request.url;

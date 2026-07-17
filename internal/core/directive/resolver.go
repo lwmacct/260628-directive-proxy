@@ -274,7 +274,7 @@ func sanitizeRemoteEndpoint(raw string) string {
 }
 
 // MatchesRequest reports whether the request carries a token from the reserved
-// dproxy family. It does not decode or validate the token.
+// dp family. It does not decode or validate the token.
 func MatchesRequest(req *http.Request) bool {
 	_, ok := directiveTokenFromAuthorization(req)
 	return ok

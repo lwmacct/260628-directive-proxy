@@ -35,14 +35,13 @@ type Server struct {
 }
 
 type ServerHTTP struct {
-	Listen          string           `json:"listen"            desc:"HTTP 服务监听地址"`
-	TLS             tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
-	AuthMe          AuthMe           `json:"authme"            desc:"Authme 指令工作台与工具 API 认证配置"`
-	ReadTimeout     time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
-	WriteTimeout    time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
-	IdleTimeout     time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
-	MaxAPIBodyBytes int64            `json:"max-api-body-bytes" desc:"指令工具 API 最大请求体字节数，0 表示不限制"`
-	MaxHeaderBytes  int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
+	Listen         string           `json:"listen"            desc:"HTTP 服务监听地址"`
+	TLS            tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
+	AuthMe         AuthMe           `json:"authme"            desc:"Authme 指令工作台认证配置"`
+	ReadTimeout    time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
+	WriteTimeout   time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
+	IdleTimeout    time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
+	MaxHeaderBytes int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
 }
 
 type AuthMe struct {
@@ -140,11 +139,10 @@ func DefaultConfig() Config {
 					}(),
 					AllowedGitHubUsers: []string{"lwmacct"},
 				},
-				ReadTimeout:     30 * time.Second,
-				WriteTimeout:    0,
-				IdleTimeout:     120 * time.Second,
-				MaxAPIBodyBytes: 1 << 20,
-				MaxHeaderBytes:  128 << 10,
+				ReadTimeout:    30 * time.Second,
+				WriteTimeout:   0,
+				IdleTimeout:    120 * time.Second,
+				MaxHeaderBytes: 128 << 10,
 				TLS: func() tlsreload.Config {
 					config := tlsreload.DefaultConfig()
 					config.DefaultCertificate = "default"

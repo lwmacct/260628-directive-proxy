@@ -182,14 +182,14 @@ func newTestDirectiveReader(t *testing.T, cfg config.Server) *directiveRemoteRea
 	return reader
 }
 
-func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
+func TestHTTPServerReturnsProxyErrorForUnsupportedDPToken(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	srv := newHTTPServer(&cfg, rt)
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
-	req.Header.Set("Authorization", "Bearer dproxy.999.i.payload")
+	req.Header.Set("Authorization", "Bearer dp.999.inline.payload")
 	recorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusBadRequest {
@@ -200,9 +200,8 @@ func TestHTTPServerReturnsProxyErrorForUnsupportedDProxyToken(t *testing.T) {
 	}
 }
 
-func TestHTTPServerDoesNotApplyControlBodyLimitToProxyRequests(t *testing.T) {
+func TestHTTPServerForwardsProxyRequestBody(t *testing.T) {
 	cfg := config.DefaultConfig().Server
-	cfg.HTTP.MaxAPIBodyBytes = 1
 	var proxyBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -250,15 +249,15 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 	}
 }
 
-func TestDirectiveAPIRequiresAvailableAuthentication(t *testing.T) {
+func TestRemovedAdminAPIRemainsReserved(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://control.local/api/admin/directives/encode", strings.NewReader(
 		`{"kind":"inline","payload":{"target":{"url":"https://example.com"}}}`,
 	))
 	newHTTPServer(&cfg, &runtime{}).Handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusServiceUnavailable {
-		t.Fatalf("directive API failed open without AuthMe: status=%d body=%s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("removed admin API is still routed: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -315,7 +314,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "198.51.100.7:1234"
-	req.Header.Set("Authorization", "Bearer dproxy.999.i.payload")
+	req.Header.Set("Authorization", "Bearer dp.999.inline.payload")
 	recorder := httptest.NewRecorder()
 
 	newHTTPServer(&cfg, rt).Handler.ServeHTTP(recorder, req)
@@ -360,7 +359,7 @@ func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 	req.RemoteAddr = "192.0.2.1:1234"
 	req.Header.Set("Forwarded", `for="unterminated`)
 	req.Header.Set("X-Forwarded-For", "198.51.100.7")
-	req.Header.Set("Authorization", "Bearer dproxy.999.i.payload")
+	req.Header.Set("Authorization", "Bearer dp.999.inline.payload")
 	recorder := httptest.NewRecorder()
 
 	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{})).Handler.ServeHTTP(recorder, req)
@@ -375,7 +374,7 @@ func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) 
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
-	req.Header.Set("Authorization", "Bearer dproxy.999.i.payload")
+	req.Header.Set("Authorization", "Bearer dp.999.inline.payload")
 	recorder := httptest.NewRecorder()
 
 	newHTTPServer(&cfg, &runtime{}).Handler.ServeHTTP(recorder, req)
@@ -429,7 +428,7 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 	}
 }
 
-func TestTokenAuthProtectsAdminAPI(t *testing.T) {
+func TestTokenAuthSessionAndRemovedAdminAPI(t *testing.T) {
 	token := "admin-token/with.punctuation"
 	cfg := config.DefaultConfig().Server
 	cfg.HTTP.AuthMe.Origins = []string{"http://localhost"}
@@ -449,12 +448,12 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 		t.Fatalf("unexpected auth session: status=%d body=%s", authSession.Code, authSession.Body.String())
 	}
 
-	directiveDocument := `{"kind":"inline","payload":{"target":{"url":"https://example.com"}}}`
+	directiveDocument := `{"payload":{"target":{"url":"https://example.com"}}}`
 	unauthenticated := httptest.NewRecorder()
 	unauthenticatedRequest := httptest.NewRequest(http.MethodPost, "http://localhost/api/admin/directives/encode", strings.NewReader(directiveDocument))
 	unauthenticatedRequest.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(unauthenticated, unauthenticatedRequest)
-	if unauthenticated.Code != http.StatusUnauthorized {
+	if unauthenticated.Code != http.StatusNotFound {
 		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
 	}
 
@@ -472,7 +471,7 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 	protectedRequest.AddCookie(login.Result().Cookies()[0])
 	protected := httptest.NewRecorder()
 	handler.ServeHTTP(protected, protectedRequest)
-	if protected.Code != http.StatusOK || !strings.Contains(protected.Body.String(), `"token":"dproxy.18.i.`) {
+	if protected.Code != http.StatusNotFound {
 		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
 	}
 
@@ -489,7 +488,7 @@ func TestTokenAuthProtectsAdminAPI(t *testing.T) {
 	bearerRequest.Header.Set("Authorization", "Bearer "+token)
 	bearer := httptest.NewRecorder()
 	handler.ServeHTTP(bearer, bearerRequest)
-	if bearer.Code != http.StatusOK || !strings.Contains(bearer.Body.String(), `"token":"dproxy.18.i.`) {
+	if bearer.Code != http.StatusNotFound {
 		t.Fatalf("unexpected bearer status: %d body=%s", bearer.Code, bearer.Body.String())
 	}
 }

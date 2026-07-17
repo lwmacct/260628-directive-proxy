@@ -1,4 +1,5 @@
 export type DirectiveSource = "inline" | "http" | "redis";
+export type TokenKind = "inline" | "remote";
 
 export type ResolverHeader = {
   key: string;
@@ -12,6 +13,36 @@ export type HeaderOp = {
   selector: "name" | "glob";
   pattern: string;
   values: string[];
+};
+
+export type EditorModuleSpec = {
+  key: string;
+  id: string;
+  module: string;
+  config?: unknown;
+  configText: string;
+  configValid: boolean;
+};
+
+export type StatusRange = {
+  key: string;
+  from: number;
+  to: number;
+};
+
+export type RecoveryEditorState = {
+  enabled: boolean;
+  controllerURL: string;
+  controllerTimeout: string;
+  controllerHeaders: ResolverHeader[];
+  responseHeaderTimeout: string;
+  unexpectedStatusEnabled: boolean;
+  expectedStatuses: StatusRange[];
+  captureBodyBytes?: number;
+  transportError: boolean;
+  directiveError: boolean;
+  maxAttempts: number;
+  maxElapsed: string;
 };
 
 export type EditorState = {
@@ -28,9 +59,9 @@ export type EditorState = {
   preserveProxyDisclosure: boolean;
   requestHeaderOps: HeaderOp[];
   responseHeaderOps: HeaderOp[];
-  requestProgram: ModuleSpec[];
-  attemptProgram: ModuleSpec[];
-  recovery?: RecoverySpec;
+  requestProgram: EditorModuleSpec[];
+  attemptProgram: EditorModuleSpec[];
+  recovery: RecoveryEditorState;
 };
 
 export type ModuleSpec = {
@@ -73,11 +104,6 @@ export type RemoteSpec = {
   request_headers?: string[];
 };
 
-export type RemoteDocument = {
-  source: RemoteSpec;
-  program?: Pick<DirectiveProgram, "request">;
-};
-
 export type RecoverySpec = {
   controller: {
     url: string;
@@ -99,14 +125,20 @@ export type RecoverySpec = {
   };
 };
 
-export type DirectiveDocument =
-  | { kind: "inline"; payload: DirectivePayload; recovery?: RecoverySpec }
-  | { kind: "remote"; remote: RemoteDocument; recovery?: RecoverySpec };
-
-export type DirectiveCodecResponse = {
-  token: string;
-  document: DirectiveDocument;
+export type InlineTokenDocument = {
+  payload: DirectivePayload;
+  recovery?: RecoverySpec;
 };
+
+export type RemoteTokenDocument = {
+  source: RemoteSpec;
+  program?: Pick<DirectiveProgram, "request">;
+  recovery?: RecoverySpec;
+};
+
+export type DirectiveEnvelope =
+  | { kind: "inline"; document: InlineTokenDocument }
+  | { kind: "remote"; document: RemoteTokenDocument };
 
 export type RequestResult = {
   body: string;

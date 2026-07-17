@@ -1,16 +1,38 @@
 import type { Text } from "../../shared/i18n";
-import { newHeaderOp, newResolverHeader } from "./constants";
-import type { DirectiveDocument, DirectiveHeaderOp, DirectivePayload, EditorState, RemoteDocument, RemoteSpec } from "./types";
+import { newHeaderOp, newModuleSpec, newResolverHeader, newStatusRange } from "./constants";
+import type {
+  DirectiveEnvelope,
+  DirectiveHeaderOp,
+  DirectivePayload,
+  EditorModuleSpec,
+  EditorState,
+  ModuleSpec,
+  RecoveryEditorState,
+  RecoverySpec,
+  RemoteSpec,
+  TokenKind,
+} from "./types";
 
-export function buildPayload(input: EditorState): DirectivePayload {
-  const buildOps = (items: EditorState["requestHeaderOps"]): DirectiveHeaderOp[] => items.flatMap<DirectiveHeaderOp>((item) => {
+function buildHeaderOps(items: EditorState["requestHeaderOps"]): DirectiveHeaderOp[] {
+  return items.flatMap<DirectiveHeaderOp>((item) => {
     const pattern = item.pattern.trim();
     if (!pattern) return [];
     const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
     return [{ op: item.op, ...selector, ...(item.op === "-" ? {} : { values: item.values }) }];
   });
-  const requestOps = buildOps(input.requestHeaderOps);
-  const responseOps = buildOps(input.responseHeaderOps);
+}
+
+function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
+  return items.map((item) => ({
+    id: item.id,
+    module: item.module,
+    ...(item.config === undefined ? {} : { config: item.config }),
+  }));
+}
+
+export function buildPayload(input: EditorState): DirectivePayload {
+  const requestOps = buildHeaderOps(input.requestHeaderOps);
+  const responseOps = buildHeaderOps(input.responseHeaderOps);
   const payload: DirectivePayload = { target: { url: input.targetURL.trim() } };
   if (!input.joinPath) payload.target.join_path = false;
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
@@ -27,14 +49,78 @@ export function buildPayload(input: EditorState): DirectivePayload {
   }
   if (input.requestProgram.length || input.attemptProgram.length) {
     payload.program = {
-      ...(input.requestProgram.length ? { request: input.requestProgram } : {}),
-      ...(input.attemptProgram.length ? { attempt: input.attemptProgram } : {}),
+      ...(input.requestProgram.length ? { request: buildProgram(input.requestProgram) } : {}),
+      ...(input.attemptProgram.length ? { attempt: buildProgram(input.attemptProgram) } : {}),
     };
   }
   return payload;
 }
 
-export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "targetURL" | "joinPath" | "proxyURL" | "requestHeaderMode" | "preserveProxyDisclosure" | "requestHeaderOps" | "responseHeaderOps" | "requestProgram" | "attemptProgram"> {
+function buildHeaderMap(items: EditorState["resolverHeaders"]) {
+  const entries = items.flatMap((header) => {
+    const name = header.name.trim();
+    return name ? [[name, header.value] as const] : [];
+  });
+  return Object.fromEntries(entries);
+}
+
+export function buildRemoteSpec(editor: EditorState): RemoteSpec {
+  const headers = buildHeaderMap(editor.resolverHeaders);
+  return {
+    type: editor.source === "redis" ? "redis" : "http",
+    url: (editor.source === "redis" ? editor.redisURL : editor.httpURL).trim(),
+    ...(editor.remoteKey ? { key: editor.remoteKey } : {}),
+    ...(editor.source === "http" && Object.keys(headers).length ? { headers } : {}),
+    ...(editor.source === "http" && editor.resolverRequestHeaders.length ? { request_headers: editor.resolverRequestHeaders } : {}),
+  };
+}
+
+export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefined {
+  if (!input.enabled) return undefined;
+  const headers = buildHeaderMap(input.controllerHeaders);
+  return {
+    controller: {
+      url: input.controllerURL.trim(),
+      ...(Object.keys(headers).length ? { headers } : {}),
+      ...(input.controllerTimeout.trim() ? { timeout: input.controllerTimeout.trim() } : {}),
+    },
+    triggers: {
+      ...(input.responseHeaderTimeout.trim() ? { response_header_timeout: input.responseHeaderTimeout.trim() } : {}),
+      ...(input.unexpectedStatusEnabled ? {
+        unexpected_status: {
+          expected: input.expectedStatuses.map((range) => ({ from: range.from, to: range.to })),
+          ...(input.captureBodyBytes === undefined ? {} : { capture_body_bytes: input.captureBodyBytes }),
+        },
+      } : {}),
+      ...(input.transportError ? { transport_error: true } : {}),
+      ...(input.directiveError ? { directive_error: true } : {}),
+    },
+    budget: {
+      max_attempts: input.maxAttempts,
+      ...(input.maxElapsed.trim() ? { max_elapsed: input.maxElapsed.trim() } : {}),
+    },
+  };
+}
+
+export function buildEnvelope(editor: EditorState): DirectiveEnvelope {
+  const recovery = buildRecovery(editor.recovery);
+  if (editor.source === "inline") {
+    return {
+      kind: "inline",
+      document: { payload: buildPayload(editor), ...(recovery ? { recovery } : {}) },
+    };
+  }
+  return {
+    kind: "remote",
+    document: {
+      source: buildRemoteSpec(editor),
+      ...(editor.requestProgram.length ? { program: { request: buildProgram(editor.requestProgram) } } : {}),
+      ...(recovery ? { recovery } : {}),
+    },
+  };
+}
+
+function payloadToEditor(payload: DirectivePayload) {
   const toEditorOps = (ops: DirectiveHeaderOp[]) => ops.map((item) => newHeaderOp(
     item.op,
     item.glob !== undefined ? "glob" : "name",
@@ -49,33 +135,46 @@ export function payloadToEditor(payload: DirectivePayload): Pick<EditorState, "t
     preserveProxyDisclosure: payload.headers?.request?.preserve_proxy_disclosure ?? false,
     requestHeaderOps: toEditorOps(payload.headers?.request?.ops ?? []),
     responseHeaderOps: toEditorOps(payload.headers?.response?.ops ?? []),
-    requestProgram: payload.program?.request ?? [],
-    attemptProgram: payload.program?.attempt ?? [],
+    requestProgram: (payload.program?.request ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
+    attemptProgram: (payload.program?.attempt ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
   };
 }
 
-export function buildRemoteSpec(editor: EditorState): RemoteSpec {
-  const headers = Object.fromEntries(editor.resolverHeaders.flatMap((header) => {
-    const name = header.name.trim();
-    return name ? [[name, header.value]] : [];
-  }));
+function recoveryToEditor(previous: RecoveryEditorState, recovery?: RecoverySpec): RecoveryEditorState {
+  if (!recovery) return { ...previous, enabled: false };
   return {
-    type: editor.source === "redis" ? "redis" : "http",
-    url: (editor.source === "redis" ? editor.redisURL : editor.httpURL).trim(),
-    ...(editor.remoteKey ? { key: editor.remoteKey } : {}),
-    ...(editor.source === "http" && Object.keys(headers).length ? { headers } : {}),
-    ...(editor.source === "http" && editor.resolverRequestHeaders.length ? { request_headers: editor.resolverRequestHeaders } : {}),
+    enabled: true,
+    controllerURL: recovery.controller.url,
+    controllerTimeout: recovery.controller.timeout ?? "3s",
+    controllerHeaders: Object.entries(recovery.controller.headers ?? {}).map(([name, value]) => newResolverHeader(name, value)),
+    responseHeaderTimeout: recovery.triggers.response_header_timeout ?? "",
+    unexpectedStatusEnabled: recovery.triggers.unexpected_status !== undefined,
+    expectedStatuses: (recovery.triggers.unexpected_status?.expected ?? [{ from: 200, to: 299 }]).map((range) => newStatusRange(range.from, range.to)),
+    captureBodyBytes: recovery.triggers.unexpected_status?.capture_body_bytes ?? 65536,
+    transportError: recovery.triggers.transport_error ?? false,
+    directiveError: recovery.triggers.directive_error ?? false,
+    maxAttempts: recovery.budget.max_attempts,
+    maxElapsed: recovery.budget.max_elapsed ?? "30s",
   };
 }
 
-export function remoteDocumentToEditor(editor: EditorState, remote: RemoteDocument): EditorState {
-  const spec = remote.source;
+export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvelope): EditorState {
+  if (envelope.kind === "inline") {
+    return {
+      ...previous,
+      source: "inline",
+      ...payloadToEditor(envelope.document.payload),
+      recovery: recoveryToEditor(previous.recovery, envelope.document.recovery),
+    };
+  }
+  const spec = envelope.document.source;
   return {
-    ...editor,
+    ...previous,
     source: spec.type,
     remoteKey: spec.key ?? "",
-    requestProgram: remote.program?.request ?? [],
+    requestProgram: (envelope.document.program?.request ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
     attemptProgram: [],
+    recovery: recoveryToEditor(previous.recovery, envelope.document.recovery),
     ...(spec.type === "http"
       ? {
           httpURL: spec.url,
@@ -86,28 +185,8 @@ export function remoteDocumentToEditor(editor: EditorState, remote: RemoteDocume
   };
 }
 
-export function encodeDocument(editor: EditorState, payload: DirectivePayload): DirectiveDocument {
-  const recovery = editor.recovery ? { recovery: editor.recovery } : {};
-  return editor.source === "inline" ? { kind: "inline", payload, ...recovery } : {
-    kind: "remote",
-    remote: {
-      source: buildRemoteSpec(editor),
-      ...(editor.requestProgram.length ? { program: { request: editor.requestProgram } } : {}),
-    },
-    ...recovery,
-  };
-}
-
-export function isRemoteKeyValid(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  return Boolean(value) && value === value.trim() && bytes.length <= 256 && ![...value].some((char) => {
-    const codePoint = char.codePointAt(0) ?? 0;
-    return codePoint === 0 || codePoint < 0x20 || codePoint === 0x7f;
-  });
-}
-
-export function formatPayload(payload: DirectivePayload) {
-  return JSON.stringify(payload, null, 2);
+export function sourceTokenKind(source: EditorState["source"]): TokenKind {
+  return source === "inline" ? "inline" : "remote";
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -118,7 +197,9 @@ export function normalizeRequestPath(value: string, text: Text["authConsole"]) {
   const path = value.trim();
   if (!path) throw new Error(text.pathRequired);
   if (!path.startsWith("/") || path.startsWith("//")) throw new Error(text.pathSameOrigin);
-  if (path.startsWith("/api/") || path === "/api" || path === "/health") throw new Error(text.pathReservedAPI);
+  if (path === "/health" || path === "/authme" || path.startsWith("/authme/") || path === "/api/admin" || path.startsWith("/api/admin/") || path === "/api/public" || path.startsWith("/api/public/")) {
+    throw new Error(text.pathReservedAPI);
+  }
   return path;
 }
 

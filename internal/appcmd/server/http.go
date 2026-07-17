@@ -38,18 +38,10 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 
 func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	health := newHealthHandler(rt.moduleRuntime, rt.eventOutput)
-	adminAPI := limitRequestBody(newDirectiveHandler(), cfg.HTTP.MaxAPIBodyBytes)
-	if rt.adminAuth != nil {
-		adminAPI = rt.adminAuth.RequireAccess(adminAPI)
-	} else {
-		adminAPI = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusServiceUnavailable, errorResponse{Detail: "authentication unavailable"})
-		})
-	}
 	fallback := newFallbackHTTPHandler(rt)
 	directiveProxy := newProxyHandler(cfg, rt.directiveReader, rt.exchangeFactory, rt.bodyStore, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
-		return routeHTTPRequests(rt, health, adminAPI, directiveProxy, fallback)
+		return routeHTTPRequests(rt, health, directiveProxy, fallback)
 	}
 	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
@@ -57,15 +49,13 @@ func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	if rt.sourceAccess != nil {
 		protectedDirective = rt.sourceAccess.RequireAccess(directiveProxy)
 	}
-	return routeHTTPRequests(rt, health, adminAPI, protectedDirective, fallback)
+	return routeHTTPRequests(rt, health, protectedDirective, fallback)
 }
 
-func routeHTTPRequests(rt *runtime, health, adminAPI, directiveHandler, fallback http.Handler) http.Handler {
+func routeHTTPRequests(rt *runtime, health, directiveHandler, fallback http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case pathWithin(r.URL.Path, adminAPIPrefix):
-			adminAPI.ServeHTTP(w, r)
-		case pathWithin(r.URL.Path, publicAPIPrefix):
+		case pathWithin(r.URL.Path, adminAPIPrefix), pathWithin(r.URL.Path, publicAPIPrefix):
 			http.NotFound(w, r)
 		case r.URL.Path == "/health":
 			health.ServeHTTP(w, r)
@@ -131,17 +121,4 @@ func fileExists(fs http.FileSystem, urlPath string) bool {
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	return err == nil && !info.IsDir()
-}
-
-func limitRequestBody(next http.Handler, maxBytes int64) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if maxBytes > 0 && shouldLimitRequestBody(r) {
-			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func shouldLimitRequestBody(r *http.Request) bool {
-	return r.Method != http.MethodGet && r.Method != http.MethodHead && r.Body != nil && r.Body != http.NoBody
 }

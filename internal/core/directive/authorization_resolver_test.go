@@ -86,18 +86,19 @@ func TestResolverReturnsNoMatchForNonDirectiveBearerToken(t *testing.T) {
 	}
 }
 
-func TestDirectiveTokenFromAuthorizationReservesDProxyTokenFamily(t *testing.T) {
+func TestDirectiveTokenFromAuthorizationReservesDPTokenFamily(t *testing.T) {
 	tests := []struct {
 		name          string
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dproxy.18.i.payload", want: true},
-		{name: "unsupported version", authorization: "Bearer dproxy.999.i.payload", want: true},
-		{name: "malformed family token", authorization: "Bearer dproxy.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dproxy.18.i.payload", want: true},
+		{name: "current version", authorization: "Bearer dp.18.inline.payload", want: true},
+		{name: "unsupported version", authorization: "Bearer dp.999.inline.payload", want: true},
+		{name: "malformed family token", authorization: "Bearer dp.", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dp.18.inline.payload", want: true},
+		{name: "legacy family", authorization: "Bearer dproxy.18.i.payload", want: false},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dproxy.18.i.payload", want: false},
+		{name: "other scheme", authorization: "Basic dp.18.inline.payload", want: false},
 		{name: "missing", want: false},
 	}
 
