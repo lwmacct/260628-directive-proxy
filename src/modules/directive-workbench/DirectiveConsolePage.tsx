@@ -1,6 +1,6 @@
-import { ApiOutlined, CodeOutlined, CopyOutlined, DatabaseOutlined, FileTextOutlined, SendOutlined } from "@ant-design/icons";
+import { ApiOutlined, CodeOutlined, CopyOutlined, DatabaseOutlined, FileTextOutlined, KeyOutlined, SendOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { WorkbenchPage, WorkbenchPanel } from "@lwmacct/260627-antd-workbench";
-import { Alert, App as AntdApp, Button, Drawer, Flex, Form, Input, Segmented, Space, Tag } from "antd";
+import { Alert, App as AntdApp, Button, Drawer, Flex, Input, Segmented, Space, Tag, Typography } from "antd";
 import { useState, type ChangeEvent } from "react";
 import type { Text } from "../../shared/i18n";
 import { useText } from "../../shared/i18n";
@@ -66,12 +66,15 @@ export function DirectiveConsolePage() {
 
   return <WorkbenchPage
     className="directive-console-page"
-    description={t.authConsole.directiveConsoleDescription}
-    extra={<Space wrap>
-      <Tag>{tokenPrefix}</Tag>
-      <Button icon={<SendOutlined />} onClick={() => setDebuggerOpen(true)}>{t.authConsole.requestDebug}</Button>
+    description={<span className="directive-console-header__description">{t.authConsole.directiveConsoleDescription}</span>}
+    extra={<Space className="directive-console-header__actions" wrap>
+      <div className="directive-console-header__protocol">
+        <span>{t.authConsole.currentDirective}</span>
+        <Tag bordered={false}>{tokenPrefix}</Tag>
+      </div>
+      <Button icon={<SendOutlined />} onClick={() => setDebuggerOpen(true)} type="primary">{t.authConsole.requestDebug}</Button>
     </Space>}
-    title={t.authConsole.directiveConsole}
+    title={<span className="directive-console-header__title"><ThunderboltOutlined />{t.authConsole.directiveConsole}</span>}
   >
     <div className="directive-source-control">
       <Segmented
@@ -90,11 +93,26 @@ export function DirectiveConsolePage() {
       {session.formError ? <Alert showIcon style={{ marginBottom: 16 }} title={t.authConsole.invalidFormDetail(session.formError)} type="warning" /> : null}
       <StructuredEditorPanel editor={session.editor} source={session.source} text={t.authConsole} onUpdate={session.updateEditor} />
     </WorkbenchPanel>
-    <Form className="directive-console-secret" layout="vertical">
-      <Form.Item label={t.authConsole.tokenSecret}>
-        <Input.Password aria-label={t.authConsole.tokenSecret} placeholder={t.authConsole.tokenSecretPlaceholder} value={session.tokenSecret} onChange={(event: ChangeEvent<HTMLInputElement>) => session.updateTokenSecret(event.target.value)} />
-      </Form.Item>
-    </Form>
+    <div className="directive-console-secret">
+      <div className="directive-console-secret__identity">
+        <span className="directive-console-secret__icon"><KeyOutlined /></span>
+        <div className="directive-console-secret__copy">
+          <Flex align="center" gap="small" wrap>
+            <Typography.Text strong>{t.authConsole.tokenSecret}</Typography.Text>
+            <Tag bordered={false}>HMAC-SHA256</Tag>
+          </Flex>
+          <Typography.Text type="secondary">{t.authConsole.tokenSecretDescription}</Typography.Text>
+        </div>
+      </div>
+      <Input.Password
+        aria-label={t.authConsole.tokenSecret}
+        className="directive-console-secret__input"
+        placeholder={t.authConsole.tokenSecretPlaceholder}
+        size="large"
+        value={session.tokenSecret}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => session.updateTokenSecret(event.target.value)}
+      />
+    </div>
     <div className="directive-codec-grid">
       <WorkbenchPanel
         className="directive-codec-panel"
