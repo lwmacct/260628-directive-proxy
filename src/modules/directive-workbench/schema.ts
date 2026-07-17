@@ -1,7 +1,7 @@
 import type { Text } from "../../shared/i18n";
 import type {
   DirectiveEnvelope,
-  DirectiveHeaderOp,
+  DirectiveHeaderMutation,
   DirectivePayload,
   DirectiveProgram,
   ModuleSpec,
@@ -147,13 +147,13 @@ function parseGlob(value: unknown, label: string, text: Text["authConsole"]) {
   return pattern;
 }
 
-function parseHeaderOp(value: unknown, label: string, text: Text["authConsole"], requestOnly: boolean): DirectiveHeaderOp {
+function parseHeaderMutation(value: unknown, label: string, text: Text["authConsole"], requestOnly: boolean): DirectiveHeaderMutation {
   const input = record(value, label, text);
-  knownKeys(input, ["side", "op", "name", "glob", "values"], label, text);
+  knownKeys(input, ["side", "action", "name", "glob", "values"], label, text);
   if (input.side !== "request" && input.side !== "response") throw new Error(text.onlyValues(`${label}.side`, "request, response"));
   if (requestOnly && input.side !== "request") throw new Error(text.onlyValues(`${label}.side`, "request"));
   const side = input.side;
-  if (input.op !== "set" && input.op !== "del" && input.op !== "add") throw new Error(text.onlyValues(`${label}.op`, "set, del, add"));
+  if (input.action !== "set" && input.action !== "remove" && input.action !== "append") throw new Error(text.onlyValues(`${label}.action`, "set, remove, append"));
   const hasName = input.name !== undefined;
   const hasGlob = input.glob !== undefined;
   if (hasName === hasGlob) throw new Error(text.exactlyOneSelector(label));
@@ -167,14 +167,14 @@ function parseHeaderOp(value: unknown, label: string, text: Text["authConsole"],
   } else {
     selector = { glob: parseGlob(input.glob, `${label}.glob`, text) };
   }
-  if (input.op === "del") {
+  if (input.action === "remove") {
     if (input.values !== undefined && arrayValue(input.values, `${label}.values`, text).length) throw new Error(text.removeHasValues(label));
-    return { side, op: input.op, ...selector };
+    return { side, action: input.action, ...selector };
   }
   const values = arrayValue(input.values, `${label}.values`, text);
   if (!values.length || values.some((item) => typeof item !== "string" || !isHeaderValue(item))) throw new Error(text.setNeedsValues(label));
-  if (side === "request" && exactName?.toLowerCase() === "host" && (input.op === "add" || values.length !== 1)) throw new Error(text.hostValues(label));
-  return { side, op: input.op, ...selector, values: values as string[] };
+  if (side === "request" && exactName?.toLowerCase() === "host" && (input.action === "append" || values.length !== 1)) throw new Error(text.hostValues(label));
+  return { side, action: input.action, ...selector, values: values as string[] };
 }
 
 function parseModule(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec {
@@ -228,12 +228,12 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
   let headers: DirectivePayload["headers"];
   if (input.headers !== undefined) {
     const headersInput = record(input.headers, "payload.headers", text);
-    knownKeys(headersInput, ["mode", "preserve_proxy_disclosure", "ops"], "payload.headers", text);
+    knownKeys(headersInput, ["mode", "preserve_proxy_disclosure", "mutations"], "payload.headers", text);
     if (headersInput.mode !== undefined && headersInput.mode !== "patch" && headersInput.mode !== "replace") throw new Error(text.onlyValues("payload.headers.mode", "patch, replace"));
     headers = {
       ...(headersInput.mode === undefined ? {} : { mode: headersInput.mode }),
       ...(headersInput.preserve_proxy_disclosure === undefined ? {} : { preserve_proxy_disclosure: booleanValue(headersInput.preserve_proxy_disclosure, "payload.headers.preserve_proxy_disclosure", text) }),
-      ...(headersInput.ops === undefined ? {} : { ops: arrayValue(headersInput.ops, "payload.headers.ops", text).map((item, index) => parseHeaderOp(item, `payload.headers.ops[${index}]`, text, false)) }),
+      ...(headersInput.mutations === undefined ? {} : { mutations: arrayValue(headersInput.mutations, "payload.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `payload.headers.mutations[${index}]`, text, false)) }),
     };
   }
   const program = parseProgram(input.program, "payload.program", text, true);
@@ -332,12 +332,12 @@ function parseRemoteSpec(value: unknown, text: Text["authConsole"]): RemoteSpec 
   let headers: RemoteSpec["headers"];
   if (input.headers !== undefined) {
     const headerInput = record(input.headers, "remote.headers", text);
-    knownKeys(headerInput, ["mode", "preserve_proxy_disclosure", "ops"], "remote.headers", text);
+    knownKeys(headerInput, ["mode", "preserve_proxy_disclosure", "mutations"], "remote.headers", text);
     if (headerInput.mode !== undefined && headerInput.mode !== "patch" && headerInput.mode !== "replace") throw new Error(text.onlyValues("remote.headers.mode", "patch, replace"));
     headers = {
       ...(headerInput.mode === undefined ? {} : { mode: headerInput.mode }),
       ...(headerInput.preserve_proxy_disclosure === undefined ? {} : { preserve_proxy_disclosure: booleanValue(headerInput.preserve_proxy_disclosure, "remote.headers.preserve_proxy_disclosure", text) }),
-      ...(headerInput.ops === undefined ? {} : { ops: arrayValue(headerInput.ops, "remote.headers.ops", text).map((item, index) => parseHeaderOp(item, `remote.headers.ops[${index}]`, text, true)) }),
+      ...(headerInput.mutations === undefined ? {} : { mutations: arrayValue(headerInput.mutations, "remote.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `remote.headers.mutations[${index}]`, text, true)) }),
     };
   }
   return {

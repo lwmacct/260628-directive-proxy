@@ -7,8 +7,8 @@ func TestToPlan(t *testing.T) {
 		Target: TargetSection{URL: "https://api.example.com/base"},
 		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: requestHeaders(
-			HeaderOp{Op: HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer secret"}},
-			HeaderOp{Op: HeaderOperationSet, Name: "X-Test", Values: []string{"a"}},
+			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
+			HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
 		),
 	}, AssembleOptions{
 		StripHeaders: []string{"Authorization"},
@@ -33,8 +33,8 @@ func TestToPlan(t *testing.T) {
 func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
-		Headers: &HeaderPolicy{Mode: "replace", Ops: []HeaderOp{{
-			Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "Host", Values: []string{"custom.example.com"},
+		Headers: &HeaderPolicy{Mode: "replace", Mutations: []HeaderMutation{{
+			Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Host", Values: []string{"custom.example.com"},
 		}}},
 	}, AssembleOptions{})
 	if err != nil {
@@ -52,7 +52,7 @@ func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
 		Headers: requestHeaders(
-			HeaderOp{Op: HeaderOperationDelete, Glob: "M-Runtime-*"},
+			HeaderMutation{Action: HeaderActionRemove, Glob: "M-Runtime-*"},
 		),
 	}, AssembleOptions{})
 	if err != nil {
@@ -66,8 +66,8 @@ func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 func TestToPlanBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
-		Headers: &HeaderPolicy{PreserveProxyDisclosure: true, Ops: []HeaderOp{{
-			Side: HeaderSideResponse, Op: HeaderOperationDelete, Name: "Server",
+		Headers: &HeaderPolicy{PreserveProxyDisclosure: true, Mutations: []HeaderMutation{{
+			Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server",
 		}}},
 	}, AssembleOptions{})
 	if err != nil {
@@ -81,10 +81,10 @@ func TestToPlanBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 func TestToPlanSplitsMixedHeaderSides(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com/base"},
-		Headers: &HeaderPolicy{Ops: []HeaderOp{
-			{Side: HeaderSideResponse, Op: HeaderOperationDelete, Name: "Server"},
-			{Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "X-Request", Values: []string{"request"}},
-			{Side: HeaderSideResponse, Op: HeaderOperationSet, Name: "X-Response", Values: []string{"response"}},
+		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
+			{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server"},
+			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Request", Values: []string{"request"}},
+			{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Response", Values: []string{"response"}},
 		}},
 	}, AssembleOptions{})
 	if err != nil {
@@ -118,9 +118,9 @@ func TestToPlanExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
 	plan, err := ToPlan(Payload{
 		Target: TargetSection{URL: "https://api.example.com"},
 		Headers: requestHeaders(
-			HeaderOp{Op: HeaderOperationSet, Name: "x-dproxy-request-id", Values: []string{"request-1"}},
-			HeaderOp{Op: HeaderOperationAdd, Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
-			HeaderOp{Op: HeaderOperationSet, Name: "X-Upstream", Values: []string{"forwarded"}},
+			HeaderMutation{Action: HeaderActionSet, Name: "x-dproxy-request-id", Values: []string{"request-1"}},
+			HeaderMutation{Action: HeaderActionAppend, Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
+			HeaderMutation{Action: HeaderActionSet, Name: "X-Upstream", Values: []string{"forwarded"}},
 		),
 	}, AssembleOptions{})
 	if err != nil {
@@ -135,21 +135,21 @@ func TestToPlanExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
 }
 
 func TestToPlanRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
-	for _, op := range []HeaderOp{
-		{Op: HeaderOperationSet, Name: "X-Dproxy-Trace-ID", Values: []string{"forged"}},
-		{Op: HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{""}},
-		{Op: HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
-		{Op: HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
+	for _, mutation := range []HeaderMutation{
+		{Action: HeaderActionSet, Name: "X-Dproxy-Trace-ID", Values: []string{"forged"}},
+		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{""}},
+		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
+		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
 	} {
-		if _, err := ToPlan(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: requestHeaders(op)}, AssembleOptions{}); err == nil {
-			t.Fatalf("expected invalid metadata op: %#v", op)
+		if _, err := ToPlan(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: requestHeaders(mutation)}, AssembleOptions{}); err == nil {
+			t.Fatalf("expected invalid metadata mutation: %#v", mutation)
 		}
 	}
 }
 
-func requestHeaders(ops ...HeaderOp) *HeaderPolicy {
-	for index := range ops {
-		ops[index].Side = HeaderSideRequest
+func requestHeaders(mutations ...HeaderMutation) *HeaderPolicy {
+	for index := range mutations {
+		mutations[index].Side = HeaderSideRequest
 	}
-	return &HeaderPolicy{Ops: ops}
+	return &HeaderPolicy{Mutations: mutations}
 }

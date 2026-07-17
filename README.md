@@ -34,9 +34,9 @@ inline token 的解码内容是：
   "target": {"url": "https://api.example.com/v1"},
   "headers": {
     "mode": "patch",
-    "ops": [
-      {"side": "request", "op": "set", "name": "Authorization", "values": ["Bearer upstream-token"]},
-      {"side": "response", "op": "del", "name": "Server"}
+    "mutations": [
+      {"side": "request", "action": "set", "name": "Authorization", "values": ["Bearer upstream-token"]},
+      {"side": "response", "action": "remove", "name": "Server"}
     ]
   },
   "recovery": {
@@ -60,8 +60,8 @@ remote token 的解码内容是：
   "key": "team-a/service-a",
   "headers": {
     "mode": "patch",
-    "ops": [
-      {"side": "request", "op": "set", "name": "Authorization", "values": ["Bearer resolver-token"]}
+    "mutations": [
+      {"side": "request", "action": "set", "name": "Authorization", "values": ["Bearer resolver-token"]}
     ]
   }
 }
@@ -92,7 +92,7 @@ HTTP/Redis resolver 返回完整 `Payload`，例如：
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 Attempt 重读。Recovery retry 使用同一份已解析 Payload。
 
-Payload 的 `headers` 是单一 HeaderPolicy。每条 op 都必须声明 `side: request|response`，操作只允许 `set|del|add`；`mode` 和 `preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 直接复用同一结构，但只允许 request side，因为它描述的是 resolver 请求本身，声明 response side 会被拒绝。默认 patch 以原请求头为基线：directive Authorization 与旧 Content-Length 在 ops 前移除，代理披露头默认移除；ops 可以重新设置 resolver Authorization；最后统一移除 `x-dproxy-*` 和 hop-by-hop headers。旧 `direction`、符号操作、`headers.request`、`headers.response`、`request_mode` 和 `request_headers` 均不兼容。
+Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `side: request|response`，action 只允许 `set|remove|append`；数组顺序就是应用顺序。`mode` 和 `preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 直接复用同一结构，但只允许 request side，因为它描述的是 resolver 请求本身。默认 patch 以原请求头为基线：directive Authorization 与原 Content-Length 在 mutations 前移除，代理披露头默认移除；mutations 可以重新设置 resolver Authorization；最后统一移除 `x-dproxy-*` 和 hop-by-hop headers。
 
 ## Recovery Controller
 

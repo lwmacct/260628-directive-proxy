@@ -65,10 +65,10 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 		Program: module.Program{Request: []module.Spec{{
 			ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}}},
-		Headers: &directive.HeaderPolicy{Ops: []directive.HeaderOp{
-			{Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"}},
-			{Side: directive.HeaderSideResponse, Op: directive.HeaderOperationDelete, Name: "X-Upstream"},
-			{Side: directive.HeaderSideResponse, Op: directive.HeaderOperationSet, Name: "X-Downstream", Values: []string{"rewritten"}},
+		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
+			{Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"}},
+			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionRemove, Name: "X-Upstream"},
+			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionSet, Name: "X-Downstream", Values: []string{"rewritten"}},
 		}},
 	})
 	if err != nil {

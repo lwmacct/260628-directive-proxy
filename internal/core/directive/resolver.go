@@ -206,9 +206,9 @@ func cloneRemoteSpec(in RemoteSpec) RemoteSpec {
 	out := in
 	if in.Headers != nil {
 		headers := *in.Headers
-		headers.Ops = append([]HeaderOp(nil), in.Headers.Ops...)
-		for index := range headers.Ops {
-			headers.Ops[index].Values = append([]string(nil), headers.Ops[index].Values...)
+		headers.Mutations = append([]HeaderMutation(nil), in.Headers.Mutations...)
+		for index := range headers.Mutations {
+			headers.Mutations[index].Values = append([]string(nil), headers.Mutations[index].Values...)
 		}
 		out.Headers = &headers
 	}

@@ -1,12 +1,12 @@
 import type { Text } from "../../shared/i18n";
-import { newHeaderOp, newModuleSpec, newResolverHeader, newStatusRange } from "./constants";
+import { newHeaderMutation, newModuleSpec, newResolverHeader, newStatusRange } from "./constants";
 import type {
   DirectiveEnvelope,
-  DirectiveHeaderOp,
+  DirectiveHeaderMutation,
   DirectivePayload,
   EditorModuleSpec,
   EditorState,
-  HeaderOp,
+  HeaderMutation,
   ModuleSpec,
   RecoveryEditorState,
   RecoverySpec,
@@ -15,12 +15,12 @@ import type {
   TokenKind,
 } from "./types";
 
-function buildHeaderOps(items: HeaderOp[]): DirectiveHeaderOp[] {
-  return items.flatMap<DirectiveHeaderOp>((item) => {
+function buildHeaderMutations(items: HeaderMutation[]): DirectiveHeaderMutation[] {
+  return items.flatMap<DirectiveHeaderMutation>((item) => {
     const pattern = item.pattern.trim();
     if (!pattern) return [];
     const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
-    return [{ side: item.side, op: item.op, ...selector, ...(item.op === "del" ? {} : { values: item.values }) }];
+    return [{ side: item.side, action: item.action, ...selector, ...(item.action === "remove" ? {} : { values: item.values }) }];
   });
 }
 
@@ -33,14 +33,14 @@ function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
 }
 
 export function buildPayload(input: EditorState): DirectivePayload {
-  const ops = buildHeaderOps(input.headerOps);
+  const mutations = buildHeaderMutations(input.headerMutations);
   const payload: DirectivePayload = { target: { url: input.targetURL.trim() } };
   if (!input.joinPath) payload.target.join_path = false;
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
   const headers = {
     ...(input.requestHeaderMode === "replace" ? { mode: input.requestHeaderMode } : {}),
     ...(input.preserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
-    ...(ops.length ? { ops } : {}),
+    ...(mutations.length ? { mutations } : {}),
   };
   if (Object.keys(headers).length) payload.headers = headers;
   if (input.requestProgram.length || input.attemptProgram.length) {
@@ -63,11 +63,11 @@ function buildHeaderMap(items: ResolverHeader[]) {
 }
 
 export function buildRemoteSpec(editor: EditorState): RemoteSpec {
-  const ops = buildHeaderOps(editor.resolverHeaderOps);
+  const mutations = buildHeaderMutations(editor.resolverHeaderMutations);
   const headers = {
     ...(editor.resolverHeaderMode === "replace" ? { mode: "replace" as const } : {}),
     ...(editor.resolverPreserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
-    ...(ops.length ? { ops } : {}),
+    ...(mutations.length ? { mutations } : {}),
   };
   return {
     type: editor.source === "redis" ? "redis" : "http",
@@ -117,7 +117,7 @@ function payloadToEditor(payload: DirectivePayload) {
     proxyURL: payload.proxy ?? "",
     requestHeaderMode: payload.headers?.mode ?? "patch",
     preserveProxyDisclosure: payload.headers?.preserve_proxy_disclosure ?? false,
-    headerOps: toEditorHeaderOps(payload.headers?.ops ?? []),
+    headerMutations: toEditorHeaderMutations(payload.headers?.mutations ?? []),
     requestProgram: (payload.program?.request ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
     attemptProgram: (payload.program?.attempt ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
     recovery: payload.recovery,
@@ -162,15 +162,15 @@ export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvel
           httpURL: spec.url,
           resolverHeaderMode: spec.headers?.mode ?? "patch",
           resolverPreserveProxyDisclosure: spec.headers?.preserve_proxy_disclosure ?? false,
-          resolverHeaderOps: toEditorHeaderOps(spec.headers?.ops ?? []),
+          resolverHeaderMutations: toEditorHeaderMutations(spec.headers?.mutations ?? []),
         }
       : { redisURL: spec.url }),
   };
 }
 
-function toEditorHeaderOps(ops: DirectiveHeaderOp[]) {
-  return ops.map((item) => newHeaderOp(
-    item.op,
+function toEditorHeaderMutations(mutations: DirectiveHeaderMutation[]) {
+  return mutations.map((item) => newHeaderMutation(
+    item.action,
     item.glob !== undefined ? "glob" : "name",
     item.name ?? item.glob ?? "",
     item.values ?? [],

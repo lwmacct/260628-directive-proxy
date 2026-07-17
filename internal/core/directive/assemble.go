@@ -39,15 +39,15 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	requestRaw, responseRaw, err := splitHeaderOps(headers.Ops, true)
+	requestRaw, responseRaw, err := splitHeaderMutations(headers.Mutations, true)
 	if err != nil {
 		return nil, err
 	}
-	requestOps, metadata, err := parseRequestHeaderOps(requestRaw)
+	requestOps, metadata, err := parseRequestHeaderMutations(requestRaw)
 	if err != nil {
 		return nil, err
 	}
-	responseOps, err := parseResponseHeaderOps(responseRaw)
+	responseOps, err := parseResponseHeaderMutations(responseRaw)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +109,8 @@ func isHTTPURL(u *url.URL) bool {
 	return strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
 }
 
-func parseRequestHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, map[string][]string, error) {
-	ops, err := parseHeaderOps(raw)
+func parseRequestHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, map[string][]string, error) {
+	ops, err := parseHeaderMutations(raw)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -138,7 +138,7 @@ func parseRequestHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, map[string][]strin
 
 // CompileResolverRequestHeaders compiles the direct HTTP request header policy
 // used by an HTTP RemoteSpec. It intentionally does not extract x-dproxy
-// metadata; the resolver request applies the same header operations directly.
+// metadata; the resolver request applies the same header mutations directly.
 func CompileResolverRequestHeaders(section *HeaderPolicy) (proxy.RequestHeaderPlan, error) {
 	if section == nil {
 		section = &HeaderPolicy{}
@@ -146,11 +146,11 @@ func CompileResolverRequestHeaders(section *HeaderPolicy) (proxy.RequestHeaderPl
 	if err := validateHeaderMode(section.Mode); err != nil {
 		return proxy.RequestHeaderPlan{}, err
 	}
-	requestRaw, responseRaw, err := splitHeaderOps(section.Ops, false)
+	requestRaw, responseRaw, err := splitHeaderMutations(section.Mutations, false)
 	if err != nil || len(responseRaw) > 0 {
 		return proxy.RequestHeaderPlan{}, ErrInvalidPayload
 	}
-	ops, err := parseHeaderOps(requestRaw)
+	ops, err := parseHeaderMutations(requestRaw)
 	if err != nil {
 		return proxy.RequestHeaderPlan{}, err
 	}
@@ -168,18 +168,18 @@ func CompileResolverRequestHeaders(section *HeaderPolicy) (proxy.RequestHeaderPl
 	}, nil
 }
 
-func splitHeaderOps(raw []HeaderOp, allowResponse bool) ([]HeaderOp, []HeaderOp, error) {
-	request := make([]HeaderOp, 0, len(raw))
-	response := make([]HeaderOp, 0, len(raw))
-	for _, op := range raw {
-		switch op.Side {
+func splitHeaderMutations(raw []HeaderMutation, allowResponse bool) ([]HeaderMutation, []HeaderMutation, error) {
+	request := make([]HeaderMutation, 0, len(raw))
+	response := make([]HeaderMutation, 0, len(raw))
+	for _, mutation := range raw {
+		switch mutation.Side {
 		case HeaderSideRequest:
-			request = append(request, op)
+			request = append(request, mutation)
 		case HeaderSideResponse:
 			if !allowResponse {
 				return nil, nil, ErrInvalidPayload
 			}
-			response = append(response, op)
+			response = append(response, mutation)
 		default:
 			return nil, nil, ErrInvalidPayload
 		}
@@ -187,8 +187,8 @@ func splitHeaderOps(raw []HeaderOp, allowResponse bool) ([]HeaderOp, []HeaderOp,
 	return request, response, nil
 }
 
-func parseResponseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
-	ops, err := parseHeaderOps(raw)
+func parseResponseHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, error) {
+	ops, err := parseHeaderMutations(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -200,25 +200,25 @@ func parseResponseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 	return ops, nil
 }
 
-func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
+func parseHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
 	ops := make([]proxy.HeaderOp, 0, len(raw))
-	for _, rawOp := range raw {
+	for _, mutation := range raw {
 		var action proxy.HeaderAction
-		switch rawOp.Op {
-		case HeaderOperationSet:
+		switch mutation.Action {
+		case HeaderActionSet:
 			action = proxy.HeaderSet
-		case HeaderOperationDelete:
+		case HeaderActionRemove:
 			action = proxy.HeaderRemove
-		case HeaderOperationAdd:
+		case HeaderActionAppend:
 			action = proxy.HeaderAdd
 		default:
 			return nil, ErrInvalidPayload
 		}
-		name := strings.TrimSpace(rawOp.Name)
-		glob := strings.TrimSpace(rawOp.Glob)
+		name := strings.TrimSpace(mutation.Name)
+		glob := strings.TrimSpace(mutation.Glob)
 		if (name == "") == (glob == "") {
 			return nil, ErrInvalidPayload
 		}
@@ -233,23 +233,23 @@ func parseHeaderOps(raw []HeaderOp) ([]proxy.HeaderOp, error) {
 		}
 		switch action {
 		case proxy.HeaderAdd, proxy.HeaderSet:
-			if len(rawOp.Values) == 0 {
+			if len(mutation.Values) == 0 {
 				return nil, ErrInvalidPayload
 			}
-			for _, value := range rawOp.Values {
+			for _, value := range mutation.Values {
 				if !isValidHeaderValue(value) {
 					return nil, ErrInvalidPayload
 				}
 			}
 		case proxy.HeaderRemove:
-			if len(rawOp.Values) != 0 {
+			if len(mutation.Values) != 0 {
 				return nil, ErrInvalidPayload
 			}
 		}
 		ops = append(ops, proxy.HeaderOp{
 			Action:   action,
 			Selector: selector,
-			Values:   append([]string(nil), rawOp.Values...),
+			Values:   append([]string(nil), mutation.Values...),
 		})
 	}
 	return ops, nil

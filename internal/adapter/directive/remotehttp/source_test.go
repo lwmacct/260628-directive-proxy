@@ -40,8 +40,8 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 
 	raw, err := source.Read(context.Background(), directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP, URL: resolver.URL, Key: "team-a/service-a",
-		Headers: &directive.HeaderPolicy{Ops: []directive.HeaderOp{{
-			Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
+		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{{
+			Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
 		}}},
 	}, req)
 	if err != nil || string(raw) != `{"target":{"url":"https://api.example.com/v1"}}` {
@@ -68,8 +68,8 @@ func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 	if _, err := source.Read(context.Background(), directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP,
 		URL:  resolver.URL,
-		Headers: &directive.HeaderPolicy{Mode: "replace", Ops: []directive.HeaderOp{{
-			Side: directive.HeaderSideRequest, Op: directive.HeaderOperationSet, Name: "X-Policy", Values: []string{"resolver"},
+		Headers: &directive.HeaderPolicy{Mode: "replace", Mutations: []directive.HeaderMutation{{
+			Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "X-Policy", Values: []string{"resolver"},
 		}}},
 	}, req); err != nil {
 		t.Fatalf("resolve failed: %v", err)

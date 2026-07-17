@@ -65,12 +65,12 @@ const (
 	HeaderSideResponse HeaderSide = "response"
 )
 
-type HeaderOperation string
+type HeaderAction string
 
 const (
-	HeaderOperationSet    HeaderOperation = "set"
-	HeaderOperationDelete HeaderOperation = "del"
-	HeaderOperationAdd    HeaderOperation = "add"
+	HeaderActionSet    HeaderAction = "set"
+	HeaderActionRemove HeaderAction = "remove"
+	HeaderActionAppend HeaderAction = "append"
 )
 
 type RemoteSpec struct {
@@ -94,15 +94,15 @@ type TargetSection struct {
 }
 
 type HeaderPolicy struct {
-	Mode                    string     `json:"mode,omitempty"`
-	PreserveProxyDisclosure bool       `json:"preserve_proxy_disclosure,omitempty"`
-	Ops                     []HeaderOp `json:"ops,omitempty"`
+	Mode                    string           `json:"mode,omitempty"`
+	PreserveProxyDisclosure bool             `json:"preserve_proxy_disclosure,omitempty"`
+	Mutations               []HeaderMutation `json:"mutations,omitempty"`
 }
 
-type HeaderOp struct {
-	Side   HeaderSide      `json:"side"`
-	Op     HeaderOperation `json:"op"`
-	Name   string          `json:"name,omitempty"`
-	Glob   string          `json:"glob,omitempty"`
-	Values []string        `json:"values,omitempty"`
+type HeaderMutation struct {
+	Side   HeaderSide   `json:"side"`
+	Action HeaderAction `json:"action"`
+	Name   string       `json:"name,omitempty"`
+	Glob   string       `json:"glob,omitempty"`
+	Values []string     `json:"values,omitempty"`
 }

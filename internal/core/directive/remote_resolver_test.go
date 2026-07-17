@@ -25,7 +25,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL.Path != "/v1/chat" || req.Header.Get("X-Tenant") != "original" {
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Header)
 		}
-		return []byte(`{"target":{"url":"https://one.example"},"headers":{"ops":[{"side":"request","op":"set","name":"X-Route","values":["one"]}]},"program":{"request":[{"id":"capture","module":"builtin.capture","config":{}}],"attempt":[{"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}]},"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
+		return []byte(`{"target":{"url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"program":{"request":[{"id":"capture","module":"builtin.capture","config":{}}],"attempt":[{"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}]},"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
 	})})
 	token, err := EncodeRemote(RemoteSpec{Type: RemoteTypeHTTP, URL: "https://resolver.example/resolve", Key: "routing"})
 	if err != nil {
@@ -67,7 +67,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	resolver := NewResolver(ResolverOptions{
 		RemoteReader: remoteReaderFunc(func(_ context.Context, spec RemoteSpec, _ *http.Request) ([]byte, error) {
 			requested = spec
-			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"ops":[{"side":"request","op":"set","name":"X-Source","values":["remote"]}]}}`), nil
+			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Source","values":["remote"]}]}}`), nil
 		}),
 		LookupTimeout: time.Second,
 	})

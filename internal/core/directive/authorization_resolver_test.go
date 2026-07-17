@@ -13,9 +13,9 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	raw, err := Encode(Payload{
 		Target: TargetSection{URL: "https://api.example.com/v1"},
 		Headers: requestHeaders(
-			HeaderOp{Op: HeaderOperationSet, Name: "Authorization", Values: []string{"Bearer secret"}},
-			HeaderOp{Op: HeaderOperationSet, Name: "X-Test", Values: []string{"a"}},
-			HeaderOp{Op: HeaderOperationAdd, Name: "X-Multi", Values: []string{"b", "c"}},
+			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
+			HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
+			HeaderMutation{Action: HeaderActionAppend, Name: "X-Multi", Values: []string{"b", "c"}},
 		),
 	})
 	if err != nil {
@@ -46,9 +46,9 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
 	raw, err := Encode(Payload{
 		Target: TargetSection{URL: "https://api.example.com"},
-		Headers: &HeaderPolicy{Ops: []HeaderOp{
-			{Side: HeaderSideRequest, Op: HeaderOperationSet, Name: "X-Test", Values: []string{"original"}},
-			{Side: HeaderSideResponse, Op: HeaderOperationSet, Name: "X-Response", Values: []string{"original"}},
+		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
+			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test", Values: []string{"original"}},
+			{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Response", Values: []string{"original"}},
 		}},
 	})
 	if err != nil {

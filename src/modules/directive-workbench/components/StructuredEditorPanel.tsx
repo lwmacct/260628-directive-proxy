@@ -3,9 +3,9 @@ import { Alert, Button, Checkbox, Flex, Form, Input, Segmented, Select, Space, T
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import type { ChangeEvent } from "react";
 import type { Text } from "../../../shared/i18n";
-import { newHeaderOp } from "../constants";
-import type { EditorState, HeaderOp } from "../types";
-import { HeaderOperationsTable } from "./HeaderOperationsTable";
+import { newHeaderMutation } from "../constants";
+import type { EditorState, HeaderMutation } from "../types";
+import { HeaderMutationsTable } from "./HeaderMutationsTable";
 import { ModuleProgramEditor } from "./ModuleProgramEditor";
 import { RecoveryEditor } from "./RecoveryEditor";
 
@@ -17,30 +17,30 @@ export function StructuredEditorPanel(props: {
   onUpdate: (patch: Partial<EditorState>) => void;
 }) {
   const { editor, text, onUpdate } = props;
-  type HeaderField = "headerOps" | "resolverHeaderOps";
-  const updateHeaderOps = (field: HeaderField, items: HeaderOp[]) => {
-    if (field === "headerOps") onUpdate({ headerOps: items });
-    else onUpdate({ resolverHeaderOps: items });
+  type HeaderField = "headerMutations" | "resolverHeaderMutations";
+  const updateHeaderMutations = (field: HeaderField, items: HeaderMutation[]) => {
+    if (field === "headerMutations") onUpdate({ headerMutations: items });
+    else onUpdate({ resolverHeaderMutations: items });
   };
-  const updateHeaderOp = (field: HeaderField, key: string, patch: Partial<HeaderOp>) => {
-    updateHeaderOps(field, editor[field].map((item) => item.key === key ? { ...item, ...patch } : item));
+  const updateHeaderMutation = (field: HeaderField, key: string, patch: Partial<HeaderMutation>) => {
+    updateHeaderMutations(field, editor[field].map((item) => item.key === key ? { ...item, ...patch } : item));
   };
-  const headerOpsEditor = (field: HeaderField, showSide: boolean) => <Flex gap="small" vertical>
+  const headerMutationsEditor = (field: HeaderField, showSide: boolean) => <Flex gap="small" vertical>
     <Flex align="center" gap="small" justify="space-between" wrap>
-      <Label strong>{text.headerOps}</Label>
+      <Label strong>{text.headerMutations}</Label>
       <Space wrap>
         <Label type="secondary">{text.headerMode}</Label>
         <Select
           aria-label={text.headerMode}
           options={[{ label: "Patch", value: "patch" }, { label: "Replace", value: "replace" }]}
           style={{ width: 120 }}
-          value={field === "headerOps" ? editor.requestHeaderMode : editor.resolverHeaderMode}
-          onChange={(mode: EditorState["requestHeaderMode"]) => field === "headerOps" ? onUpdate({ requestHeaderMode: mode }) : onUpdate({ resolverHeaderMode: mode })}
+          value={field === "headerMutations" ? editor.requestHeaderMode : editor.resolverHeaderMode}
+          onChange={(mode: EditorState["requestHeaderMode"]) => field === "headerMutations" ? onUpdate({ requestHeaderMode: mode }) : onUpdate({ resolverHeaderMode: mode })}
         />
-        <Button icon={<PlusOutlined />} onClick={() => updateHeaderOps(field, [...editor[field], newHeaderOp("set", "name", "", [])])}>{text.add}</Button>
+        <Button icon={<PlusOutlined />} onClick={() => updateHeaderMutations(field, [...editor[field], newHeaderMutation("set", "name", "", [])])}>{text.add}</Button>
       </Space>
     </Flex>
-    <HeaderOperationsTable items={editor[field]} showSide={showSide} text={text} onChange={(key, patch) => updateHeaderOp(field, key, patch)} onRemove={(key) => updateHeaderOps(field, editor[field].filter((item) => item.key !== key))} />
+    <HeaderMutationsTable items={editor[field]} showSide={showSide} text={text} onChange={(key, patch) => updateHeaderMutation(field, key, patch)} onRemove={(key) => updateHeaderMutations(field, editor[field].filter((item) => item.key !== key))} />
   </Flex>;
 
   const basics = editor.source === "inline" ? <>
@@ -62,12 +62,12 @@ export function StructuredEditorPanel(props: {
         styles={{ container: { maxWidth: 520 } }}
         title={<><Label strong>{text.resolverHeaderNoticeTitle}</Label><ul className="policy-notice-list">
           <li>{text.resolverHeaderNoticeBaseline}</li>
-          <li>{text.resolverHeaderNoticeBeforeOps}</li>
-          <li>{text.resolverHeaderNoticeAfterOps}</li>
+          <li>{text.resolverHeaderNoticeBeforeMutations}</li>
+          <li>{text.resolverHeaderNoticeAfterMutations}</li>
           <li>{text.resolverHeaderNoticeOverride}</li>
         </ul></>}
       ><QuestionCircleOutlined aria-label={text.resolverHeaderNoticeTitle} className="help-icon" tabIndex={0} /></Tooltip></Space>}>
-        {headerOpsEditor("resolverHeaderOps", false)}
+        {headerMutationsEditor("resolverHeaderMutations", false)}
       </Form.Item>
     </> : null}
     <Alert showIcon title={text.remoteSpecOnlyHint} type="info" />
@@ -80,7 +80,7 @@ export function StructuredEditorPanel(props: {
       label: text.headers,
       children: <Flex gap="middle" vertical>
         <Checkbox checked={editor.preserveProxyDisclosure} onChange={(event: CheckboxChangeEvent) => onUpdate({ preserveProxyDisclosure: event.target.checked })}>{text.preserveProxyDisclosure}</Checkbox>
-        {headerOpsEditor("headerOps", true)}
+        {headerMutationsEditor("headerMutations", true)}
       </Flex>,
     }, {
       key: "modules",

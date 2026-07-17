@@ -7,10 +7,10 @@ export type ResolverHeader = {
   value: string;
 };
 
-export type HeaderOp = {
+export type HeaderMutation = {
   key: string;
   side: "request" | "response";
-  op: "set" | "del" | "add";
+  action: "set" | "remove" | "append";
   selector: "name" | "glob";
   pattern: string;
   values: string[];
@@ -52,13 +52,13 @@ export type EditorState = {
   redisURL: string;
   resolverHeaderMode: "patch" | "replace";
   resolverPreserveProxyDisclosure: boolean;
-  resolverHeaderOps: HeaderOp[];
+  resolverHeaderMutations: HeaderMutation[];
   targetURL: string;
   joinPath: boolean;
   proxyURL: string;
   requestHeaderMode: "patch" | "replace";
   preserveProxyDisclosure: boolean;
-  headerOps: HeaderOp[];
+  headerMutations: HeaderMutation[];
   requestProgram: EditorModuleSpec[];
   attemptProgram: EditorModuleSpec[];
   recovery: RecoveryEditorState;
@@ -83,9 +83,9 @@ export type DirectivePayload = {
   recovery?: RecoverySpec;
 };
 
-export type DirectiveHeaderOp = {
+export type DirectiveHeaderMutation = {
   side: "request" | "response";
-  op: "set" | "del" | "add";
+  action: "set" | "remove" | "append";
   name?: string;
   glob?: string;
   values?: string[];
@@ -94,7 +94,7 @@ export type DirectiveHeaderOp = {
 export type DirectiveHeaderPolicy = {
   mode?: "patch" | "replace";
   preserve_proxy_disclosure?: boolean;
-  ops?: DirectiveHeaderOp[];
+  mutations?: DirectiveHeaderMutation[];
 };
 
 export type RemoteSpec = {

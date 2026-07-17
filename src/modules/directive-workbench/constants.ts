@@ -1,7 +1,7 @@
 import type {
   EditorModuleSpec,
   EditorState,
-  HeaderOp,
+  HeaderMutation,
   RecoveryEditorState,
   ResolverHeader,
   StatusRange,
@@ -14,14 +14,14 @@ function nextKey(prefix: string) {
   return `${prefix}-${rowID}`;
 }
 
-export function newHeaderOp(
-  op: HeaderOp["op"],
-  selector: HeaderOp["selector"],
+export function newHeaderMutation(
+  action: HeaderMutation["action"],
+  selector: HeaderMutation["selector"],
   pattern: string,
   values: string[],
-  side: HeaderOp["side"] = "request",
-): HeaderOp {
-  return { key: nextKey("header-op"), side, op, selector, pattern, values };
+  side: HeaderMutation["side"] = "request",
+): HeaderMutation {
+  return { key: nextKey("header-mutation"), side, action, selector, pattern, values };
 }
 
 export function newResolverHeader(name: string, value: string): ResolverHeader {
@@ -59,15 +59,15 @@ export const initialEditor: EditorState = {
   redisURL: "redis://user:password@redis.example.com:6379/1",
   resolverHeaderMode: "patch",
   resolverPreserveProxyDisclosure: false,
-  resolverHeaderOps: [newHeaderOp("set", "name", "Authorization", ["Bearer policy-token"])],
+  resolverHeaderMutations: [newHeaderMutation("set", "name", "Authorization", ["Bearer policy-token"])],
   targetURL: "https://httpbin.org/anything",
   joinPath: true,
   proxyURL: "",
   requestHeaderMode: "patch",
   preserveProxyDisclosure: false,
-  headerOps: [
-    newHeaderOp("set", "name", "Authorization", ["Bearer upstream-token"]),
-    newHeaderOp("set", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
+  headerMutations: [
+    newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
+    newHeaderMutation("set", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
   ],
   requestProgram: [newModuleSpec("capture", "builtin.capture")],
   attemptProgram: [],
