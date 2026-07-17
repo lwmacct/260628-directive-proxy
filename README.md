@@ -1,6 +1,6 @@
 # Directive Proxy
 
-Directive Proxy 是由 `Authorization: Bearer dp.19.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
+Directive Proxy 是由 `Authorization: Bearer dp.20.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
 
 项目的主要职责是 data plane：解析指令、改写请求、访问上游，并在异常发生时通过 Recovery Controller 让调用方同步修订远程指令或决定下一步动作。服务端控制面只保留 AuthMe 登录；directive 的生成、解析和校验全部在浏览器工作台本地完成。
 
@@ -22,22 +22,22 @@ TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校
 
 前端只保留 directive workbench、登录和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
 
-## Directive v19
+## Directive v20
 
-当前 token 版本是 `19`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
+当前 token 版本是 `20`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
 
 ```http
-Authorization: Bearer dp.19.inline.<base64url-json>.<hmac>
-Authorization: Bearer dp.19.remote.<base64url-json>.<hmac>
+Authorization: Bearer dp.20.inline.<base64url-json>.<hmac>
+Authorization: Bearer dp.20.remote.<base64url-json>.<hmac>
 ```
 
-`hmac` 是 `HMAC-SHA256(TokenSecret, "dp.19." + kind + "." + base64url-json)` 的 Base64URL 编码。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
+`hmac` 是 `HMAC-SHA256(TokenSecret, "dp.20." + kind + "." + base64url-json)` 的 Base64URL 编码。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
 inline token 的解码内容是：
 
 ```json
 {
-  "target": {"url": "https://api.example.com/v1"},
+  "target": {"base_url": "https://api.example.com/v1"},
   "headers": {
     "mode": "patch",
     "mutations": [
@@ -93,7 +93,7 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 ```json
 {
-  "target": {"url": "https://api.example.com/v2"},
+  "target": {"base_url": "https://api.example.com/v2"},
   "program": {
     "request": [
       {"id": "capture", "module": "builtin.capture", "config": {}}
@@ -111,6 +111,8 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 ```
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 Attempt 重读。Recovery retry 使用同一份已解析 Payload。
+
+`target` 是严格 one-of，必须且只能包含 `base_url` 或 `exact_url`。`base_url` 作为反向代理基址，在 Prepare 阶段拼接入站 path 并追加入站 query；`exact_url` 是完整目标地址，忽略入站 path/query。编译后的最终 URL 写入不可变 Plan，Recovery attempt 复用同一个结果。
 
 HTTP resolver 使用长生命周期连接池；HTTPS 显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1。resolver 与上游共用 `server.proxy.transport` 配置，但使用相互隔离的 transport 实例；明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 

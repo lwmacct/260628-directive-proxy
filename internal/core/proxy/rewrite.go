@@ -3,7 +3,6 @@ package proxy
 import (
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
@@ -25,50 +24,4 @@ func cloneURL(in *url.URL) *url.URL {
 	}
 	out := *in
 	return &out
-}
-
-func BuildOutboundURL(target, inbound *url.URL, joinPath bool) *url.URL {
-	out := cloneURL(target)
-	if out == nil {
-		return nil
-	}
-	if inbound == nil || !joinPath {
-		return out
-	}
-	out.RawQuery = joinRawQuery(target.RawQuery, inbound.RawQuery)
-	if target.RawPath != "" || inbound.RawPath != "" {
-		out.Path = singleJoiningSlash(target.EscapedPath(), inbound.EscapedPath())
-		parsed, err := url.Parse(out.Path)
-		if err == nil {
-			out.Path = parsed.Path
-			out.RawPath = parsed.RawPath
-		}
-		return out
-	}
-	out.Path = singleJoiningSlash(target.Path, inbound.Path)
-	return out
-}
-
-func singleJoiningSlash(left, right string) string {
-	leftSlash := strings.HasSuffix(left, "/")
-	rightSlash := strings.HasPrefix(right, "/")
-	switch {
-	case leftSlash && rightSlash:
-		return left + right[1:]
-	case !leftSlash && !rightSlash:
-		return left + "/" + right
-	default:
-		return left + right
-	}
-}
-
-func joinRawQuery(targetQuery, inboundQuery string) string {
-	switch {
-	case targetQuery == "":
-		return inboundQuery
-	case inboundQuery == "":
-		return targetQuery
-	default:
-		return targetQuery + "&" + inboundQuery
-	}
 }

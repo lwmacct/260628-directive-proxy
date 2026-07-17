@@ -8,7 +8,7 @@ import (
 
 func TestPayloadRoundTripsOrderedModuleProgram(t *testing.T) {
 	token, err := Encode(testTokenSecret, Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1/responses"},
+		Target: TargetSection{BaseURL: "https://api.example.com/v1/responses"},
 		Program: module.Program{
 			Request: []module.Spec{{ID: "capture", Module: "builtin.capture", Config: []byte(`{}`)}},
 			Attempt: []module.Spec{{ID: "usage", Module: "builtin.llmusage", Config: []byte(`{"protocol":"openai.responses"}`)}},

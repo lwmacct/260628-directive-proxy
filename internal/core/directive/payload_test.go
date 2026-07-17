@@ -9,7 +9,7 @@ import (
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	input := Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Target: TargetSection{BaseURL: "https://api.example.com/v1"},
 		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: &HeaderPolicy{
 			Mode:                    "replace",
@@ -38,8 +38,8 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected token kind: %q", token.Kind)
 	}
 	decoded := *token.Payload
-	if decoded.Target.URL != input.Target.URL {
-		t.Fatalf("unexpected url: %s", decoded.Target.URL)
+	if decoded.Target.BaseURL != input.Target.BaseURL {
+		t.Fatalf("unexpected base url: %s", decoded.Target.BaseURL)
 	}
 	if decoded.Proxy != input.Proxy {
 		t.Fatalf("unexpected proxy: %#v", decoded.Proxy)
@@ -55,7 +55,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 }
 
 func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
-	encoded, err := Encode(testTokenSecret, Payload{Target: TargetSection{URL: "https://api.example.com"}})
+	encoded, err := Encode(testTokenSecret, Payload{Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestRemoteSpecValidation(t *testing.T) {
 }
 
 func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"base_url":"https://api.example.com/v1"}}`))
 
 	if _, err := Decode(testTokenSecret, encoded); err == nil {
 		t.Fatal("expected validation error")
@@ -188,7 +188,7 @@ func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 }
 
 func TestDecodeRejectsLegacyTokenFamilyAndKinds(t *testing.T) {
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"payload":{"target":{"url":"https://api.example.com/v1"}}}`))
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"payload":{"target":{"base_url":"https://api.example.com/v1"}}}`))
 	for _, token := range []string{
 		"dproxy.18.i." + encoded,
 		"dp.18.i." + encoded,
@@ -200,8 +200,17 @@ func TestDecodeRejectsLegacyTokenFamilyAndKinds(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsSignedV19Token(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
+	signingInput := "dp.19.inline." + payload
+	encoded := signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(testTokenSecret, signingInput))
+	if _, err := Decode(testTokenSecret, encoded); err == nil {
+		t.Fatal("signed v19 token must be rejected")
+	}
+}
+
 func TestDecodeRejectsUnknownField(t *testing.T) {
-	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"key":"secret"}`))
+	encoded := encodeRawToken([]byte(`{"target":{"base_url":"https://api.example.com/v1"},"key":"secret"}`))
 
 	if _, err := decodeInlinePayload(encoded); err == nil {
 		t.Fatal("expected validation error")
@@ -209,11 +218,29 @@ func TestDecodeRejectsUnknownField(t *testing.T) {
 }
 
 func TestInlineTokenBodyIsPayloadAndRejectsEnvelope(t *testing.T) {
-	if _, err := Decode(testTokenSecret, encodeRawToken([]byte(`{"payload":{"target":{"url":"https://api.example.com/v1"}}}`))); err == nil {
+	if _, err := Decode(testTokenSecret, encodeRawToken([]byte(`{"payload":{"target":{"base_url":"https://api.example.com/v1"}}}`))); err == nil {
 		t.Fatal("inline token envelope must be rejected")
 	}
-	if _, err := Decode(testTokenSecret, encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))); err != nil {
+	if _, err := Decode(testTokenSecret, encodeRawToken([]byte(`{"target":{"base_url":"https://api.example.com/v1"}}`))); err != nil {
 		t.Fatalf("direct inline payload was rejected: %v", err)
+	}
+}
+
+func TestDecodePayloadRequiresStrictTargetUnion(t *testing.T) {
+	invalid := []string{
+		`{"target":{}}`,
+		`{"target":{"url":"https://api.example.com"}}`,
+		`{"target":{"base_url":"https://api.example.com","exact_url":"https://api.example.com/action"}}`,
+		`{"target":{"base_url":"https://api.example.com","join_path":true}}`,
+		`{"target":{"base_url":""}}`,
+	}
+	for _, raw := range invalid {
+		if _, err := DecodePayload([]byte(raw)); err == nil {
+			t.Fatalf("invalid target union was accepted: %s", raw)
+		}
+	}
+	if _, err := DecodePayload([]byte(`{"target":{"exact_url":"https://api.example.com/action"}}`)); err != nil {
+		t.Fatalf("exact target was rejected: %v", err)
 	}
 }
 
@@ -224,7 +251,7 @@ func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
 	}
 	invalid := []string{
 		`{"source":{"http":{"url":"https://resolver.example/resolve"}}}`,
-		`{"http":{"url":"https://resolver.example/resolve"},"payload":{"target":{"url":"https://api.example.com"}}}`,
+		`{"http":{"url":"https://resolver.example/resolve"},"payload":{"target":{"base_url":"https://api.example.com"}}}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"program":{}}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"recovery":{}}`,
 	}
@@ -236,7 +263,7 @@ func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
 }
 
 func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
-	encoded := encodeRawToken([]byte(`{"target":{"url":"https://api.example.com/v1"},"transport":{"proxy":"socks5://127.0.0.1:1080"}}`))
+	encoded := encodeRawToken([]byte(`{"target":{"base_url":"https://api.example.com/v1"},"transport":{"proxy":"socks5://127.0.0.1:1080"}}`))
 
 	if _, err := decodeInlinePayload(encoded); err == nil {
 		t.Fatal("expected validation error")
@@ -245,7 +272,7 @@ func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
 
 func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: &HeaderPolicy{Mode: "invalid"},
 	})
 	if err == nil {
@@ -255,7 +282,7 @@ func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
 
 func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionSet, Name: "X-Test"}),
 	})
 	if err == nil {
@@ -265,7 +292,7 @@ func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 
 func TestValidateRejectsMultiValueHost(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionSet, Name: "Host", Values: []string{"a.example.com", "b.example.com"}}),
 	})
 	if err == nil {
@@ -275,7 +302,7 @@ func TestValidateRejectsMultiValueHost(t *testing.T) {
 
 func TestValidateRejectsAppendHost(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionAppend, Name: "Host", Values: []string{"api.example.com"}}),
 	})
 	if err == nil {
@@ -285,7 +312,7 @@ func TestValidateRejectsAppendHost(t *testing.T) {
 
 func TestValidateRejectsHeaderMutationWithBothNameAndGlob(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionRemove, Name: "X-Test", Glob: "X-*"}),
 	})
 	if err == nil {
@@ -295,9 +322,9 @@ func TestValidateRejectsHeaderMutationWithBothNameAndGlob(t *testing.T) {
 
 func TestDecodeRejectsMissingOrInvalidHeaderSide(t *testing.T) {
 	invalid := []string{
-		`{"target":{"url":"https://api.example.com/v1"},"headers":{"mutations":[{"action":"remove","name":"Server"}]}}`,
-		`{"target":{"url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"upstream","action":"remove","name":"Server"}]}}`,
-		`{"target":{"url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":" request ","action":"remove","name":"Server"}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"action":"remove","name":"Server"}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"upstream","action":"remove","name":"Server"}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":" request ","action":"remove","name":"Server"}]}}`,
 	}
 	for _, raw := range invalid {
 		if _, err := DecodePayload([]byte(raw)); err == nil {
@@ -315,7 +342,7 @@ func TestRemoteHeadersRejectResponseSide(t *testing.T) {
 
 func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionRemove, Glob: "X-["}),
 	})
 	if err == nil {
@@ -325,7 +352,7 @@ func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 
 func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionRemove, Name: "Bad Header"}),
 	})
 	if err == nil {
@@ -335,7 +362,7 @@ func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
 
 func TestValidateRejectsRemoveWithValues(t *testing.T) {
 	err := Validate(Payload{
-		Target:  TargetSection{URL: "https://api.example.com/v1"},
+		Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(HeaderMutation{Action: HeaderActionRemove, Glob: "X-*", Values: []string{"value"}}),
 	})
 	if err == nil {
@@ -346,7 +373,7 @@ func TestValidateRejectsRemoveWithValues(t *testing.T) {
 func TestValidateRejectsProtectedResponseHeader(t *testing.T) {
 	for _, name := range []string{"Connection", "Content-Length", "Date", "Host", "X-Dproxy-Trace-ID"} {
 		err := Validate(Payload{
-			Target:  TargetSection{URL: "https://api.example.com/v1"},
+			Target:  TargetSection{BaseURL: "https://api.example.com/v1"},
 			Headers: &HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: name}}},
 		})
 		if err == nil {
@@ -360,7 +387,7 @@ func TestValidateRejectsInvalidHeaderValue(t *testing.T) {
 		requestHeaders(HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"bad\rvalue"}}),
 		&HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Test", Values: []string{"bad\nvalue"}}}},
 	} {
-		if err := Validate(Payload{Target: TargetSection{URL: "https://api.example.com/v1"}, Headers: headers}); err == nil {
+		if err := Validate(Payload{Target: TargetSection{BaseURL: "https://api.example.com/v1"}, Headers: headers}); err == nil {
 			t.Fatal("expected invalid header value to be rejected")
 		}
 	}
@@ -375,7 +402,7 @@ func TestValidateRejectsMissingURL(t *testing.T) {
 
 func TestValidateRejectsUnsupportedTargetScheme(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "ftp://api.example.com/v1"},
+		Target: TargetSection{BaseURL: "ftp://api.example.com/v1"},
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -384,7 +411,7 @@ func TestValidateRejectsUnsupportedTargetScheme(t *testing.T) {
 
 func TestValidateRejectsInvalidProxy(t *testing.T) {
 	err := Validate(Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Target: TargetSection{BaseURL: "https://api.example.com/v1"},
 		Proxy:  "http://127.0.0.1:1080",
 	})
 	if err == nil {

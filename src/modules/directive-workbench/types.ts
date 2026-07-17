@@ -53,8 +53,8 @@ export type EditorState = {
   resolverHeaderMode: "patch" | "replace";
   resolverPreserveProxyDisclosure: boolean;
   resolverHeaderMutations: HeaderMutation[];
+  targetMode: "base" | "exact";
   targetURL: string;
-  joinPath: boolean;
   proxyURL: string;
   requestHeaderMode: "patch" | "replace";
   preserveProxyDisclosure: boolean;
@@ -76,7 +76,7 @@ export type DirectiveProgram = {
 };
 
 export type DirectivePayload = {
-  target: { url: string; join_path?: boolean };
+  target: { base_url: string } | { exact_url: string };
   proxy?: string;
   headers?: DirectiveHeaderPolicy;
   program?: DirectiveProgram;

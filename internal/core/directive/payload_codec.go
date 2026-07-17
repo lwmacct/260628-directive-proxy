@@ -117,6 +117,10 @@ func ValidateDocument(document Document) (Document, error) {
 }
 
 func normalizePayload(payload Payload) (Payload, error) {
+	target, err := normalizeTarget(payload.Target)
+	if err != nil {
+		return Payload{}, err
+	}
 	program, err := normalizeProgram(payload.Program, true, true)
 	if err != nil {
 		return Payload{}, err
@@ -125,12 +129,22 @@ func normalizePayload(payload Payload) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
+	payload.Target = target
 	payload.Program = program
 	payload.Recovery = recoverySpec
 	if _, err := ToPlan(payload, AssembleOptions{}); err != nil {
 		return Payload{}, err
 	}
 	return payload, nil
+}
+
+func normalizeTarget(target TargetSection) (TargetSection, error) {
+	target.BaseURL = strings.TrimSpace(target.BaseURL)
+	target.ExactURL = strings.TrimSpace(target.ExactURL)
+	if (target.BaseURL == "") == (target.ExactURL == "") {
+		return TargetSection{}, ErrInvalidPayload
+	}
+	return target, nil
 }
 
 func DecodePayload(raw []byte) (Payload, error) {
@@ -145,6 +159,25 @@ func DecodePayload(raw []byte) (Payload, error) {
 		return Payload{}, ErrInvalidPayload
 	}
 	return normalizePayload(payload)
+}
+
+func (target *TargetSection) UnmarshalJSON(raw []byte) error {
+	type targetSection TargetSection
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var decoded targetSection
+	if err := decoder.Decode(&decoded); err != nil {
+		return ErrInvalidPayload
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return ErrInvalidPayload
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || len(fields) != 1 {
+		return ErrInvalidPayload
+	}
+	*target = TargetSection(decoded)
+	return nil
 }
 
 func encodeToken(secret, kind string, raw []byte) (string, error) {

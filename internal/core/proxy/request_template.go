@@ -54,7 +54,7 @@ func BuildAttemptRequest(template *RequestTemplate, plan *Plan, ctx context.Cont
 	}
 	req := &http.Request{
 		Method:           template.Method,
-		URL:              BuildOutboundURL(plan.Target, template.URL, plan.JoinPath),
+		URL:              cloneURL(plan.Target),
 		Proto:            template.Proto,
 		ProtoMajor:       template.ProtoMajor,
 		ProtoMinor:       template.ProtoMinor,

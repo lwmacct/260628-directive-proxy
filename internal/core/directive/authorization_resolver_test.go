@@ -11,7 +11,7 @@ import (
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	raw, err := Encode(testTokenSecret, Payload{
-		Target: TargetSection{URL: "https://api.example.com/v1"},
+		Target: TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
 			HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
@@ -29,11 +29,8 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	plan := resolution.Plan
-	if plan.Target.String() != "https://api.example.com/v1" {
+	if plan.Target.String() != "https://api.example.com/v1/v1/resources" {
 		t.Fatalf("unexpected target: %s", plan.Target.String())
-	}
-	if !plan.JoinPath {
-		t.Fatal("expected join path")
 	}
 	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 3 {
 		t.Fatalf("unexpected request header plan: %#v", plan.Headers.Request)
@@ -43,9 +40,27 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	}
 }
 
+func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
+	raw, err := Encode(testTokenSecret, Payload{
+		Target: TargetSection{ExactURL: "https://api.example.com/action?signature=fixed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources?client=1", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	resolution, err := resolveRequest(newTestResolver(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolution.Plan.Target.String(); got != "https://api.example.com/action?signature=fixed" {
+		t.Fatalf("unexpected exact target: %s", got)
+	}
+}
+
 func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
 	raw, err := Encode(testTokenSecret, Payload{
-		Target: TargetSection{URL: "https://api.example.com"},
+		Target: TargetSection{BaseURL: "https://api.example.com"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
 			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test", Values: []string{"original"}},
 			{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Response", Values: []string{"original"}},
@@ -92,13 +107,13 @@ func TestDirectiveTokenFromAuthorizationReservesDPTokenFamily(t *testing.T) {
 		authorization string
 		want          bool
 	}{
-		{name: "current version", authorization: "Bearer dp.19.inline.payload.mac", want: true},
+		{name: "current version", authorization: "Bearer dp.20.inline.payload.mac", want: true},
 		{name: "unsupported version", authorization: "Bearer dp.999.inline.payload", want: true},
 		{name: "malformed family token", authorization: "Bearer dp.", want: true},
-		{name: "case insensitive scheme", authorization: "bearer dp.19.inline.payload.mac", want: true},
+		{name: "case insensitive scheme", authorization: "bearer dp.20.inline.payload.mac", want: true},
 		{name: "legacy family", authorization: "Bearer dproxy.18.i.payload", want: false},
 		{name: "opaque bearer", authorization: "Bearer opaque-upstream-token", want: false},
-		{name: "other scheme", authorization: "Basic dp.19.inline.payload.mac", want: false},
+		{name: "other scheme", authorization: "Basic dp.20.inline.payload.mac", want: false},
 		{name: "missing", want: false},
 	}
 
@@ -147,7 +162,7 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 }
 
 func TestResolverRejectsWrongTokenSecret(t *testing.T) {
-	raw, err := Encode(testTokenSecret, Payload{Target: TargetSection{URL: "https://api.example.com"}})
+	raw, err := Encode(testTokenSecret, Payload{Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +177,7 @@ func TestResolverRejectsWrongTokenSecret(t *testing.T) {
 func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T) {
 	const decodedSecret = "decoded-auth-secret"
 
-	raw, err := encodeToken(testTokenSecret, TokenInline, []byte(`{"target":{"url":"`+decodedSecret+`"}}`))
+	raw, err := encodeToken(testTokenSecret, TokenInline, []byte(`{"target":{"base_url":"`+decodedSecret+`"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,7 +47,7 @@ func testRedisReference(t *testing.T, rawURL, key string) directive.RedisReferen
 func TestSourceReadsExactKey(t *testing.T) {
 	server := miniredis.RunT(t)
 	enableRedisJSON(t, server)
-	if err := server.Set("team-a/service-a", `{"target":{"url":"https://api.example.com"}}`); err != nil {
+	if err := server.Set("team-a/service-a", `{"target":{"base_url":"https://api.example.com"}}`); err != nil {
 		t.Fatalf("seed Redis directive: %v", err)
 	}
 	source := newTestSource()
@@ -55,7 +55,7 @@ func TestSourceReadsExactKey(t *testing.T) {
 	reference := testRedisReference(t, "redis://"+server.Addr()+"/0", "team-a/service-a")
 	for range 2 {
 		raw, err := source.Read(context.Background(), reference)
-		if err != nil || string(raw) != `{"target":{"url":"https://api.example.com"}}` {
+		if err != nil || string(raw) != `{"target":{"base_url":"https://api.example.com"}}` {
 			t.Fatalf("unexpected Redis result: raw=%s err=%v", raw, err)
 		}
 	}

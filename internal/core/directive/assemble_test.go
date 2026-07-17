@@ -1,10 +1,13 @@
 package directive
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestToPlan(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Target: TargetSection{URL: "https://api.example.com/base"},
+		Target: TargetSection{BaseURL: "https://api.example.com/base"},
 		Proxy:  "socks5://user:pass@127.0.0.1:1080",
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
@@ -22,9 +25,6 @@ func TestToPlan(t *testing.T) {
 	if plan.Proxy == nil || plan.Proxy.String() != "socks5://user:pass@127.0.0.1:1080" {
 		t.Fatalf("unexpected proxy: %#v", plan.Proxy)
 	}
-	if !plan.JoinPath {
-		t.Fatal("expected default join path")
-	}
 	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 2 {
 		t.Fatalf("unexpected request header plan: %#v", plan.Headers.Request)
 	}
@@ -32,7 +32,7 @@ func TestToPlan(t *testing.T) {
 
 func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Target: TargetSection{URL: "https://api.example.com/base"},
+		Target: TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{Mode: "replace", Mutations: []HeaderMutation{{
 			Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Host", Values: []string{"custom.example.com"},
 		}}},
@@ -50,7 +50,7 @@ func TestToPlanBuildsReplaceHeaderMode(t *testing.T) {
 
 func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Target: TargetSection{URL: "https://api.example.com/base"},
+		Target: TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionRemove, Glob: "M-Runtime-*"},
 		),
@@ -65,7 +65,7 @@ func TestToPlanBuildsGlobHeaderSelector(t *testing.T) {
 
 func TestToPlanBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Target: TargetSection{URL: "https://api.example.com/base"},
+		Target: TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{PreserveProxyDisclosure: true, Mutations: []HeaderMutation{{
 			Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server",
 		}}},
@@ -80,7 +80,7 @@ func TestToPlanBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 
 func TestToPlanSplitsMixedHeaderSides(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Target: TargetSection{URL: "https://api.example.com/base"},
+		Target: TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
 			{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server"},
 			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Request", Values: []string{"request"}},
@@ -98,25 +98,65 @@ func TestToPlanSplitsMixedHeaderSides(t *testing.T) {
 	}
 }
 
-func TestToPlanAllowsJoinPathFalse(t *testing.T) {
-	joinPath := false
-	plan, err := ToPlan(Payload{
-		Target: TargetSection{
-			URL:      "https://api.example.com/base",
-			JoinPath: &joinPath,
+func TestToPlanCompilesTargetAgainstInboundURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  TargetSection
+		inbound string
+		want    string
+	}{
+		{
+			name:    "base URL joins path and query",
+			target:  TargetSection{BaseURL: "https://example.com/base?source=proxy"},
+			inbound: "http://proxy.local/v1/resources?client=1",
+			want:    "https://example.com/base/v1/resources?source=proxy&client=1",
 		},
-	}, AssembleOptions{})
-	if err != nil {
-		t.Fatalf("assemble failed: %v", err)
+		{
+			name:    "exact URL ignores inbound URL",
+			target:  TargetSection{ExactURL: "https://example.com/action?signature=fixed"},
+			inbound: "http://proxy.local/v1/resources?client=1",
+			want:    "https://example.com/action?signature=fixed",
+		},
+		{
+			name:    "base URL preserves escaped path segments",
+			target:  TargetSection{BaseURL: "https://example.com/base%2Ftenant"},
+			inbound: "http://proxy.local/v1/a%2Fb",
+			want:    "https://example.com/base%2Ftenant/v1/a%2Fb",
+		},
 	}
-	if plan.JoinPath {
-		t.Fatal("expected join path to be disabled")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inbound, err := url.Parse(tt.inbound)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := ToPlan(Payload{Target: tt.target}, AssembleOptions{InboundURL: inbound})
+			if err != nil {
+				t.Fatalf("assemble failed: %v", err)
+			}
+			if got := plan.Target.String(); got != tt.want {
+				t.Fatalf("unexpected target: got %q want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestToPlanRejectsInvalidTargetUnion(t *testing.T) {
+	for _, target := range []TargetSection{
+		{},
+		{BaseURL: "https://api.example.com", ExactURL: "https://api.example.com/action"},
+		{BaseURL: "ftp://api.example.com"},
+		{ExactURL: "api.example.com/action"},
+	} {
+		if _, err := ToPlan(Payload{Target: target}, AssembleOptions{}); err == nil {
+			t.Fatalf("expected invalid target: %#v", target)
+		}
 	}
 }
 
 func TestToPlanExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
 	plan, err := ToPlan(Payload{
-		Target: TargetSection{URL: "https://api.example.com"},
+		Target: TargetSection{BaseURL: "https://api.example.com"},
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "x-dproxy-request-id", Values: []string{"request-1"}},
 			HeaderMutation{Action: HeaderActionAppend, Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
@@ -141,7 +181,7 @@ func TestToPlanRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
 		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
 		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
 	} {
-		if _, err := ToPlan(Payload{Target: TargetSection{URL: "https://api.example.com"}, Headers: requestHeaders(mutation)}, AssembleOptions{}); err == nil {
+		if _, err := ToPlan(Payload{Target: TargetSection{BaseURL: "https://api.example.com"}, Headers: requestHeaders(mutation)}, AssembleOptions{}); err == nil {
 			t.Fatalf("expected invalid metadata mutation: %#v", mutation)
 		}
 	}

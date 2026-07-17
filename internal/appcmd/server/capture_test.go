@@ -61,7 +61,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Target: directive.TargetSection{URL: upstream.URL},
+		Target: directive.TargetSection{BaseURL: upstream.URL},
 		Program: module.Program{Request: []module.Spec{{
 			ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}}},
@@ -158,7 +158,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	cfg := config.DefaultConfig().Server
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime}
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Target:  directive.TargetSection{URL: upstream.URL},
+		Target:  directive.TargetSection{BaseURL: upstream.URL},
 		Program: module.Program{Request: []module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
 	})
 	if err != nil {
@@ -225,7 +225,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Target: directive.TargetSection{URL: upstream.URL},
+		Target: directive.TargetSection{BaseURL: upstream.URL},
 		Program: module.Program{Attempt: []module.Spec{{
 			ID: "usage", Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
 		}}},

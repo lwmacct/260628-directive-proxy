@@ -226,8 +226,7 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 	handler := NewHandler(
 		resolverFunc(func(*http.Request) (Resolution, error) {
 			return Resolution{Plan: &Plan{
-				Target:   target,
-				JoinPath: true,
+				Target: target,
 			}}, nil
 		}),
 		roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -271,8 +270,7 @@ func TestHandlerPassesThroughUpstreamErrorResponse(t *testing.T) {
 	handler := NewHandler(
 		resolverFunc(func(*http.Request) (Resolution, error) {
 			return Resolution{Plan: &Plan{
-				Target:   target,
-				JoinPath: true,
+				Target: target,
 			}}, nil
 		}),
 		roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -304,7 +302,7 @@ func TestHandlerPassesThroughUpstreamErrorResponse(t *testing.T) {
 	if got := strings.TrimSpace(recorder.Body.String()); got != upstreamBody {
 		t.Fatalf("expected upstream body to pass through, got %q", got)
 	}
-	if got := recorder.Header().Get("X-Upstream-Target"); got != "https://api.example.com/private/v1/responses" {
+	if got := recorder.Header().Get("X-Upstream-Target"); got != "https://api.example.com/private" {
 		t.Fatalf("expected upstream target header to pass through, got %q", got)
 	}
 	if got := recorder.Header().Get("X-Upstream-Auth"); got != "Bearer upstream-secret" {
@@ -331,7 +329,7 @@ func TestHandlerPatchHeaderPolicySurvivesReverseProxyPreprocessing(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			handler := NewHandler(
 				resolverFunc(func(*http.Request) (Resolution, error) {
-					return Resolution{Plan: &Plan{Target: target, JoinPath: true, Headers: httpheader.Plan{
+					return Resolution{Plan: &Plan{Target: target, Headers: httpheader.Plan{
 						Request: httpheader.RequestPlan{PreserveProxyDisclosure: tt.preserve},
 					}}}, nil
 				}),

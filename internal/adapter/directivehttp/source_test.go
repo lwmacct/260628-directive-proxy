@@ -37,7 +37,7 @@ func TestSourcePrefersHTTP2OverTLS(t *testing.T) {
 	var protocol string
 	resolver := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		protocol = r.Proto
-		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+		_, _ = w.Write([]byte(`{"target":{"base_url":"https://api.example.com"}}`))
 	}))
 	resolver.EnableHTTP2 = true
 	resolver.StartTLS()
@@ -62,7 +62,7 @@ func TestSourceFallsBackToHTTP1(t *testing.T) {
 	var protocol string
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		protocol = r.Proto
-		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+		_, _ = w.Write([]byte(`{"target":{"base_url":"https://api.example.com"}}`))
 	}))
 	defer resolver.Close()
 	source := testSource()
@@ -104,14 +104,14 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
+		_, _ = w.Write([]byte(`{"target":{"base_url":"https://api.example.com/v1"}}`))
 	}))
 	defer resolver.Close()
 	source := testSource()
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodPost, "https://gateway.example.com/v1/resources?region=cn", nil)
 	req.Host = "gateway.example.com"
-	req.Header.Set("Authorization", "Bearer dp.19.remote.payload.mac")
+	req.Header.Set("Authorization", "Bearer dp.20.remote.payload.mac")
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "X-Hop")
 	req.Header.Set("X-Hop", "drop")
@@ -123,7 +123,7 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 		}}},
 	})
 	raw, err := source.Read(context.Background(), reference, testRequestSnapshot(req))
-	if err != nil || string(raw) != `{"target":{"url":"https://api.example.com/v1"}}` {
+	if err != nil || string(raw) != `{"target":{"base_url":"https://api.example.com/v1"}}` {
 		t.Fatalf("unexpected response: raw=%s err=%v", raw, err)
 	}
 	if got.Protocol != "dproxy.resolve.v1" || got.Request.Method != http.MethodPost ||
@@ -137,7 +137,7 @@ func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 		if r.Header.Get("Cookie") != "" || r.Header.Get("Content-Type") != "" || r.Header.Get("X-Policy") != "resolver" {
 			t.Errorf("unexpected resolver headers: %#v", r.Header)
 		}
-		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+		_, _ = w.Write([]byte(`{"target":{"base_url":"https://api.example.com"}}`))
 	}))
 	defer resolver.Close()
 	source := testSource()
@@ -162,13 +162,13 @@ func TestSourceDefaultPolicyStripsReservedHeaders(t *testing.T) {
 			r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("unexpected resolver headers: %#v", r.Header)
 		}
-		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+		_, _ = w.Write([]byte(`{"target":{"base_url":"https://api.example.com"}}`))
 	}))
 	defer resolver.Close()
 	source := testSource()
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodPost, "http://gateway.local/", nil)
-	req.Header.Set("Authorization", "Bearer dp.19.remote.payload.mac")
+	req.Header.Set("Authorization", "Bearer dp.20.remote.payload.mac")
 	req.Header.Set("X-Dproxy-Secret", "drop")
 	req.Header.Set("X-Forwarded-For", "192.0.2.1")
 	req.Header.Set("X-Tenant", "team-a")

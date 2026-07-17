@@ -132,7 +132,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		fingerprint := planFingerprint(resolution.Plan)
 		planChanged := previousFingerprint != "" && previousFingerprint != fingerprint
 		previousFingerprint = fingerprint
-		target := BuildOutboundURL(resolution.Plan.Target, prepared.template.URL, resolution.Plan.JoinPath)
+		target := cloneURL(resolution.Plan.Target)
 		targetValue := urlString(target)
 		targetChanged := previousTarget != "" && previousTarget != targetValue
 		previousTarget = targetValue
@@ -530,7 +530,6 @@ func planFingerprint(plan *Plan) string {
 		Metadata map[string][]string
 		Modules  []module.Spec
 		Recovery any
-		JoinPath bool
 	}{
 		Target:   urlString(plan.Target),
 		Proxy:    urlString(plan.Proxy),
@@ -538,7 +537,6 @@ func planFingerprint(plan *Plan) string {
 		Metadata: plan.Metadata,
 		Modules:  plan.Modules,
 		Recovery: plan.Recovery,
-		JoinPath: plan.JoinPath,
 	})
 	if err != nil {
 		return ""

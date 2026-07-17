@@ -4,6 +4,7 @@ import { Alert, App as AntdApp, Button, Drawer, Flex, Input, Segmented, Space, T
 import { useState, type ChangeEvent } from "react";
 import type { Text } from "../../shared/i18n";
 import { useText } from "../../shared/i18n";
+import { TOKEN_FAMILY, TOKEN_VERSION } from "./codec";
 import { RequestDebugger } from "./components/RequestDebugger";
 import { StructuredEditorPanel } from "./components/StructuredEditorPanel";
 import { useDirectiveSession } from "./hooks/useDirectiveSession";
@@ -22,7 +23,7 @@ function sourceContent(text: Text["authConsole"], source: DirectiveSource): Sour
       return {
         builderTitle: text.payloadBuilder,
         documentTitle: text.payloadJSON,
-        jsonPlaceholder: '{ "target": { "url": "https://api.example.com" } }',
+        jsonPlaceholder: '{ "target": { "base_url": "https://api.example.com" } }',
       };
     case "http":
       return {
@@ -58,7 +59,7 @@ export function DirectiveConsolePage() {
   const [debuggerOpen, setDebuggerOpen] = useState(false);
   const content = sourceContent(t.authConsole, session.source);
   const documentError = session.jsonError ?? session.formError;
-  const tokenPrefix = `dp.19.${session.envelope.kind}`;
+  const tokenPrefix = `${TOKEN_FAMILY}.${TOKEN_VERSION}.${session.envelope.kind}`;
 
   function copy(value: string) {
     void copyText(value).then((ok) => void (ok ? message.success(t.authConsole.copied) : message.error(t.authConsole.copyFailed)));
@@ -70,7 +71,7 @@ export function DirectiveConsolePage() {
     extra={<Space className="directive-console-header__actions" wrap>
       <div className="directive-console-header__protocol">
         <span>{t.authConsole.currentDirective}</span>
-        <Tag bordered={false}>{tokenPrefix}</Tag>
+        <Tag variant="filled">{tokenPrefix}</Tag>
       </div>
       <Button icon={<SendOutlined />} onClick={() => setDebuggerOpen(true)} type="primary">{t.authConsole.requestDebug}</Button>
     </Space>}
@@ -99,7 +100,7 @@ export function DirectiveConsolePage() {
         <div className="directive-console-secret__copy">
           <Flex align="center" gap="small" wrap>
             <Typography.Text strong>{t.authConsole.tokenSecret}</Typography.Text>
-            <Tag bordered={false}>HMAC-SHA256</Tag>
+            <Tag variant="filled">HMAC-SHA256</Tag>
           </Flex>
           <Typography.Text type="secondary">{t.authConsole.tokenSecretDescription}</Typography.Text>
         </div>

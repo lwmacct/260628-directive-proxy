@@ -97,7 +97,7 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if payload == nil {
 		return nil, proxy.ErrInvalidDirective
 	}
-	plan, err := ToPlan(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}})
+	plan, err := ToPlan(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}, InboundURL: req.URL})
 	if err != nil {
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid

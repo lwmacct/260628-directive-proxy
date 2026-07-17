@@ -16,7 +16,7 @@ func TestSourceReadsNestedDirectiveFile(t *testing.T) {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	want := []byte(`{"target":{"url":"https://api.example.com"}}`)
+	want := []byte(`{"target":{"base_url":"https://api.example.com"}}`)
 	if err := os.WriteFile(filepath.Join(path, "primary.json"), want, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestSourceRejectsInvalidOrNonRegularPath(t *testing.T) {
 func TestSourceRejectsSymlinkOutsideRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.json")
-	if err := os.WriteFile(outside, []byte(`{"target":{"url":"https://outside.example"}}`), 0o600); err != nil {
+	if err := os.WriteFile(outside, []byte(`{"target":{"base_url":"https://outside.example"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(root, "outside.json")); err != nil {

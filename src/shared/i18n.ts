@@ -2,19 +2,18 @@ import { useWorkbenchLocale } from "@lwmacct/260627-antd-workbench";
 
 const zh = {
   app: {
-    console: "控制台", settings: "设置", preferences: "偏好设置", appearance: "外观设置",
+    appearance: "外观设置",
   },
   auth: {
     authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
     unavailable: "暂时无法连接认证服务", invalidToken: "访问令牌无效",
   },
-  appearance: { panel: "主题与界面" },
   authConsole: {
     directiveConsole: "Directive Console", directiveConsoleDescription: "在一个工作区中构建、编码并调试 Inline 与 Remote Directive。", currentDirective: "当前类型", remoteSpecJSON: "RemoteSpec JSON",
     localOnly: "纯前端", payloadJSON: "Payload JSON",
     payloadBuilder: "Payload", httpSpecBuilder: "HTTP RemoteSpec", redisSpecBuilder: "Redis RemoteSpec", fileSpecBuilder: "File RemoteSpec",
     target: "Target", endpoint: "Endpoint", headers: "Headers", modules: "Modules", recovery: "Recovery",
-    targetURL: "Target URL", proxyURL: "SOCKS5 Proxy URL", joinPath: "Join Path",
+    targetMode: "目标 URL 模式", baseURL: "Base URL（拼接入站 path/query）", exactURL: "Exact URL（忽略入站 path/query）", proxyURL: "SOCKS5 Proxy URL",
     redisKey: "Redis Key", httpResolverURL: "HTTP Resolver URL", redisURL: "Redis URL", filePath: "根目录内文件路径",
     resolverHeaders: "Resolver 直接请求头策略",
     resolverHeaderNoticeTitle: "请求头删除与改写顺序",
@@ -47,7 +46,7 @@ const zh = {
     exactlyOneSelector: (label: string) => `${label} 必须且只能包含 name 或 glob 之一`, invalidHeaderName: (label: string) => `${label} 不是合法的 Header 名`,
     invalidGlob: (label: string) => `${label} 不是合法的 Glob`, removeHasValues: (label: string) => `${label} remove mutation 不能包含 values`,
     setNeedsValues: (label: string) => `${label} set/append mutation 必须包含 values`, hostValues: (label: string) => `${label} Host 只支持单值 set 或 remove`,
-    tokenPrefix: "Token 必须使用 dp.19.inline/remote 格式", tokenDecodeFailed: "Token JSON Base64URL 解码失败", invalidRedisKey: "Redis Key 必须是 1-256 字节且不能包含首尾空白或控制字符", invalidFilePath: "File path 必须是根目录内的 slash 相对路径，不能包含 .、.. 或反斜杠，且不能超过 4096 字节", invalidResolverHeader: "请求头名称或值不合法",
+    tokenPrefix: "Token 必须使用 dp.20.inline/remote 格式", tokenDecodeFailed: "Token JSON Base64URL 解码失败", invalidRedisKey: "Redis Key 必须是 1-256 字节且不能包含首尾空白或控制字符", invalidFilePath: "File path 必须是根目录内的 slash 相对路径，不能包含 .、.. 或反斜杠，且不能超过 4096 字节", invalidResolverHeader: "请求头名称或值不合法",
     unknownField: (label: string, field: string) => `${label} 包含未知字段 ${field}`, pathRequired: "请求路径不能为空", pathSameOrigin: "请求路径必须是以 / 开头的同源路径", pathReservedAPI: "请求路径不能指向保留 API",
     headerValueString: (name: string) => `Request Header ${name} 的值必须是 string`,
   },
@@ -55,19 +54,18 @@ const zh = {
 
 const en: Text = {
   app: {
-    console: "Console", settings: "Settings", preferences: "Preferences", appearance: "Appearance",
+    appearance: "Appearance",
   },
   auth: {
     authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
     unavailable: "Unable to connect to the authentication service", invalidToken: "Invalid access token",
   },
-  appearance: { panel: "Theme and interface" },
   authConsole: {
     directiveConsole: "Directive Console", directiveConsoleDescription: "Build, encode, and debug Inline and Remote Directives in one workspace.", currentDirective: "Current type", remoteSpecJSON: "RemoteSpec JSON",
     localOnly: "Browser only", payloadJSON: "Payload JSON",
     payloadBuilder: "Payload", httpSpecBuilder: "HTTP RemoteSpec", redisSpecBuilder: "Redis RemoteSpec", fileSpecBuilder: "File RemoteSpec",
     target: "Target", endpoint: "Endpoint", headers: "Headers", modules: "Modules", recovery: "Recovery",
-    targetURL: "Target URL", proxyURL: "SOCKS5 Proxy URL", joinPath: "Join Path",
+    targetMode: "Target URL mode", baseURL: "Base URL (append inbound path/query)", exactURL: "Exact URL (ignore inbound path/query)", proxyURL: "SOCKS5 Proxy URL",
     redisKey: "Redis key", httpResolverURL: "HTTP resolver URL", redisURL: "Redis URL", filePath: "File path under configured root",
     resolverHeaders: "Direct resolver request header policy",
     resolverHeaderNoticeTitle: "Header removal and rewrite order",
@@ -100,7 +98,7 @@ const en: Text = {
     exactlyOneSelector: (label: string) => `${label} must contain exactly one of name or glob`, invalidHeaderName: (label: string) => `${label} is not a valid header name`,
     invalidGlob: (label: string) => `${label} is not a valid glob`, removeHasValues: (label: string) => `${label} cannot contain values for remove`,
     setNeedsValues: (label: string) => `${label} requires values for set/append`, hostValues: (label: string) => `${label} Host only supports single-value set or remove`,
-    tokenPrefix: "Token must use the dp.19.inline/remote format", tokenDecodeFailed: "Failed to decode Token JSON Base64URL", invalidRedisKey: "Redis key must be 1-256 bytes without surrounding whitespace or control characters", invalidFilePath: "File path must be a slash-separated relative path under the configured root without . or .. segments or backslashes, up to 4096 bytes", invalidResolverHeader: "Header name or value is invalid",
+    tokenPrefix: "Token must use the dp.20.inline/remote format", tokenDecodeFailed: "Failed to decode Token JSON Base64URL", invalidRedisKey: "Redis key must be 1-256 bytes without surrounding whitespace or control characters", invalidFilePath: "File path must be a slash-separated relative path under the configured root without . or .. segments or backslashes, up to 4096 bytes", invalidResolverHeader: "Header name or value is invalid",
     unknownField: (label: string, field: string) => `${label} contains unknown field ${field}`, pathRequired: "Request path is required", pathSameOrigin: "Request path must be a same-origin path starting with /", pathReservedAPI: "Request path cannot target a reserved API",
     headerValueString: (name: string) => `Request Header ${name} must be a string`,
   },

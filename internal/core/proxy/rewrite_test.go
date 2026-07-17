@@ -109,8 +109,7 @@ func TestApplyRewrite(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
+		Target: target,
 		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("Authorization"),
@@ -118,7 +117,7 @@ func TestApplyRewrite(t *testing.T) {
 		}),
 	})
 
-	if req.Out.URL.String() != "https://example.com/base/v1/resources" {
+	if req.Out.URL.String() != "https://example.com/base" {
 		t.Fatalf("unexpected url: %s", req.Out.URL.String())
 	}
 	if got := req.Out.Header.Get("Authorization"); got != "Bearer abc" {
@@ -126,81 +125,16 @@ func TestApplyRewrite(t *testing.T) {
 	}
 }
 
-func TestApplyRewriteWithoutJoinPathUsesTargetPathAsIs(t *testing.T) {
+func TestApplyRewriteUsesCompiledTargetAsIs(t *testing.T) {
 	target, _ := url.Parse("https://example.com/ip?source=proxy")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources?client=1", nil)
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: false,
-	})
+	applyRewrite(req, &Plan{Target: target})
 
 	if req.Out.URL.String() != "https://example.com/ip?source=proxy" {
 		t.Fatalf("unexpected url: %s", req.Out.URL.String())
-	}
-}
-
-func TestBuildOutboundURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		target   string
-		inbound  string
-		joinPath bool
-		want     string
-	}{
-		{
-			name:     "joins paths and keeps inbound query",
-			target:   "https://example.com/base",
-			inbound:  "http://proxy.local/v1/resources?client=1",
-			joinPath: true,
-			want:     "https://example.com/base/v1/resources?client=1",
-		},
-		{
-			name:     "uses target as-is without join",
-			target:   "https://example.com/ip?source=proxy",
-			inbound:  "http://proxy.local/v1/resources?client=1",
-			joinPath: false,
-			want:     "https://example.com/ip?source=proxy",
-		},
-		{
-			name:     "preserves trailing slash",
-			target:   "https://example.com/base/",
-			inbound:  "http://proxy.local/v1/resources",
-			joinPath: true,
-			want:     "https://example.com/base/v1/resources",
-		},
-		{
-			name:     "preserves escaped path segments",
-			target:   "https://example.com/base%2Ftenant",
-			inbound:  "http://proxy.local/v1/a%2Fb",
-			joinPath: true,
-			want:     "https://example.com/base%2Ftenant/v1/a%2Fb",
-		},
-		{
-			name:     "joins target and inbound query",
-			target:   "https://example.com/base?source=proxy",
-			inbound:  "http://proxy.local/v1/resources?client=1",
-			joinPath: true,
-			want:     "https://example.com/base/v1/resources?source=proxy&client=1",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			target, err := url.Parse(tt.target)
-			if err != nil {
-				t.Fatalf("parse target failed: %v", err)
-			}
-			inbound, err := url.Parse(tt.inbound)
-			if err != nil {
-				t.Fatalf("parse inbound failed: %v", err)
-			}
-			if got := BuildOutboundURL(target, inbound, tt.joinPath).String(); got != tt.want {
-				t.Fatalf("unexpected outbound url: %s", got)
-			}
-		})
 	}
 }
 
@@ -212,8 +146,7 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
+		Target: target,
 		Headers: requestHeaderPlan(httpheader.ModeReplace, false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("X-Only"),
@@ -242,8 +175,7 @@ func TestApplyRewritePatchRemovesProxyDisclosureHeadersByDefault(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
+		Target: target,
 	})
 
 	for _, name := range []string{"Forwarded", "X-Forwarded-For"} {
@@ -280,8 +212,7 @@ func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
+		Target: target,
 		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("X-Dproxy-Injected"),
@@ -309,8 +240,7 @@ func TestApplyRewriteProxyDisclosurePolicyRunsBeforeOps(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
+		Target: target,
 		Headers: requestHeaderPlan(httpheader.ModePatch, false,
 			httpheader.Op{Action: httpheader.ActionSet, Selector: exactSelector("True-Client-IP"), Values: []string{"explicit"}},
 		),
@@ -338,7 +268,7 @@ func TestApplyRewritePatchRemovesHopByHopHeaders(t *testing.T) {
 	out.Header = make(http.Header)
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
-	applyRewrite(req, &Plan{Target: target, JoinPath: true})
+	applyRewrite(req, &Plan{Target: target})
 
 	for _, name := range []string{"Connection", "X-Connection-Only", "Keep-Alive"} {
 		if got := req.Out.Header.Get(name); got != "" {
@@ -383,8 +313,7 @@ func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 	req := &httputil.ProxyRequest{In: in, Out: out}
 
 	applyRewrite(req, &Plan{
-		Target:   target,
-		JoinPath: true,
+		Target: target,
 		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("Host"),

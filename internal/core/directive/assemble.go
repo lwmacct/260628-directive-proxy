@@ -12,6 +12,7 @@ import (
 
 type AssembleOptions struct {
 	StripHeaders []string
+	InboundURL   *url.URL
 }
 
 const (
@@ -21,12 +22,8 @@ const (
 )
 
 func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
-	targetURL := strings.TrimSpace(payload.Target.URL)
-	if targetURL == "" {
-		return nil, ErrInvalidPayload
-	}
-	target, err := url.Parse(targetURL)
-	if err != nil || target.Scheme == "" || target.Host == "" || !isHTTPURL(target) {
+	target, err := compileTarget(payload.Target, opts.InboundURL)
+	if err != nil {
 		return nil, ErrInvalidPayload
 	}
 	headers := HeaderPolicy{}
@@ -69,11 +66,6 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 		stripBeforeOps = append(stripBeforeOps, name)
 	}
 
-	joinPath := true
-	if payload.Target.JoinPath != nil {
-		joinPath = *payload.Target.JoinPath
-	}
-
 	return &proxy.Plan{
 		Target: target,
 		Proxy:  proxyURL,
@@ -89,8 +81,71 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 		Metadata: metadata,
 		Modules:  program.Attempt,
 		Recovery: recoveryPolicy,
-		JoinPath: joinPath,
 	}, nil
+}
+
+func compileTarget(section TargetSection, inbound *url.URL) (*url.URL, error) {
+	baseURL := strings.TrimSpace(section.BaseURL)
+	exactURL := strings.TrimSpace(section.ExactURL)
+	if (baseURL == "") == (exactURL == "") {
+		return nil, ErrInvalidPayload
+	}
+	raw := exactURL
+	if baseURL != "" {
+		raw = baseURL
+	}
+	target, err := url.Parse(raw)
+	if err != nil || target.Scheme == "" || target.Host == "" || !isHTTPURL(target) {
+		return nil, ErrInvalidPayload
+	}
+	if baseURL == "" || inbound == nil {
+		return target, nil
+	}
+	target.RawQuery = joinRawQuery(target.RawQuery, inbound.RawQuery)
+	target.Path, target.RawPath = joinURLPath(target, inbound)
+	return target, nil
+}
+
+func joinURLPath(base, inbound *url.URL) (string, string) {
+	if base.RawPath == "" && inbound.RawPath == "" {
+		return singleJoiningSlash(base.Path, inbound.Path), ""
+	}
+	basePath := base.EscapedPath()
+	inboundPath := inbound.EscapedPath()
+	baseSlash := strings.HasSuffix(basePath, "/")
+	inboundSlash := strings.HasPrefix(inboundPath, "/")
+	switch {
+	case baseSlash && inboundSlash:
+		return base.Path + inbound.Path[1:], basePath + inboundPath[1:]
+	case !baseSlash && !inboundSlash:
+		return base.Path + "/" + inbound.Path, basePath + "/" + inboundPath
+	default:
+		return base.Path + inbound.Path, basePath + inboundPath
+	}
+}
+
+func singleJoiningSlash(left, right string) string {
+	leftSlash := strings.HasSuffix(left, "/")
+	rightSlash := strings.HasPrefix(right, "/")
+	switch {
+	case leftSlash && rightSlash:
+		return left + right[1:]
+	case !leftSlash && !rightSlash:
+		return left + "/" + right
+	default:
+		return left + right
+	}
+}
+
+func joinRawQuery(baseQuery, inboundQuery string) string {
+	switch {
+	case baseQuery == "":
+		return inboundQuery
+	case inboundQuery == "":
+		return baseQuery
+	default:
+		return baseQuery + "&" + inboundQuery
+	}
 }
 
 func isModuleName(value string) bool {

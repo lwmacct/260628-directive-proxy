@@ -17,7 +17,6 @@ type Plan struct {
 	Metadata requestmeta.Metadata
 	Modules  []module.Spec
 	Recovery *recovery.Policy
-	JoinPath bool
 }
 
 type Resolution struct {

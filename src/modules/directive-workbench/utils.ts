@@ -35,8 +35,10 @@ function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
 
 export function buildPayload(input: EditorState): DirectivePayload {
   const mutations = buildHeaderMutations(input.headerMutations);
-  const payload: DirectivePayload = { target: { url: input.targetURL.trim() } };
-  if (!input.joinPath) payload.target.join_path = false;
+  const targetURL = input.targetURL.trim();
+  const payload: DirectivePayload = {
+    target: input.targetMode === "base" ? { base_url: targetURL } : { exact_url: targetURL },
+  };
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
   const headers = {
     ...(input.requestHeaderMode === "replace" ? { mode: input.requestHeaderMode } : {}),
@@ -115,8 +117,8 @@ export function buildEnvelope(source: DirectiveSource, editor: EditorState): Dir
 
 function payloadToEditor(payload: DirectivePayload) {
   return {
-    targetURL: payload.target.url,
-    joinPath: payload.target.join_path ?? true,
+    targetMode: "base_url" in payload.target ? "base" as const : "exact" as const,
+    targetURL: "base_url" in payload.target ? payload.target.base_url : payload.target.exact_url,
     proxyURL: payload.proxy ?? "",
     requestHeaderMode: payload.headers?.mode ?? "patch",
     preserveProxyDisclosure: payload.headers?.preserve_proxy_disclosure ?? false,

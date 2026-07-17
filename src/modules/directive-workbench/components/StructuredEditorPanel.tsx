@@ -45,9 +45,13 @@ export function StructuredEditorPanel(props: {
   </Flex>;
 
   const target = <>
-    <Form.Item label={text.targetURL}><Input placeholder="https://api.example.com/v1" value={editor.targetURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ targetURL: event.target.value })} /></Form.Item>
+    <Form.Item label={text.targetMode}><Select
+      options={[{ label: text.baseURL, value: "base" }, { label: text.exactURL, value: "exact" }]}
+      value={editor.targetMode}
+      onChange={(targetMode: EditorState["targetMode"]) => onUpdate({ targetMode })}
+    /></Form.Item>
+    <Form.Item label={editor.targetMode === "base" ? text.baseURL : text.exactURL}><Input placeholder="https://api.example.com/v1" value={editor.targetURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ targetURL: event.target.value })} /></Form.Item>
     <Form.Item label={text.proxyURL}><Input allowClear placeholder="socks5://user:pass@127.0.0.1:1080" value={editor.proxyURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ proxyURL: event.target.value })} /></Form.Item>
-    <Form.Item label={text.joinPath}><Checkbox checked={editor.joinPath} onChange={(event: CheckboxChangeEvent) => onUpdate({ joinPath: event.target.checked })}>{text.enabled}</Checkbox></Form.Item>
   </>;
 
   if (source === "redis") {

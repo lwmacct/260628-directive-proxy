@@ -3,7 +3,7 @@ import { parseTokenDocument } from "./schema";
 import type { DirectiveEnvelope, TokenKind } from "./types";
 
 export const TOKEN_FAMILY = "dp";
-export const TOKEN_VERSION = "19";
+export const TOKEN_VERSION = "20";
 
 export function normalizeDirectiveToken(value: string) {
 	return value.trim().replace(/^Bearer[ \t]+/i, "");

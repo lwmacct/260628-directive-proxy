@@ -1,75 +1,79 @@
 import {
+  WorkbenchAppearanceSettings,
   WorkbenchLanguageToggle,
   WorkbenchShell,
   WorkbenchThemeToggle,
   WorkbenchUserMenu,
-  type WorkbenchNavEntry,
 } from "@lwmacct/260627-antd-workbench";
-import { AppstoreOutlined, GithubOutlined, KeyOutlined, SettingOutlined } from "@ant-design/icons";
-import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BgColorsOutlined, GithubOutlined, KeyOutlined } from "@ant-design/icons";
+import { Button, Drawer, Flex, Tooltip } from "antd";
+import { useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { ConsoleLayout } from "../modules/console/ConsoleLayout";
-import { SettingsLayout } from "../modules/settings/SettingsLayout";
-import { SettingsPage } from "../modules/settings/SettingsPage";
 import { DISPLAY_VERSION } from "../shared/appConfig";
 import { useText } from "../shared/i18n";
 import { useAuth } from "./auth";
 
-function activeNav(pathname: string) {
-  if (pathname.startsWith("/settings")) {
-    return "settings";
-  }
-  return "console";
-}
-
 export function AppShell() {
-  const location = useLocation();
-  const navigate = useNavigate();
   const t = useText();
   const { identity, logout } = useAuth();
-  const nav: WorkbenchNavEntry[] = [
-    { key: "console", label: t.app.console, icon: <AppstoreOutlined /> },
-    { key: "settings", label: t.app.settings, icon: <SettingOutlined /> },
-  ];
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
 
   return (
-    <WorkbenchShell
-      account={
-        <WorkbenchUserMenu
-          user={{
-            avatarUrl: identity.avatar_url,
-            displayName: identity.name,
-            provider: identity.provider === "github" ? "GitHub" : "Access token",
-            providerIcon: identity.provider === "github" ? <GithubOutlined /> : <KeyOutlined />,
-            username: identity.username,
-          }}
-          onLogout={logout}
-        />
-      }
-      utilities={
-        <>
-          <WorkbenchThemeToggle />
-          <WorkbenchLanguageToggle />
-        </>
-      }
-      brand={{
-        mark: "D",
-        name: "Directive Proxy",
-        version: DISPLAY_VERSION,
-      }}
-      flushContent
-      nav={nav}
-      selectedNavKey={activeNav(location.pathname)}
-      onSelectNav={(key) => navigate(key === "settings" ? "/settings" : "/console")}
-    >
-      <Routes>
-        <Route element={<Navigate replace to="/console" />} path="/" />
-        <Route element={<ConsoleLayout />} path="/console/*" />
-        <Route element={<SettingsLayout />} path="/settings">
-          <Route element={<Navigate replace to="/settings/appearance" />} index />
-          <Route element={<SettingsPage />} path="appearance" />
-        </Route>
-        <Route element={<Navigate replace to="/console" />} path="*" />
-      </Routes>
-    </WorkbenchShell>
+    <>
+      <WorkbenchShell
+        account={
+          <WorkbenchUserMenu
+            user={{
+              avatarUrl: identity.avatar_url,
+              displayName: identity.name,
+              provider: identity.provider === "github" ? "GitHub" : "Access token",
+              providerIcon: identity.provider === "github" ? <GithubOutlined /> : <KeyOutlined />,
+              username: identity.username,
+            }}
+            onLogout={logout}
+          />
+        }
+        brand={{
+          mark: "D",
+          name: "Directive Proxy",
+          version: DISPLAY_VERSION,
+        }}
+        className="single-route-shell"
+        flushContent
+        nav={[]}
+        utilities={
+          <>
+            <WorkbenchThemeToggle />
+            <Tooltip title={t.app.appearance}>
+              <Button
+                aria-label={t.app.appearance}
+                className="appearance-drawer-trigger"
+                icon={<BgColorsOutlined />}
+                type="text"
+                onClick={() => setAppearanceOpen(true)}
+              />
+            </Tooltip>
+            <WorkbenchLanguageToggle />
+          </>
+        }
+        onSelectNav={() => undefined}
+      >
+        <Routes>
+          <Route element={<Navigate replace to="/console" />} path="/" />
+          <Route element={<ConsoleLayout />} path="/console/*" />
+          <Route element={<Navigate replace to="/console" />} path="*" />
+        </Routes>
+      </WorkbenchShell>
+      <Drawer
+        open={appearanceOpen}
+        rootClassName="appearance-drawer"
+        size={760}
+        title={<Flex align="center" gap="small"><BgColorsOutlined />{t.app.appearance}</Flex>}
+        onClose={() => setAppearanceOpen(false)}
+      >
+        <WorkbenchAppearanceSettings />
+      </Drawer>
+    </>
   );
 }

@@ -4,7 +4,7 @@ import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
 const (
 	TokenFamily  = "dp"
-	TokenVersion = "19"
+	TokenVersion = "20"
 	TokenInline  = "inline"
 	TokenRemote  = "remote"
 )
@@ -103,8 +103,8 @@ type Payload struct {
 }
 
 type TargetSection struct {
-	URL      string `json:"url"`
-	JoinPath *bool  `json:"join_path,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
+	ExactURL string `json:"exact_url,omitempty"`
 }
 
 type HeaderPolicy struct {

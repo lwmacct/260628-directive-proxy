@@ -215,11 +215,12 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
   const input = record(value, "payload", text);
   knownKeys(input, ["target", "proxy", "headers", "program", "recovery"], "payload", text);
   const targetInput = record(input.target, "payload.target", text);
-  knownKeys(targetInput, ["url", "join_path"], "payload.target", text);
-  const target = {
-    url: parseURL(targetInput.url, "payload.target.url", ["http", "https"], text),
-    ...(targetInput.join_path === undefined ? {} : { join_path: booleanValue(targetInput.join_path, "payload.target.join_path", text) }),
-  };
+  knownKeys(targetInput, ["base_url", "exact_url"], "payload.target", text);
+  const targetFields = ["base_url", "exact_url"].filter((name) => targetInput[name] !== undefined);
+  if (targetFields.length !== 1) throw new Error(text.mustBe("payload.target", "object with exactly one of base_url, exact_url"));
+  const target: DirectivePayload["target"] = targetInput.base_url !== undefined
+    ? { base_url: parseURL(targetInput.base_url, "payload.target.base_url", ["http", "https"], text) }
+    : { exact_url: parseURL(targetInput.exact_url, "payload.target.exact_url", ["http", "https"], text) };
   const proxy = optionalString(input.proxy, "payload.proxy", text);
   if (proxy !== undefined) {
     const parsed = parseURL(proxy, "payload.proxy", ["socks5"], text);
