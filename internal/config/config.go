@@ -35,13 +35,9 @@ type Server struct {
 }
 
 type ServerHTTP struct {
-	Listen         string           `json:"listen"            desc:"HTTP 服务监听地址"`
-	TLS            tlsreload.Config `json:"tls"               desc:"HTTPS TLS 配置"`
-	AuthMe         AuthMe           `json:"authme"            desc:"Authme 指令工作台认证配置"`
-	ReadTimeout    time.Duration    `json:"read-timeout"       desc:"HTTP 读取超时时间"`
-	WriteTimeout   time.Duration    `json:"write-timeout"      desc:"HTTP 写入超时时间；代理流式响应建议保持 0"`
-	IdleTimeout    time.Duration    `json:"idle-timeout"       desc:"HTTP 空闲连接超时时间"`
-	MaxHeaderBytes int              `json:"max-header-bytes"   desc:"HTTP 请求头最大字节数"`
+	Listen string           `json:"listen" desc:"HTTP 服务监听地址"`
+	TLS    tlsreload.Config `json:"tls"    desc:"HTTPS TLS 配置"`
+	AuthMe AuthMe           `json:"authme" desc:"Authme 指令工作台认证配置"`
 }
 
 type AuthMe struct {
@@ -54,7 +50,7 @@ type AuthMe struct {
 }
 
 type Proxy struct {
-	Transport ProxyTransport `json:"transport" desc:"上游连接池与连接复用配置"`
+	Transport ProxyTransport `json:"transport" desc:"出站 HTTP 连接池与连接复用配置"`
 	Recovery  ProxyRecovery  `json:"recovery"  desc:"Directive Recovery Controller 全局资源上限"`
 	BodyStore ProxyBodyStore `json:"body-store" desc:"流式可重放请求正文的内存与磁盘配置"`
 	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
@@ -79,10 +75,9 @@ type ProxyBodyStore struct {
 }
 
 type ProxyDirective struct {
-	MaxTokenBytes  int64                 `json:"max-token-bytes"  desc:"directive token 最大字节数"`
-	MaxInlineBytes int64                 `json:"max-inline-bytes" desc:"inline directive JSON 最大字节数"`
-	SourceAccess   DirectiveSourceAccess `json:"source-access"   desc:"Directive 入口来源白名单"`
-	Remote         RemoteDirective       `json:"remote"           desc:"远程指令解析资源限制"`
+	MaxTokenBytes int64                 `json:"max-token-bytes" desc:"directive token 最大字节数"`
+	SourceAccess  DirectiveSourceAccess `json:"source-access"  desc:"Directive 入口来源白名单"`
+	Remote        RemoteDirective       `json:"remote"         desc:"远程指令解析资源限制"`
 }
 
 type DirectiveSourceAccess struct {
@@ -91,15 +86,17 @@ type DirectiveSourceAccess struct {
 }
 
 type RemoteDirective struct {
-	Timeout          time.Duration        `json:"timeout"            desc:"单次远程指令解析总超时"`
-	MaxResponseBytes int64                `json:"max-response-bytes" desc:"远程 directive JSON 最大字节数"`
-	HTTP             HTTPRemoteDirective  `json:"http"               desc:"HTTP resolver 资源限制"`
-	Redis            RedisRemoteDirective `json:"redis"              desc:"Redis adapter 资源限制"`
-	File             FileRemoteDirective  `json:"file"               desc:"File adapter 根目录配置"`
+	Timeout         time.Duration        `json:"timeout"            desc:"单次远程指令解析总超时"`
+	MaxPayloadBytes int64                `json:"max-payload-bytes"  desc:"远程 directive Payload 最大字节数"`
+	Redis           RedisRemoteDirective `json:"redis"              desc:"Redis adapter 资源限制"`
+	File            FileRemoteDirective  `json:"file"               desc:"File adapter 根目录配置"`
 }
 
-type HTTPRemoteDirective struct {
-	MaxRequestBytes int64 `json:"max-request-bytes" desc:"HTTP resolver 请求元数据最大字节数"`
+type ProxyTransport struct {
+	MaxIdleConns        int           `json:"max-idle-conns"          desc:"全局 HTTP 空闲连接池容量；只影响连接复用，不限制活跃并发"`
+	MaxIdleConnsPerHost int           `json:"max-idle-conns-per-host" desc:"单目标 HTTP 空闲连接池容量；只影响连接复用，不限制活跃并发"`
+	MaxConnsPerHost     int           `json:"max-conns-per-host"      desc:"单目标 HTTP 活跃连接上限；0 表示不限制"`
+	IdleConnTimeout     time.Duration `json:"idle-conn-timeout"       desc:"HTTP 空闲连接在连接池中的保留时间"`
 }
 
 type RedisRemoteDirective struct {
@@ -110,14 +107,6 @@ type RedisRemoteDirective struct {
 
 type FileRemoteDirective struct {
 	Root string `json:"root" desc:"File directive 相对路径的读取根目录"`
-}
-
-type ProxyTransport struct {
-	MaxIdleConns        int           `json:"max-idle-conns"         desc:"全局空闲连接池容量；只影响连接复用，不限制活跃并发"`
-	MaxIdleConnsPerHost int           `json:"max-idle-conns-per-host" desc:"单 upstream 空闲连接池容量；只影响连接复用，不限制活跃并发"`
-	MaxConnsPerHost     int           `json:"max-conns-per-host"      desc:"单 upstream 活跃连接上限；0 表示不限制"`
-	IdleConnTimeout     time.Duration `json:"idle-conn-timeout"       desc:"空闲连接在连接池中的保留时间"`
-	DisableKeepAlives   bool          `json:"disable-keep-alives"    desc:"是否禁用上游 keep-alive"`
 }
 
 func DefaultConfig() Config {
@@ -144,10 +133,6 @@ func DefaultConfig() Config {
 					}(),
 					AllowedGitHubUsers: []string{"lwmacct"},
 				},
-				ReadTimeout:    30 * time.Second,
-				WriteTimeout:   0,
-				IdleTimeout:    120 * time.Second,
-				MaxHeaderBytes: 128 << 10,
 				TLS: func() tlsreload.Config {
 					config := tlsreload.DefaultConfig()
 					config.DefaultCertificate = "default"
@@ -179,8 +164,7 @@ func DefaultConfig() Config {
 					ReadTimeout:        30 * time.Second,
 				},
 				Directive: ProxyDirective{
-					MaxTokenBytes:  64 << 10,
-					MaxInlineBytes: 48 << 10,
+					MaxTokenBytes: 64 << 10,
 					SourceAccess: func() DirectiveSourceAccess {
 						access := sourceaccess.DefaultConfig()
 						access.Rules = []sourceaccess.Rule{
@@ -192,11 +176,8 @@ func DefaultConfig() Config {
 						return DirectiveSourceAccess{Config: access}
 					}(),
 					Remote: RemoteDirective{
-						Timeout:          time.Second,
-						MaxResponseBytes: 256 << 10,
-						HTTP: HTTPRemoteDirective{
-							MaxRequestBytes: 128 << 10,
-						},
+						Timeout:         time.Second,
+						MaxPayloadBytes: 256 << 10,
 						Redis: RedisRemoteDirective{
 							ClientCacheCapacity: 64,
 							ClientIdleTimeout:   10 * time.Minute,
@@ -212,7 +193,6 @@ func DefaultConfig() Config {
 					MaxIdleConnsPerHost: 2048,
 					MaxConnsPerHost:     0,
 					IdleConnTimeout:     60 * time.Second,
-					DisableKeepAlives:   false,
 				},
 			},
 			Fluent: func() fluent.Config {

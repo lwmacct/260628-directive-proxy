@@ -100,7 +100,6 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
 		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
 		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
-		DisableKeepAlives:   cfg.Proxy.Transport.DisableKeepAlives,
 	})
 	recoveryController := recoveryhttp.New(recoveryhttp.Options{MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes})
 	recoveryTransport, err := proxy.NewRecoveryTransport(baseTransport, proxy.RecoveryTransportOptions{
@@ -123,7 +122,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		return nil, fmt.Errorf("configure recovery transport: %w", err)
 	}
 	remoteConfig := cfg.Proxy.Directive.Remote
-	directiveRemotes := newDirectiveRemotes(remoteConfig)
+	directiveRemotes := newDirectiveRemotes(remoteConfig, cfg.Proxy.Transport)
 	return &runtime{
 		exchangeFactory:  exchangeFactory,
 		bodyStore:        bodyStore,
@@ -220,9 +219,8 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFact
 		options.TrackBeforeResolve = true
 	}
 	resolverOptions := directive.ResolverOptions{
-		LookupTimeout:  remoteConfig.Timeout,
-		MaxTokenBytes:  cfg.Proxy.Directive.MaxTokenBytes,
-		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
+		LookupTimeout: remoteConfig.Timeout,
+		MaxTokenBytes: cfg.Proxy.Directive.MaxTokenBytes,
 	}
 	if remotes != nil {
 		resolverOptions.HTTPReader = remotes.http

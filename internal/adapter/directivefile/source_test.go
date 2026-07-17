@@ -20,7 +20,7 @@ func TestSourceReadsNestedDirectiveFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(path, "primary.json"), want, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	source := New(Options{Root: root, MaxResponseBytes: 64 << 10})
+	source := New(Options{Root: root, MaxPayloadBytes: 64 << 10})
 	got, err := source.Read(t.Context(), directive.FileReference{Path: "team-a/services/primary.json"})
 	if err != nil || string(got) != string(want) {
 		t.Fatalf("unexpected file result: got=%s err=%v", got, err)
@@ -28,7 +28,7 @@ func TestSourceReadsNestedDirectiveFile(t *testing.T) {
 }
 
 func TestSourceClassifiesMissingFile(t *testing.T) {
-	source := New(Options{Root: t.TempDir(), MaxResponseBytes: 64 << 10})
+	source := New(Options{Root: t.TempDir(), MaxPayloadBytes: 64 << 10})
 	_, err := source.Read(t.Context(), directive.FileReference{Path: "missing/directive.json"})
 	if !errors.Is(err, directive.ErrRemoteNotFound) {
 		t.Fatalf("unexpected missing file error: %v", err)
@@ -40,7 +40,7 @@ func TestSourceRejectsInvalidOrNonRegularPath(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "directory"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	source := New(Options{Root: root, MaxResponseBytes: 64 << 10})
+	source := New(Options{Root: root, MaxPayloadBytes: 64 << 10})
 	for _, path := range []string{"../outside.json", "/absolute.json", "directory"} {
 		_, err := source.Read(t.Context(), directive.FileReference{Path: path})
 		if !errors.Is(err, directive.ErrRemoteInvalid) {
@@ -58,7 +58,7 @@ func TestSourceRejectsSymlinkOutsideRoot(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "outside.json")); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	source := New(Options{Root: root, MaxResponseBytes: 64 << 10})
+	source := New(Options{Root: root, MaxPayloadBytes: 64 << 10})
 	if value, err := source.Read(t.Context(), directive.FileReference{Path: "outside.json"}); err == nil || len(value) != 0 {
 		t.Fatalf("root escape succeeded: value=%s err=%v", value, err)
 	}
@@ -69,7 +69,7 @@ func TestSourceRejectsOversizedFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "large.json"), []byte("123456789"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	source := New(Options{Root: root, MaxResponseBytes: 8})
+	source := New(Options{Root: root, MaxPayloadBytes: 8})
 	_, err := source.Read(t.Context(), directive.FileReference{Path: "large.json"})
 	if !errors.Is(err, directive.ErrRemoteInvalid) {
 		t.Fatalf("unexpected oversized file error: %v", err)
@@ -79,7 +79,7 @@ func TestSourceRejectsOversizedFile(t *testing.T) {
 func TestSourceHonorsCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	source := New(Options{Root: t.TempDir(), MaxResponseBytes: 64 << 10})
+	source := New(Options{Root: t.TempDir(), MaxPayloadBytes: 64 << 10})
 	_, err := source.Read(ctx, directive.FileReference{Path: "directive.json"})
 	if !errors.Is(err, directive.ErrRemoteUnavailable) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("unexpected cancellation error: %v", err)

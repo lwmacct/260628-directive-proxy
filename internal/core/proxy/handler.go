@@ -221,8 +221,6 @@ func writeDirectiveError(w http.ResponseWriter, err error) bool {
 		WriteProxyErrorJSON(w, http.StatusNotFound, "directive_not_found", "directive: reference not found")
 	case errors.Is(err, ErrRemoteDirectiveUnavailable):
 		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable")
-	case errors.Is(err, ErrDirectiveMetadataTooLarge):
-		WriteProxyErrorJSON(w, http.StatusRequestHeaderFieldsTooLarge, "request_metadata_too_large", "directive: request metadata is too large")
 	case errors.Is(err, ErrRemoteDirectiveInvalid):
 		WriteProxyErrorJSON(w, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid")
 	default:

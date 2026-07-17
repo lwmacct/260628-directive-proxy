@@ -46,14 +46,6 @@ func EncodeDocument(document Document) (string, error) {
 }
 
 func Decode(encoded string) (Document, error) {
-	return DecodeWithOptions(encoded, DecodeOptions{})
-}
-
-type DecodeOptions struct {
-	MaxInlineBytes int64
-}
-
-func DecodeWithOptions(encoded string, opts DecodeOptions) (Document, error) {
 	parts := strings.Split(strings.TrimSpace(encoded), ".")
 	if len(parts) != 4 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[3] == "" {
 		return Document{}, ErrInvalidPayload
@@ -64,9 +56,6 @@ func DecodeWithOptions(encoded string, opts DecodeOptions) (Document, error) {
 	}
 	switch parts[2] {
 	case TokenInline:
-		if opts.MaxInlineBytes > 0 && int64(len(raw)) > opts.MaxInlineBytes {
-			return Document{}, ErrPayloadTooLarge
-		}
 		payload, err := DecodePayload(raw)
 		if err != nil {
 			return Document{}, err

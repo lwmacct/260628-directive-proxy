@@ -14,16 +14,18 @@ import (
 )
 
 type Options struct {
-	Timeout          time.Duration
-	MaxRequestBytes  int64
-	MaxResponseBytes int64
+	Timeout             time.Duration
+	MaxPayloadBytes     int64
+	MaxIdleConns        int
+	MaxIdleConnsPerHost int
+	MaxConnsPerHost     int
+	IdleConnTimeout     time.Duration
 }
 
 type Source struct {
-	client           *http.Client
-	transport        *http.Transport
-	maxRequestBytes  int64
-	maxResponseBytes int64
+	client          *http.Client
+	transport       *http.Transport
+	maxPayloadBytes int64
 }
 
 var _ directive.HTTPRemoteReader = (*Source)(nil)
@@ -43,6 +45,23 @@ func New(opts Options) *Source {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DisableCompression = true
+	transport.ForceAttemptHTTP2 = true
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+	transport.Protocols = protocols
+	if opts.MaxIdleConns > 0 {
+		transport.MaxIdleConns = opts.MaxIdleConns
+	}
+	if opts.MaxIdleConnsPerHost > 0 {
+		transport.MaxIdleConnsPerHost = opts.MaxIdleConnsPerHost
+	}
+	if opts.MaxConnsPerHost >= 0 {
+		transport.MaxConnsPerHost = opts.MaxConnsPerHost
+	}
+	if opts.IdleConnTimeout > 0 {
+		transport.IdleConnTimeout = opts.IdleConnTimeout
+	}
 	return &Source{
 		client: &http.Client{
 			Transport: transport,
@@ -51,9 +70,8 @@ func New(opts Options) *Source {
 				return http.ErrUseLastResponse
 			},
 		},
-		transport:        transport,
-		maxRequestBytes:  opts.MaxRequestBytes,
-		maxResponseBytes: opts.MaxResponseBytes,
+		transport:       transport,
+		maxPayloadBytes: opts.MaxPayloadBytes,
 	}
 }
 
@@ -71,9 +89,6 @@ func (s *Source) Read(ctx context.Context, reference directive.HTTPReference, re
 	})
 	if err != nil {
 		return nil, err
-	}
-	if s.maxRequestBytes > 0 && int64(len(body)) > s.maxRequestBytes {
-		return nil, directive.ErrRemoteMetadataTooBig
 	}
 	resolverRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, reference.Endpoint.String(), bytes.NewReader(body))
 	if err != nil {
@@ -96,7 +111,7 @@ func (s *Source) Read(ctx context.Context, reference directive.HTTPReference, re
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: status %d", directive.ErrRemoteUnavailable, response.StatusCode)
 	}
-	value, err := readBounded(response.Body, s.maxResponseBytes)
+	value, err := readBounded(response.Body, s.maxPayloadBytes)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", directive.ErrRemoteInvalid, err)
 	}

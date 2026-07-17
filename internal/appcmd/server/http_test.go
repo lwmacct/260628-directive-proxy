@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
@@ -59,6 +60,11 @@ func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
 
 	if srv.Addr != ":23198" {
 		t.Fatalf("unexpected http listen: %q", srv.Addr)
+	}
+	if srv.ReadHeaderTimeout != 10*time.Second || srv.ReadTimeout != 0 || srv.WriteTimeout != 0 ||
+		srv.IdleTimeout != 0 || srv.MaxHeaderBytes != 0 {
+		t.Fatalf("unexpected HTTP server limits: read_header=%s read=%s write=%s idle=%s headers=%d",
+			srv.ReadHeaderTimeout, srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout, srv.MaxHeaderBytes)
 	}
 
 	rootHealthReq := httptest.NewRequest(http.MethodGet, "http://control.local/health", nil)
@@ -208,7 +214,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 
 func newTestDirectiveRemotes(t *testing.T, cfg config.Server) *directiveRemotes {
 	t.Helper()
-	remotes := newDirectiveRemotes(cfg.Proxy.Directive.Remote)
+	remotes := newDirectiveRemotes(cfg.Proxy.Directive.Remote, cfg.Proxy.Transport)
 	t.Cleanup(func() { _ = remotes.Close() })
 	return remotes
 }

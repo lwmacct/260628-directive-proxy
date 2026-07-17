@@ -80,6 +80,21 @@ func TestConfigFileLoadsInlineFluentClientConfiguration(t *testing.T) {
 	}
 }
 
+func TestConfigFileLoadsProxyTransport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "server:\n  proxy:\n    transport:\n      max-idle-conns: 321\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Manager.Load(t.Context(), cfgm.File(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.Proxy.Transport.MaxIdleConns != 321 {
+		t.Fatalf("unexpected proxy transport: %#v", loaded.Server.Proxy.Transport)
+	}
+}
+
 func TestConfigFileRejectsRemovedFluentOutputConfiguration(t *testing.T) {
 	for _, content := range []string{
 		"server:\n  fluent:\n    connections: 4\n",

@@ -10,8 +10,7 @@ import (
 )
 
 var (
-	ErrInvalidPayload  = errors.New("invalid proxy payload")
-	ErrPayloadTooLarge = errors.New("proxy payload is too large")
+	ErrInvalidPayload = errors.New("invalid proxy payload")
 )
 
 func Validate(payload Payload) error {

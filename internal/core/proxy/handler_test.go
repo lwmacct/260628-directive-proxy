@@ -120,7 +120,6 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 	}{
 		{ErrDirectiveNotFound, http.StatusNotFound, "directive_not_found", "directive: reference not found"},
 		{ErrRemoteDirectiveUnavailable, http.StatusServiceUnavailable, "remote_unavailable", "directive: remote resolver unavailable"},
-		{ErrDirectiveMetadataTooLarge, http.StatusRequestHeaderFieldsTooLarge, "request_metadata_too_large", "directive: request metadata is too large"},
 		{ErrDirectiveTokenTooLarge, http.StatusRequestHeaderFieldsTooLarge, "directive_token_too_large", "directive: token is too large"},
 		{ErrRemoteDirectiveInvalid, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid"},
 	}

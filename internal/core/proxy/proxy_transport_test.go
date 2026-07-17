@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,12 +35,13 @@ func TestNewProxyAwareTransportUsesRequestProxy(t *testing.T) {
 }
 
 func TestNewProxyAwareTransportWithOptionsOverridesIdlePolicy(t *testing.T) {
-	transport := NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), ProxyTransportOptions{
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DisableKeepAlives = true
+	transport := NewProxyAwareTransportWithOptions(base, ProxyTransportOptions{
 		MaxIdleConns:        17,
 		MaxIdleConnsPerHost: 1,
 		MaxConnsPerHost:     3000,
 		IdleConnTimeout:     7 * time.Second,
-		DisableKeepAlives:   true,
 	})
 	if transport.MaxIdleConns != 17 {
 		t.Fatalf("unexpected max idle conns: %d", transport.MaxIdleConns)
@@ -51,8 +55,67 @@ func TestNewProxyAwareTransportWithOptionsOverridesIdlePolicy(t *testing.T) {
 	if transport.IdleConnTimeout != 7*time.Second {
 		t.Fatalf("unexpected idle conn timeout: %s", transport.IdleConnTimeout)
 	}
-	if !transport.DisableKeepAlives {
-		t.Fatal("expected keep-alives to be disabled")
+	if transport.DisableKeepAlives {
+		t.Fatal("expected HTTP connection reuse to be enabled")
+	}
+	if transport.Protocols == nil || !transport.Protocols.HTTP1() || !transport.Protocols.HTTP2() ||
+		transport.Protocols.UnencryptedHTTP2() || !transport.ForceAttemptHTTP2 {
+		t.Fatalf("unexpected upstream protocols: %v", transport.Protocols)
+	}
+}
+
+func TestProxyTransportPrefersHTTP2OverTLS(t *testing.T) {
+	var protocol string
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol = r.Proto
+		_, _ = io.WriteString(w, "ok")
+	}))
+	upstream.EnableHTTP2 = true
+	upstream.StartTLS()
+	defer upstream.Close()
+
+	roots := x509.NewCertPool()
+	roots.AddCert(upstream.Certificate())
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	transport := NewProxyAwareTransport(base)
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		t.Fatalf("HTTP/2 upstream request failed: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if protocol != "HTTP/2.0" {
+		t.Fatalf("upstream did not negotiate HTTP/2: %q", protocol)
+	}
+}
+
+func TestProxyTransportFallsBackToHTTP1(t *testing.T) {
+	var protocol string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol = r.Proto
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer upstream.Close()
+	transport := NewProxyAwareTransport(http.DefaultTransport.(*http.Transport))
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		t.Fatalf("HTTP/1.1 upstream request failed: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if protocol != "HTTP/1.1" {
+		t.Fatalf("upstream did not fall back to HTTP/1.1: %q", protocol)
 	}
 }
 

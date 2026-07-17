@@ -15,23 +15,26 @@ type directiveRemotes struct {
 	file  *directivefile.Source
 }
 
-func newDirectiveRemotes(cfg config.RemoteDirective) *directiveRemotes {
+func newDirectiveRemotes(cfg config.RemoteDirective, transport config.ProxyTransport) *directiveRemotes {
 	return &directiveRemotes{
 		http: directivehttp.New(directivehttp.Options{
-			Timeout:          cfg.Timeout,
-			MaxRequestBytes:  cfg.HTTP.MaxRequestBytes,
-			MaxResponseBytes: cfg.MaxResponseBytes,
+			Timeout:             cfg.Timeout,
+			MaxPayloadBytes:     cfg.MaxPayloadBytes,
+			MaxIdleConns:        transport.MaxIdleConns,
+			MaxIdleConnsPerHost: transport.MaxIdleConnsPerHost,
+			MaxConnsPerHost:     transport.MaxConnsPerHost,
+			IdleConnTimeout:     transport.IdleConnTimeout,
 		}),
 		redis: directiveredis.New(directiveredis.Options{
 			Timeout:             cfg.Timeout,
-			MaxResponseBytes:    cfg.MaxResponseBytes,
+			MaxPayloadBytes:     cfg.MaxPayloadBytes,
 			ClientCacheCapacity: cfg.Redis.ClientCacheCapacity,
 			ClientIdleTimeout:   cfg.Redis.ClientIdleTimeout,
 			PoolSize:            cfg.Redis.PoolSize,
 		}),
 		file: directivefile.New(directivefile.Options{
-			Root:             cfg.File.Root,
-			MaxResponseBytes: cfg.MaxResponseBytes,
+			Root:            cfg.File.Root,
+			MaxPayloadBytes: cfg.MaxPayloadBytes,
 		}),
 	}
 }

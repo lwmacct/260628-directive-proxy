@@ -15,9 +15,6 @@ func Validate(cfg Server) (Server, error) {
 	if strings.TrimSpace(cfg.HTTP.Listen) == "" {
 		return cfg, ErrInvalidHTTP
 	}
-	if cfg.HTTP.MaxHeaderBytes <= 0 {
-		return cfg, ErrInvalidHTTP
-	}
 	if cfg.HTTP.TLS.Enabled {
 		cfg.HTTP.TLS.DefaultCertificate = strings.TrimSpace(cfg.HTTP.TLS.DefaultCertificate)
 		for index := range cfg.HTTP.TLS.Certificates {
@@ -70,8 +67,9 @@ func Validate(cfg Server) (Server, error) {
 		}
 		cfg.Proxy.Directive.SourceAccess = validatedAccess
 	}
-	if cfg.Proxy.Transport.MaxIdleConns < 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost < 0 ||
-		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout < 0 {
+	if cfg.Proxy.Transport.MaxIdleConns <= 0 || cfg.Proxy.Transport.MaxIdleConnsPerHost <= 0 ||
+		cfg.Proxy.Transport.MaxIdleConnsPerHost > cfg.Proxy.Transport.MaxIdleConns ||
+		cfg.Proxy.Transport.MaxConnsPerHost < 0 || cfg.Proxy.Transport.IdleConnTimeout <= 0 {
 		return cfg, ErrInvalidTransport
 	}
 	recoveryConfig := cfg.Proxy.Recovery
@@ -95,9 +93,8 @@ func Validate(cfg Server) (Server, error) {
 	cfg.Fluent = validatedFluent
 	remote := cfg.Proxy.Directive.Remote
 	remote.File.Root = strings.TrimSpace(remote.File.Root)
-	if cfg.Proxy.Directive.MaxTokenBytes <= 0 || cfg.Proxy.Directive.MaxInlineBytes <= 0 ||
-		cfg.Proxy.Directive.MaxInlineBytes > cfg.Proxy.Directive.MaxTokenBytes ||
-		remote.Timeout <= 0 || remote.MaxResponseBytes <= 0 || remote.HTTP.MaxRequestBytes <= 0 ||
+	if cfg.Proxy.Directive.MaxTokenBytes <= 0 ||
+		remote.Timeout <= 0 || remote.MaxPayloadBytes <= 0 ||
 		remote.Redis.ClientCacheCapacity <= 0 || remote.Redis.ClientIdleTimeout < 0 || remote.Redis.PoolSize <= 0 ||
 		remote.File.Root == "" {
 		return cfg, ErrInvalidDirective

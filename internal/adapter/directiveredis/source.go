@@ -13,23 +13,23 @@ import (
 
 type Options struct {
 	Timeout             time.Duration
-	MaxResponseBytes    int64
+	MaxPayloadBytes     int64
 	ClientCacheCapacity int
 	ClientIdleTimeout   time.Duration
 	PoolSize            int
 }
 
 type Source struct {
-	clients          *clientCache
-	maxResponseBytes int64
+	clients         *clientCache
+	maxPayloadBytes int64
 }
 
 var _ directive.RedisRemoteReader = (*Source)(nil)
 
 func New(opts Options) *Source {
 	return &Source{
-		clients:          newClientCache(opts.ClientCacheCapacity, opts.ClientIdleTimeout, opts.PoolSize, opts.Timeout),
-		maxResponseBytes: opts.MaxResponseBytes,
+		clients:         newClientCache(opts.ClientCacheCapacity, opts.ClientIdleTimeout, opts.PoolSize, opts.Timeout),
+		maxPayloadBytes: opts.MaxPayloadBytes,
 	}
 }
 
@@ -49,7 +49,7 @@ func (s *Source) Read(ctx context.Context, reference directive.RedisReference) (
 		}
 		return nil, fmt.Errorf("%w: %w", directive.ErrRemoteUnavailable, err)
 	}
-	if s.maxResponseBytes > 0 && int64(len(value)) > s.maxResponseBytes {
+	if s.maxPayloadBytes > 0 && int64(len(value)) > s.maxPayloadBytes {
 		return nil, fmt.Errorf("%w: response exceeds limit", directive.ErrRemoteInvalid)
 	}
 	return []byte(value), nil

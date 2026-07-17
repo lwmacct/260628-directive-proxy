@@ -16,6 +16,8 @@ Directive Proxy 是由 `Authorization: Bearer dp.<version>.<inline|remote>.<base
 
 `/api/admin/*` 和已删除的 `/api/public/*` 都是保留前缀，不会因为携带 dp token 而进入代理。普通业务路径（包括其他 `/api/...`）仍可进入 data plane。
 
+上游 HTTPS 连接显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1；连接池由 `server.proxy.transport` 配置。明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
+
 前端只保留 directive workbench、登录和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
 
 ## Directive v18
@@ -105,6 +107,8 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 ```
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 Attempt 重读。Recovery retry 使用同一份已解析 Payload。
+
+HTTP resolver 使用长生命周期连接池；HTTPS 显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1。resolver 与上游共用 `server.proxy.transport` 配置，但使用相互隔离的 transport 实例；明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 
 Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `side: request|response`，action 只允许 `set|remove|append`；数组顺序就是应用顺序。`mode` 和 `preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 直接复用同一结构，但只允许 request side，因为它描述的是 resolver 请求本身。默认 patch 以原请求头为基线：directive Authorization 与原 Content-Length 在 mutations 前移除，代理披露头默认移除；mutations 可以重新设置 resolver Authorization；最后统一移除 `x-dproxy-*` 和 hop-by-hop headers。
 

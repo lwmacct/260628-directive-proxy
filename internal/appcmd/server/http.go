@@ -23,10 +23,6 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 		Addr:              httpCfg.Listen,
 		Handler:           newHTTPHandler(cfg, rt),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       httpCfg.ReadTimeout,
-		WriteTimeout:      httpCfg.WriteTimeout,
-		IdleTimeout:       httpCfg.IdleTimeout,
-		MaxHeaderBytes:    httpCfg.MaxHeaderBytes,
 	}
 
 	if rt.tls == nil || rt.tls.config == nil {

@@ -67,21 +67,16 @@ server:
       # 允许访问应用的 GitHub 用户名
       allowed-github-users:
         - lwmacct
-    read-timeout: 30s # HTTP 读取超时时间
-    write-timeout: 0s # HTTP 写入超时时间；代理流式响应建议保持 0
-    idle-timeout: 2m0s # HTTP 空闲连接超时时间
-    max-header-bytes: 131072 # HTTP 请求头最大字节数
 
   # 代理配置
   proxy:
 
-    # 上游连接池与连接复用配置
+    # 出站 HTTP 连接池与连接复用配置
     transport:
-      max-idle-conns: 4096 # 全局空闲连接池容量；只影响连接复用，不限制活跃并发
-      max-idle-conns-per-host: 2048 # 单 upstream 空闲连接池容量；只影响连接复用，不限制活跃并发
-      max-conns-per-host: 0 # 单 upstream 活跃连接上限；0 表示不限制
-      idle-conn-timeout: 1m0s # 空闲连接在连接池中的保留时间
-      disable-keep-alives: false # 是否禁用上游 keep-alive
+      max-idle-conns: 4096 # 全局 HTTP 空闲连接池容量；只影响连接复用，不限制活跃并发
+      max-idle-conns-per-host: 2048 # 单目标 HTTP 空闲连接池容量；只影响连接复用，不限制活跃并发
+      max-conns-per-host: 0 # 单目标 HTTP 活跃连接上限；0 表示不限制
+      idle-conn-timeout: 1m0s # HTTP 空闲连接在连接池中的保留时间
 
     # Directive Recovery Controller 全局资源上限
     recovery:
@@ -104,7 +99,6 @@ server:
     # 指令来源配置
     directive:
       max-token-bytes: 65536 # directive token 最大字节数
-      max-inline-bytes: 49152 # inline directive JSON 最大字节数
 
       # Directive 入口来源白名单
       source-access:
@@ -136,11 +130,7 @@ server:
       # 远程指令解析资源限制
       remote:
         timeout: 1s # 单次远程指令解析总超时
-        max-response-bytes: 262144 # 远程 directive JSON 最大字节数
-
-        # HTTP resolver 资源限制
-        http:
-          max-request-bytes: 131072 # HTTP resolver 请求元数据最大字节数
+        max-payload-bytes: 262144 # 远程 directive Payload 最大字节数
 
         # Redis adapter 资源限制
         redis:

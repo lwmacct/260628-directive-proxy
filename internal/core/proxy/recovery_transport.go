@@ -510,8 +510,6 @@ func directiveErrorCode(err error) string {
 		return "directive_not_found"
 	case errors.Is(err, ErrRemoteDirectiveUnavailable):
 		return "remote_unavailable"
-	case errors.Is(err, ErrDirectiveMetadataTooLarge):
-		return "request_metadata_too_large"
 	case errors.Is(err, ErrRemoteDirectiveInvalid):
 		return "remote_response_invalid"
 	default:

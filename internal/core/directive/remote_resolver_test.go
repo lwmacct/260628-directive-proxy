@@ -160,9 +160,6 @@ func TestResolverRemoteFailures(t *testing.T) {
 		{name: "missing", opts: ResolverOptions{RedisReader: redisReaderFunc(func(context.Context, RedisReference) ([]byte, error) {
 			return nil, ErrRemoteNotFound
 		})}, wantErr: proxy.ErrDirectiveNotFound},
-		{name: "metadata too large", opts: ResolverOptions{RedisReader: redisReaderFunc(func(context.Context, RedisReference) ([]byte, error) {
-			return nil, ErrRemoteMetadataTooBig
-		})}, wantErr: proxy.ErrDirectiveMetadataTooLarge},
 		{name: "invalid payload", opts: ResolverOptions{RedisReader: redisReaderFunc(func(context.Context, RedisReference) ([]byte, error) {
 			return []byte(`{"target":{}}`), nil
 		})}, wantErr: proxy.ErrRemoteDirectiveInvalid},
@@ -193,7 +190,6 @@ func TestResolverRejectsOversizedTokenAndInlinePayload(t *testing.T) {
 	}
 	for _, opts := range []ResolverOptions{
 		{MaxTokenBytes: int64(len(token) - 1)},
-		{MaxInlineBytes: 1},
 	} {
 		if _, err := resolveRequest(NewResolver(opts), request()); !errors.Is(err, proxy.ErrDirectiveTokenTooLarge) {
 			t.Fatalf("unexpected size error: %v", err)

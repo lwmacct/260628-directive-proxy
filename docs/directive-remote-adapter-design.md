@@ -172,6 +172,8 @@ core resolver 根据 RemoteSpec 唯一非空的 backend 分支调用对应端口
 HTTP adapter 向 `RemoteSpec.http.url` 发起请求，并把成功 response body 原样交给 directive core。URL path/query 完整标识 resolver 资源，不存在独立 HTTP key。
 
 - URL 只允许 HTTP/HTTPS，不能包含 userinfo 或 fragment；
+- HTTPS resolver 显式启用 HTTP/2 并通过 ALPN 优先协商 `h2`，服务端不支持时回退 HTTP/1.1；明文 HTTP 不隐式启用 h2c；
+- resolver 共用长生命周期 `http.Client`，并与上游读取同一份 `server.proxy.transport` 连接池配置，但使用独立的 transport 实例；
 - `headers` 直接复用 Payload HeaderPolicy 的 `mode`、`preserve_proxy_disclosure` 与 `mutations`；
 - HTTP RemoteSpec 的 mutation 只允许 `side: request`，因为该策略只改写 resolver 请求头；
 - patch 模式以原入站 header 为基线，replace 模式从空集合开始；
@@ -210,7 +212,7 @@ File adapter 的根目录由 `server.proxy.directive.remote.file.root` 配置，
 - 拒绝越过根目录的路径和指向根目录外部的符号链接；
 - 只读取普通文件，不读取目录、设备或其他特殊文件；
 - 每次请求直接读取当前文件内容，不缓存 Payload value；
-- 与 HTTP/Redis 共用 `max-response-bytes` 上限。
+- 与 HTTP/Redis 共用 `max-payload-bytes` 上限。
 
 ## 错误语义
 

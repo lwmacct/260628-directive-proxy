@@ -2,6 +2,8 @@ package directivehttp
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,7 +16,65 @@ import (
 )
 
 func testSource() *Source {
-	return New(Options{Timeout: time.Second, MaxRequestBytes: 64 << 10, MaxResponseBytes: 64 << 10})
+	return New(Options{Timeout: time.Second, MaxPayloadBytes: 64 << 10})
+}
+
+func TestSourceConfiguresHTTP2AndConnectionReuse(t *testing.T) {
+	source := New(Options{
+		Timeout: time.Second, MaxPayloadBytes: 64 << 10,
+		MaxIdleConns: 256, MaxIdleConnsPerHost: 64, MaxConnsPerHost: 32, IdleConnTimeout: 2 * time.Minute,
+	})
+	t.Cleanup(func() { _ = source.Close() })
+	transport := source.transport
+	if transport.Protocols == nil || !transport.Protocols.HTTP1() || !transport.Protocols.HTTP2() || transport.Protocols.UnencryptedHTTP2() ||
+		!transport.ForceAttemptHTTP2 || transport.MaxIdleConns != 256 || transport.MaxIdleConnsPerHost != 64 ||
+		transport.MaxConnsPerHost != 32 || transport.IdleConnTimeout != 2*time.Minute {
+		t.Fatalf("unexpected HTTP resolver transport: %#v protocols=%v", transport, transport.Protocols)
+	}
+}
+
+func TestSourcePrefersHTTP2OverTLS(t *testing.T) {
+	var protocol string
+	resolver := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol = r.Proto
+		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+	}))
+	resolver.EnableHTTP2 = true
+	resolver.StartTLS()
+	defer resolver.Close()
+
+	roots := x509.NewCertPool()
+	roots.AddCert(resolver.Certificate())
+	source := testSource()
+	source.transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+	t.Cleanup(func() { _ = source.Close() })
+	reference := testHTTPReference(t, directive.HTTPRemoteSpec{URL: resolver.URL})
+	request := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)
+	if _, err := source.Read(t.Context(), reference, testRequestSnapshot(request)); err != nil {
+		t.Fatalf("resolve over HTTP/2 failed: %v", err)
+	}
+	if protocol != "HTTP/2.0" {
+		t.Fatalf("resolver did not negotiate HTTP/2: %q", protocol)
+	}
+}
+
+func TestSourceFallsBackToHTTP1(t *testing.T) {
+	var protocol string
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol = r.Proto
+		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
+	}))
+	defer resolver.Close()
+	source := testSource()
+	t.Cleanup(func() { _ = source.Close() })
+	reference := testHTTPReference(t, directive.HTTPRemoteSpec{URL: resolver.URL})
+	request := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)
+	if _, err := source.Read(t.Context(), reference, testRequestSnapshot(request)); err != nil {
+		t.Fatalf("resolve over HTTP/1.1 failed: %v", err)
+	}
+	if protocol != "HTTP/1.1" {
+		t.Fatalf("resolver did not fall back to HTTP/1.1: %q", protocol)
+	}
 }
 
 func testHTTPReference(t *testing.T, spec directive.HTTPRemoteSpec) directive.HTTPReference {
@@ -138,7 +198,7 @@ func TestSourceStatusAndLimits(t *testing.T) {
 				_, _ = w.Write([]byte(tt.body))
 			}))
 			defer server.Close()
-			source := New(Options{Timeout: time.Second, MaxRequestBytes: 1024, MaxResponseBytes: 8})
+			source := New(Options{Timeout: time.Second, MaxPayloadBytes: 8})
 			defer func() { _ = source.Close() }()
 			reference := testHTTPReference(t, directive.HTTPRemoteSpec{URL: server.URL})
 			request := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)

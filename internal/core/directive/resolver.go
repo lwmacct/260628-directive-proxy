@@ -16,28 +16,25 @@ import (
 )
 
 var (
-	ErrRemoteNotFound       = errors.New("remote directive not found")
-	ErrRemoteUnavailable    = errors.New("remote directive unavailable")
-	ErrRemoteInvalid        = errors.New("remote directive response is invalid")
-	ErrRemoteMetadataTooBig = errors.New("remote directive request metadata too large")
+	ErrRemoteNotFound    = errors.New("remote directive not found")
+	ErrRemoteUnavailable = errors.New("remote directive unavailable")
+	ErrRemoteInvalid     = errors.New("remote directive response is invalid")
 )
 
 type ResolverOptions struct {
-	HTTPReader     HTTPRemoteReader
-	RedisReader    RedisRemoteReader
-	FileReader     FileRemoteReader
-	LookupTimeout  time.Duration
-	MaxTokenBytes  int64
-	MaxInlineBytes int64
+	HTTPReader    HTTPRemoteReader
+	RedisReader   RedisRemoteReader
+	FileReader    FileRemoteReader
+	LookupTimeout time.Duration
+	MaxTokenBytes int64
 }
 
 type Resolver struct {
-	httpReader     HTTPRemoteReader
-	redisReader    RedisRemoteReader
-	fileReader     FileRemoteReader
-	lookupTimeout  time.Duration
-	maxTokenBytes  int64
-	maxInlineBytes int64
+	httpReader    HTTPRemoteReader
+	redisReader   RedisRemoteReader
+	fileReader    FileRemoteReader
+	lookupTimeout time.Duration
+	maxTokenBytes int64
 }
 
 type preparedDirective struct {
@@ -53,12 +50,11 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 		configured = opts[0]
 	}
 	return &Resolver{
-		httpReader:     configured.HTTPReader,
-		redisReader:    configured.RedisReader,
-		fileReader:     configured.FileReader,
-		lookupTimeout:  configured.LookupTimeout,
-		maxTokenBytes:  configured.MaxTokenBytes,
-		maxInlineBytes: configured.MaxInlineBytes,
+		httpReader:    configured.HTTPReader,
+		redisReader:   configured.RedisReader,
+		fileReader:    configured.FileReader,
+		lookupTimeout: configured.LookupTimeout,
+		maxTokenBytes: configured.MaxTokenBytes,
 	}
 }
 
@@ -73,14 +69,7 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if r != nil && r.maxTokenBytes > 0 && int64(len(raw)) > r.maxTokenBytes {
 		return nil, proxy.ErrDirectiveTokenTooLarge
 	}
-	var maxInlineBytes int64
-	if r != nil {
-		maxInlineBytes = r.maxInlineBytes
-	}
-	document, err := DecodeWithOptions(raw, DecodeOptions{MaxInlineBytes: maxInlineBytes})
-	if errors.Is(err, ErrPayloadTooLarge) {
-		return nil, proxy.ErrDirectiveTokenTooLarge
-	}
+	document, err := Decode(raw)
 	if err != nil {
 		return nil, proxy.ErrInvalidDirective
 	}
@@ -154,9 +143,6 @@ func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Pay
 	case errors.Is(err, ErrRemoteNotFound):
 		slog.Warn("remote directive not found", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrDirectiveNotFound
-	case errors.Is(err, ErrRemoteMetadataTooBig):
-		slog.Warn("remote directive metadata too large", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
-		return Payload{}, source, proxy.ErrDirectiveMetadataTooLarge
 	case errors.Is(err, ErrRemoteInvalid):
 		slog.Warn("remote directive response invalid", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrRemoteDirectiveInvalid

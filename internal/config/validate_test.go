@@ -55,14 +55,6 @@ func TestValidateRejectsMissingHTTPListen(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInvalidHTTPHeaderLimit(t *testing.T) {
-	cfg := validDefaultConfig()
-	cfg.HTTP.MaxHeaderBytes = 0
-	if _, err := Validate(cfg); err != ErrInvalidHTTP {
-		t.Fatalf("expected invalid HTTP config, got %v", err)
-	}
-}
-
 func TestValidateNormalizesTLSConfiguration(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.HTTP.TLS.Enabled = true
@@ -237,8 +229,7 @@ func TestValidateSkipsSourceAccessWhenDisabled(t *testing.T) {
 func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 	for _, mutate := range []func(*RemoteDirective){
 		func(cfg *RemoteDirective) { cfg.Timeout = 0 },
-		func(cfg *RemoteDirective) { cfg.HTTP.MaxRequestBytes = 0 },
-		func(cfg *RemoteDirective) { cfg.MaxResponseBytes = 0 },
+		func(cfg *RemoteDirective) { cfg.MaxPayloadBytes = 0 },
 		func(cfg *RemoteDirective) { cfg.Redis.ClientCacheCapacity = 0 },
 		func(cfg *RemoteDirective) { cfg.Redis.ClientIdleTimeout = -1 },
 		func(cfg *RemoteDirective) { cfg.Redis.PoolSize = 0 },
@@ -258,13 +249,27 @@ func TestValidateRemoteDirectiveResourceLimits(t *testing.T) {
 	}
 	for _, mutate := range []func(*ProxyDirective){
 		func(cfg *ProxyDirective) { cfg.MaxTokenBytes = 0 },
-		func(cfg *ProxyDirective) { cfg.MaxInlineBytes = 0 },
-		func(cfg *ProxyDirective) { cfg.MaxInlineBytes = cfg.MaxTokenBytes + 1 },
 	} {
 		cfg := validDefaultConfig()
 		mutate(&cfg.Proxy.Directive)
 		if _, err := Validate(cfg); err != ErrInvalidDirective {
 			t.Fatalf("expected invalid directive config, got %v", err)
+		}
+	}
+}
+
+func TestValidateRejectsInvalidProxyTransport(t *testing.T) {
+	for _, mutate := range []func(*ProxyTransport){
+		func(cfg *ProxyTransport) { cfg.MaxIdleConns = 0 },
+		func(cfg *ProxyTransport) { cfg.MaxIdleConnsPerHost = 0 },
+		func(cfg *ProxyTransport) { cfg.MaxIdleConnsPerHost = cfg.MaxIdleConns + 1 },
+		func(cfg *ProxyTransport) { cfg.MaxConnsPerHost = -1 },
+		func(cfg *ProxyTransport) { cfg.IdleConnTimeout = 0 },
+	} {
+		cfg := validDefaultConfig()
+		mutate(&cfg.Proxy.Transport)
+		if _, err := Validate(cfg); err != ErrInvalidTransport {
+			t.Fatalf("expected invalid proxy transport config, got %v", err)
 		}
 	}
 }

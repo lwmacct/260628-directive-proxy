@@ -36,7 +36,6 @@ type ProxyTransportOptions struct {
 	MaxIdleConnsPerHost int
 	MaxConnsPerHost     int
 	IdleConnTimeout     time.Duration
-	DisableKeepAlives   bool
 }
 
 func NewProxyAwareTransport(base *http.Transport) *http.Transport {
@@ -49,6 +48,11 @@ func NewProxyAwareTransportWithOptions(base *http.Transport, opts ProxyTransport
 	}
 
 	cloned := base.Clone()
+	cloned.ForceAttemptHTTP2 = true
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+	cloned.Protocols = protocols
 	if opts.MaxIdleConns > 0 {
 		cloned.MaxIdleConns = opts.MaxIdleConns
 	}
@@ -61,7 +65,7 @@ func NewProxyAwareTransportWithOptions(base *http.Transport, opts ProxyTransport
 	if opts.IdleConnTimeout > 0 {
 		cloned.IdleConnTimeout = opts.IdleConnTimeout
 	}
-	cloned.DisableKeepAlives = opts.DisableKeepAlives
+	cloned.DisableKeepAlives = false
 	cloned.DisableCompression = true
 	baseProxy := base.Proxy
 

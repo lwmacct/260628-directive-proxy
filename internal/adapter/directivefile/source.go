@@ -14,13 +14,13 @@ import (
 )
 
 type Options struct {
-	Root             string
-	MaxResponseBytes int64
+	Root            string
+	MaxPayloadBytes int64
 }
 
 type Source struct {
-	root             string
-	maxResponseBytes int64
+	root            string
+	maxPayloadBytes int64
 }
 
 var errFileTooLarge = errors.New("directive file exceeds limit")
@@ -28,7 +28,7 @@ var errFileTooLarge = errors.New("directive file exceeds limit")
 var _ directive.FileRemoteReader = (*Source)(nil)
 
 func New(opts Options) *Source {
-	return &Source{root: strings.TrimSpace(opts.Root), maxResponseBytes: opts.MaxResponseBytes}
+	return &Source{root: strings.TrimSpace(opts.Root), maxPayloadBytes: opts.MaxPayloadBytes}
 }
 
 func (s *Source) Read(ctx context.Context, reference directive.FileReference) ([]byte, error) {
@@ -65,10 +65,10 @@ func (s *Source) Read(ctx context.Context, reference directive.FileReference) ([
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: directive path %q from %q is not a regular file", directive.ErrRemoteInvalid, reference.Path, s.root)
 	}
-	if s.maxResponseBytes > 0 && info.Size() > s.maxResponseBytes {
+	if s.maxPayloadBytes > 0 && info.Size() > s.maxPayloadBytes {
 		return nil, fmt.Errorf("%w: directive file %q from %q exceeds limit", directive.ErrRemoteInvalid, reference.Path, s.root)
 	}
-	value, err := readBounded(file, s.maxResponseBytes)
+	value, err := readBounded(file, s.maxPayloadBytes)
 	if errors.Is(err, errFileTooLarge) {
 		return nil, fmt.Errorf("%w: directive file %q from %q exceeds limit", directive.ErrRemoteInvalid, reference.Path, s.root)
 	}

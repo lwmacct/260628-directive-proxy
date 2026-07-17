@@ -32,7 +32,7 @@ func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
 }
 
 func newTestSource() *Source {
-	return New(Options{Timeout: time.Second, MaxResponseBytes: 64 << 10, ClientCacheCapacity: 2, ClientIdleTimeout: time.Minute, PoolSize: 2})
+	return New(Options{Timeout: time.Second, MaxPayloadBytes: 64 << 10, ClientCacheCapacity: 2, ClientIdleTimeout: time.Minute, PoolSize: 2})
 }
 
 func testRedisReference(t *testing.T, rawURL, key string) directive.RedisReference {
