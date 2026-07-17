@@ -10,7 +10,7 @@
 
 - 从 `Authorization: Bearer <token>` 提取 `dp.` family token
 - 将 dp family 请求与保留 API 请求分流，decoder 只接受当前 `dp.<version>.inline/remote` 四段格式
-- inline 第四段直接解码为 `Payload`；remote 第四段直接解码为 `RemoteSpec` 并通过 `RemoteReader` 读取同一 `Payload`
+- inline 第四段直接解码为 `Payload`；remote 第四段直接解码为 `RemoteSpec`，编译为 typed reference 后通过 HTTP/Redis reader 读取同一 `Payload`
 - 校验当前版本 token、RemoteSpec 与 directive payload schema
 - 将 target、proxy、headers 等 payload 字段组装成 `proxy.Plan`
 
@@ -19,7 +19,7 @@
 1. `resolver.go` 读取 `Authorization` bearer token。
 2. 非 dp family token 由 proxy handler 交给下一个 HTTP handler；dp family token 必须是当前 `dp.<version>.inline/remote.<base64url-json>`。
 3. `payload_codec.go` 直接解码 inline `Payload` 或 remote `RemoteSpec`，不接受额外 envelope。
-4. remote spec 在 Prepare 阶段由 `RemoteReader` 解引用一次，取得的 payload 进入与 inline 相同的严格解码流程。
+4. remote spec 在 Prepare 阶段编译为 `HTTPReference` 或 `RedisReference`，并由对应 reader 解引用一次；取得的 payload 进入与 inline 相同的严格解码流程。
 5. `assemble.go` 将合法 payload 直接编译成 `proxy.Plan`；resolver 另行返回来源观测信息。
 
 ## 实现约定
@@ -47,9 +47,11 @@
 - `payload_codec.go`: 完整 `Document` 编解码、规范化和严格 JSON 解码
 - `payload_validate.go`: payload 字段校验入口
 - `assemble.go`: payload -> `proxy.Plan`
+- `remote.go`: RemoteSpec -> typed reference、请求快照和 HTTP/Redis reader 端口
 
 远端实现按 adapter 分离：
 
-- `internal/adapter/directive/remotehttp`: HTTP resolver 协议与 transport
-- `internal/adapter/directive/remoteredis`: Redis JSON 读取与动态 client cache
-- `internal/appcmd/server/directive_remote.go`: 在组合根实现统一 `RemoteReader` 端口，并按 `RemoteSpec.type` 适配和分派具体 reader
+- `internal/core/httpheader`: proxy 与 HTTP resolver 共用的 header plan 和执行语义
+- `internal/adapter/directivehttp`: HTTP resolver 协议与 transport
+- `internal/adapter/directiveredis`: Redis JSON 读取与动态 client cache
+- `internal/appcmd/server/directive_wiring.go`: 在组合根注入两个 reader 并统一管理连接资源

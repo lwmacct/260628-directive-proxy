@@ -12,18 +12,24 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
-type remoteReaderFunc func(context.Context, RemoteSpec, *http.Request) ([]byte, error)
+type httpReaderFunc func(context.Context, HTTPReference, RequestSnapshot) ([]byte, error)
 
-func (f remoteReaderFunc) Read(ctx context.Context, spec RemoteSpec, req *http.Request) ([]byte, error) {
-	return f(ctx, spec, req)
+func (f httpReaderFunc) Read(ctx context.Context, reference HTTPReference, request RequestSnapshot) ([]byte, error) {
+	return f(ctx, reference, request)
+}
+
+type redisReaderFunc func(context.Context, RedisReference) ([]byte, error)
+
+func (f redisReaderFunc) Read(ctx context.Context, reference RedisReference) ([]byte, error) {
+	return f(ctx, reference)
 }
 
 func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *testing.T) {
 	var calls int
-	resolver := NewResolver(ResolverOptions{RemoteReader: remoteReaderFunc(func(_ context.Context, _ RemoteSpec, req *http.Request) ([]byte, error) {
+	resolver := NewResolver(ResolverOptions{HTTPReader: httpReaderFunc(func(_ context.Context, _ HTTPReference, req RequestSnapshot) ([]byte, error) {
 		calls++
-		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL.Path != "/v1/chat" || req.Header.Get("X-Tenant") != "original" {
-			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Header)
+		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL != "http://proxy.local/v1/chat" || req.Headers.Get("X-Tenant") != "original" {
+			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Headers)
 		}
 		return []byte(`{"target":{"url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"program":{"request":[{"id":"capture","module":"builtin.capture","config":{}}],"attempt":[{"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}]},"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
 	})})
@@ -63,15 +69,22 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 }
 
 func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
-	var requested RemoteSpec
+	var requested HTTPReference
 	resolver := NewResolver(ResolverOptions{
-		RemoteReader: remoteReaderFunc(func(_ context.Context, spec RemoteSpec, _ *http.Request) ([]byte, error) {
-			requested = spec
+		HTTPReader: httpReaderFunc(func(_ context.Context, reference HTTPReference, _ RequestSnapshot) ([]byte, error) {
+			requested = reference
 			return []byte(`{"target":{"url":"https://remote.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Source","values":["remote"]}]}}`), nil
 		}),
 		LookupTimeout: time.Second,
 	})
-	spec := RemoteSpec{Type: RemoteTypeHTTP, URL: "https://policy.example.com/v1/resolve?secret=hidden", Key: "team-a/service-a"}
+	spec := RemoteSpec{
+		Type: RemoteTypeHTTP,
+		URL:  "https://policy.example.com/v1/resolve?secret=hidden",
+		Key:  "team-a/service-a",
+		Headers: &HeaderPolicy{Mutations: []HeaderMutation{{
+			Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer resolver"},
+		}}},
+	}
 	token, err := EncodeRemote(spec)
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
@@ -84,11 +97,12 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		t.Fatalf("resolve failed: %v", err)
 	}
 	plan := resolution.Plan
-	if requested.Key != spec.Key || plan.Target.String() != "https://remote.example.com/v1" {
+	if requested.Key != spec.Key || requested.Endpoint.String() != spec.URL || len(requested.Headers.Ops) != 1 ||
+		requested.Headers.Ops[0].Values[0] != "Bearer resolver" || plan.Target.String() != "https://remote.example.com/v1" {
 		t.Fatalf("unexpected resolved directive: spec=%#v plan=%#v", requested, plan)
 	}
 	if resolution.Source.Mode != "remote" || resolution.Source.Backend != "http" ||
-		resolution.Source.Endpoint != "https://policy.example.com/v1/resolve" || resolution.Source.Key != spec.Key {
+		resolution.Source.Endpoint != spec.URL || resolution.Source.Key != spec.Key {
 		t.Fatalf("unexpected directive metadata: %#v", resolution.Source)
 	}
 	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Values[0] != "remote" {
@@ -112,16 +126,16 @@ func TestResolverRemoteFailures(t *testing.T) {
 		wantErr error
 	}{
 		{name: "reader disabled", wantErr: proxy.ErrRemoteDirectiveUnavailable},
-		{name: "missing", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(context.Context, RemoteSpec, *http.Request) ([]byte, error) {
+		{name: "missing", opts: ResolverOptions{RedisReader: redisReaderFunc(func(context.Context, RedisReference) ([]byte, error) {
 			return nil, ErrRemoteNotFound
 		})}, wantErr: proxy.ErrDirectiveNotFound},
-		{name: "metadata too large", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(context.Context, RemoteSpec, *http.Request) ([]byte, error) {
+		{name: "metadata too large", opts: ResolverOptions{RedisReader: redisReaderFunc(func(context.Context, RedisReference) ([]byte, error) {
 			return nil, ErrRemoteMetadataTooBig
 		})}, wantErr: proxy.ErrDirectiveMetadataTooLarge},
-		{name: "invalid payload", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(context.Context, RemoteSpec, *http.Request) ([]byte, error) {
+		{name: "invalid payload", opts: ResolverOptions{RedisReader: redisReaderFunc(func(context.Context, RedisReference) ([]byte, error) {
 			return []byte(`{"target":{}}`), nil
 		})}, wantErr: proxy.ErrRemoteDirectiveInvalid},
-		{name: "timeout", opts: ResolverOptions{RemoteReader: remoteReaderFunc(func(ctx context.Context, _ RemoteSpec, _ *http.Request) ([]byte, error) {
+		{name: "timeout", opts: ResolverOptions{RedisReader: redisReaderFunc(func(ctx context.Context, _ RedisReference) ([]byte, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}), LookupTimeout: time.Millisecond}, wantErr: proxy.ErrRemoteDirectiveUnavailable},

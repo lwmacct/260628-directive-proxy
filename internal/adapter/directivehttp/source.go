@@ -1,4 +1,4 @@
-package remotehttp
+package directivehttp
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 type Options struct {
@@ -25,6 +25,8 @@ type Source struct {
 	maxRequestBytes  int64
 	maxResponseBytes int64
 }
+
+var _ directive.HTTPRemoteReader = (*Source)(nil)
 
 type resolveRequest struct {
 	Protocol string          `json:"protocol"`
@@ -56,17 +58,17 @@ func New(opts Options) *Source {
 	}
 }
 
-func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.Request) ([]byte, error) {
-	if req == nil {
+func (s *Source) Read(ctx context.Context, reference directive.HTTPReference, request directive.RequestSnapshot) ([]byte, error) {
+	if request.Method == "" || request.URL == "" {
 		return nil, directive.ErrRemoteInvalid
 	}
 	body, err := json.Marshal(resolveRequest{
 		Protocol: "dproxy.resolve.v1",
-		Key:      spec.Key,
+		Key:      reference.Key,
 		Request: requestMetadata{
-			Method: req.Method,
-			URL:    requestURL(req),
-			Host:   req.Host,
+			Method: request.Method,
+			URL:    request.URL,
+			Host:   request.Host,
 		},
 	})
 	if err != nil {
@@ -75,20 +77,19 @@ func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.
 	if s.maxRequestBytes > 0 && int64(len(body)) > s.maxRequestBytes {
 		return nil, directive.ErrRemoteMetadataTooBig
 	}
-	resolverRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, spec.URL, bytes.NewReader(body))
+	resolverRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, reference.Endpoint.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	baseHeaders := req.Header.Clone()
-	baseHeaders.Set("Content-Type", "application/json")
-	headerPlan, err := directive.CompileResolverRequestHeaders(spec.Headers)
-	if err != nil {
-		return nil, directive.ErrRemoteInvalid
+	baseHeaders := request.Headers.Clone()
+	if baseHeaders == nil {
+		baseHeaders = make(http.Header)
 	}
-	proxy.ApplyRequestHeaderPlan(resolverRequest, baseHeaders, headerPlan)
+	baseHeaders.Set("Content-Type", "application/json")
+	httpheader.ApplyRequest(resolverRequest, baseHeaders, reference.Headers, httpheader.RequestOptions{})
 	response, err := s.client.Do(resolverRequest)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", directive.ErrRemoteUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", directive.ErrRemoteUnavailable, err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNoContent || response.StatusCode == http.StatusNotFound {
@@ -99,7 +100,7 @@ func (s *Source) Read(ctx context.Context, spec directive.RemoteSpec, req *http.
 	}
 	value, err := readBounded(response.Body, s.maxResponseBytes)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", directive.ErrRemoteInvalid, err)
+		return nil, fmt.Errorf("%w: %w", directive.ErrRemoteInvalid, err)
 	}
 	return value, nil
 }
@@ -109,21 +110,6 @@ func (s *Source) Close() error {
 		s.transport.CloseIdleConnections()
 	}
 	return nil
-}
-
-func requestURL(req *http.Request) string {
-	if req == nil || req.URL == nil {
-		return ""
-	}
-	u := *req.URL
-	if !u.IsAbs() {
-		u.Scheme = "http"
-		if req.TLS != nil {
-			u.Scheme = "https"
-		}
-		u.Host = req.Host
-	}
-	return u.String()
 }
 
 func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {

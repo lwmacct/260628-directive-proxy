@@ -169,7 +169,7 @@ Controller 接收同步 `POST`，协议为 `dproxy.recovery.v1`。`Idempotency-K
 }
 ```
 
-`response` 只在 `unexpected_status` 时存在。响应头完整回传；正文按 directive 与服务端上限截断并使用 base64，`size` 优先表示已知的原始 Content-Length。URL 中的 userinfo、query 和 fragment 不会写入事件中的 resolver endpoint。
+`response` 只在 `unexpected_status` 时存在。响应头完整回传；正文按 directive 与服务端上限截断并使用 base64，`size` 优先表示已知的原始 Content-Length。resolver endpoint 保留 RemoteSpec 中的完整 URL，包括 userinfo、query 和 fragment，作为正常观测信息。
 
 Controller 必须返回一个小型 JSON 决策：
 

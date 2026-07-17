@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -12,7 +13,7 @@ import (
 type Plan struct {
 	Target   *url.URL
 	Proxy    *url.URL
-	Headers  HeaderPlan
+	Headers  httpheader.Plan
 	Metadata requestmeta.Metadata
 	Modules  []module.Spec
 	Recovery *recovery.Policy
@@ -40,28 +41,11 @@ func ClonePlan(in *Plan) *Plan {
 	out := *in
 	out.Target = cloneURL(in.Target)
 	out.Proxy = cloneURL(in.Proxy)
-	out.Headers = cloneHeaderPlan(in.Headers)
+	out.Headers = httpheader.ClonePlan(in.Headers)
 	out.Metadata = requestmeta.Clone(in.Metadata)
 	out.Modules = cloneModuleSpecs(in.Modules)
 	out.Recovery = recovery.ClonePolicy(in.Recovery)
 	return &out
-}
-
-func cloneHeaderPlan(in HeaderPlan) HeaderPlan {
-	out := in
-	out.Request.StripBeforeOps = append([]string(nil), in.Request.StripBeforeOps...)
-	out.Request.Ops = cloneHeaderOps(in.Request.Ops)
-	out.Response.Ops = cloneHeaderOps(in.Response.Ops)
-	return out
-}
-
-func cloneHeaderOps(in []HeaderOp) []HeaderOp {
-	out := make([]HeaderOp, len(in))
-	for i, op := range in {
-		out[i] = op
-		out[i].Values = append([]string(nil), op.Values...)
-	}
-	return out
 }
 
 func cloneModuleSpecs(in []module.Spec) []module.Spec {
@@ -71,53 +55,4 @@ func cloneModuleSpecs(in []module.Spec) []module.Spec {
 		out[index].Config = append([]byte(nil), spec.Config...)
 	}
 	return out
-}
-
-type HeaderMode string
-
-const (
-	HeaderModePatch   HeaderMode = "patch"
-	HeaderModeReplace HeaderMode = "replace"
-)
-
-type HeaderPlan struct {
-	Request  RequestHeaderPlan
-	Response ResponseHeaderPlan
-}
-
-type RequestHeaderPlan struct {
-	Mode                    HeaderMode
-	PreserveProxyDisclosure bool
-	StripBeforeOps          []string
-	Ops                     []HeaderOp
-}
-
-type ResponseHeaderPlan struct {
-	Ops []HeaderOp
-}
-
-type HeaderAction string
-
-const (
-	HeaderAdd    HeaderAction = "+"
-	HeaderRemove HeaderAction = "-"
-	HeaderSet    HeaderAction = "="
-)
-
-type HeaderSelectorKind string
-
-const (
-	HeaderSelectorExact HeaderSelectorKind = "exact"
-	HeaderSelectorGlob  HeaderSelectorKind = "glob"
-)
-
-type HeaderSelector struct {
-	Kind    HeaderSelectorKind
-	Pattern string
-}
-
-type HeaderOp struct {
-	Action   HeaderAction
-	Selector HeaderSelector
-	Values   []string
 }

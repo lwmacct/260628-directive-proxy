@@ -1,8 +1,9 @@
-package remoteredis
+package directiveredis
 
 import (
 	"context"
 	"errors"
+	"net/url"
 	"testing"
 	"time"
 
@@ -34,6 +35,15 @@ func newTestSource() *Source {
 	return New(Options{Timeout: time.Second, MaxResponseBytes: 64 << 10, ClientCacheCapacity: 2, ClientIdleTimeout: time.Minute, PoolSize: 2})
 }
 
+func testRedisReference(t *testing.T, rawURL, key string) directive.RedisReference {
+	t.Helper()
+	endpoint, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directive.RedisReference{Endpoint: *endpoint, Key: key}
+}
+
 func TestSourceReadsExactKey(t *testing.T) {
 	server := miniredis.RunT(t)
 	enableRedisJSON(t, server)
@@ -42,9 +52,9 @@ func TestSourceReadsExactKey(t *testing.T) {
 	}
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
-	spec := directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "team-a/service-a"}
+	reference := testRedisReference(t, "redis://"+server.Addr()+"/0", "team-a/service-a")
 	for range 2 {
-		raw, err := source.Read(context.Background(), spec)
+		raw, err := source.Read(context.Background(), reference)
 		if err != nil || string(raw) != `{"target":{"url":"https://api.example.com"}}` {
 			t.Fatalf("unexpected Redis result: raw=%s err=%v", raw, err)
 		}
@@ -59,7 +69,7 @@ func TestSourceReturnsNotFound(t *testing.T) {
 	enableRedisJSON(t, server)
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
-	_, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeRedis, URL: "redis://" + server.Addr() + "/0", Key: "missing"})
+	_, err := source.Read(context.Background(), testRedisReference(t, "redis://"+server.Addr()+"/0", "missing"))
 	if !errors.Is(err, directive.ErrRemoteNotFound) {
 		t.Fatalf("unexpected missing document error: %v", err)
 	}
@@ -74,11 +84,7 @@ func TestSourceClassifiesWrongTypeAsInvalid(t *testing.T) {
 	}
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
-	_, err := source.Read(context.Background(), directive.RemoteSpec{
-		Type: directive.RemoteTypeRedis,
-		URL:  "redis://" + server.Addr() + "/0",
-		Key:  "legacy-string",
-	})
+	_, err := source.Read(context.Background(), testRedisReference(t, "redis://"+server.Addr()+"/0", "legacy-string"))
 	if !errors.Is(err, directive.ErrRemoteInvalid) {
 		t.Fatalf("unexpected wrong type error: %v", err)
 	}

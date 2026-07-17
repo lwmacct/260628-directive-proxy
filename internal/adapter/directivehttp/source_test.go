@@ -1,4 +1,4 @@
-package remotehttp
+package directivehttp
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -14,6 +15,23 @@ import (
 
 func testSource() *Source {
 	return New(Options{Timeout: time.Second, MaxRequestBytes: 64 << 10, MaxResponseBytes: 64 << 10})
+}
+
+func testHTTPReference(t *testing.T, spec directive.RemoteSpec) directive.HTTPReference {
+	t.Helper()
+	endpoint, err := url.Parse(spec.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers, err := directive.CompileResolverRequestHeaders(spec.Headers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directive.HTTPReference{Endpoint: *endpoint, Key: spec.Key, Headers: headers}
+}
+
+func testRequestSnapshot(req *http.Request) directive.RequestSnapshot {
+	return directive.RequestSnapshot{Method: req.Method, URL: req.URL.String(), Host: req.Host, Headers: req.Header.Clone()}
 }
 
 func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
@@ -38,12 +56,13 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	req.Header.Set("Connection", "X-Hop")
 	req.Header.Set("X-Hop", "drop")
 
-	raw, err := source.Read(context.Background(), directive.RemoteSpec{
+	reference := testHTTPReference(t, directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP, URL: resolver.URL, Key: "team-a/service-a",
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{{
 			Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
 		}}},
-	}, req)
+	})
+	raw, err := source.Read(context.Background(), reference, testRequestSnapshot(req))
 	if err != nil || string(raw) != `{"target":{"url":"https://api.example.com/v1"}}` {
 		t.Fatalf("unexpected response: raw=%s err=%v", raw, err)
 	}
@@ -55,7 +74,7 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 
 func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Cookie") != "" || r.Header.Get("X-Policy") != "resolver" {
+		if r.Header.Get("Cookie") != "" || r.Header.Get("Content-Type") != "" || r.Header.Get("X-Policy") != "resolver" {
 			t.Errorf("unexpected resolver headers: %#v", r.Header)
 		}
 		_, _ = w.Write([]byte(`{"target":{"url":"https://api.example.com"}}`))
@@ -65,13 +84,14 @@ func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)
 	req.Header.Set("Cookie", "session=secret")
-	if _, err := source.Read(context.Background(), directive.RemoteSpec{
+	reference := testHTTPReference(t, directive.RemoteSpec{
 		Type: directive.RemoteTypeHTTP,
 		URL:  resolver.URL,
 		Headers: &directive.HeaderPolicy{Mode: "replace", Mutations: []directive.HeaderMutation{{
 			Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "X-Policy", Values: []string{"resolver"},
 		}}},
-	}, req); err != nil {
+	})
+	if _, err := source.Read(context.Background(), reference, testRequestSnapshot(req)); err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
 }
@@ -95,7 +115,8 @@ func TestSourceDefaultPolicyStripsReservedHeaders(t *testing.T) {
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
-	if _, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: resolver.URL}, req); err != nil {
+	reference := testHTTPReference(t, directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: resolver.URL})
+	if _, err := source.Read(context.Background(), reference, testRequestSnapshot(req)); err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
 }
@@ -120,7 +141,9 @@ func TestSourceStatusAndLimits(t *testing.T) {
 			defer server.Close()
 			source := New(Options{Timeout: time.Second, MaxRequestBytes: 1024, MaxResponseBytes: 8})
 			defer func() { _ = source.Close() }()
-			_, err := source.Read(context.Background(), directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: server.URL}, httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil))
+			reference := testHTTPReference(t, directive.RemoteSpec{Type: directive.RemoteTypeHTTP, URL: server.URL})
+			request := httptest.NewRequest(http.MethodGet, "http://gateway.local/", nil)
+			_, err := source.Read(context.Background(), reference, testRequestSnapshot(request))
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("unexpected error: got %v want %v", err, tt.wantErr)
 			}

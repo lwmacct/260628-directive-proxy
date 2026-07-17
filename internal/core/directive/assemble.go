@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -76,14 +77,14 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	return &proxy.Plan{
 		Target: target,
 		Proxy:  proxyURL,
-		Headers: proxy.HeaderPlan{
-			Request: proxy.RequestHeaderPlan{
+		Headers: httpheader.Plan{
+			Request: httpheader.RequestPlan{
 				Mode:                    toHeaderMode(headers.Mode),
 				PreserveProxyDisclosure: headers.PreserveProxyDisclosure,
 				StripBeforeOps:          stripBeforeOps,
 				Ops:                     requestOps,
 			},
-			Response: proxy.ResponseHeaderPlan{Ops: responseOps},
+			Response: httpheader.ResponsePlan{Ops: responseOps},
 		},
 		Metadata: metadata,
 		Modules:  program.Attempt,
@@ -109,20 +110,20 @@ func isHTTPURL(u *url.URL) bool {
 	return strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
 }
 
-func parseRequestHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, map[string][]string, error) {
+func parseRequestHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, map[string][]string, error) {
 	ops, err := parseHeaderMutations(raw)
 	if err != nil {
 		return nil, nil, err
 	}
-	out := make([]proxy.HeaderOp, 0, len(ops))
+	out := make([]httpheader.Op, 0, len(ops))
 	metadata := make(requestmeta.Metadata)
 	for _, op := range ops {
-		if op.Selector.Kind == proxy.HeaderSelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") {
-			if op.Action == proxy.HeaderAdd || len(op.Values) > 1 {
+		if op.Selector.Kind == httpheader.SelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") {
+			if op.Action == httpheader.ActionAdd || len(op.Values) > 1 {
 				return nil, nil, ErrInvalidPayload
 			}
 		}
-		if op.Selector.Kind == proxy.HeaderSelectorExact && requestmeta.IsName(op.Selector.Pattern) {
+		if op.Selector.Kind == httpheader.SelectorExact && requestmeta.IsName(op.Selector.Pattern) {
 			if err := requestmeta.Apply(metadata, string(op.Action), op.Selector.Pattern, op.Values); err != nil {
 				return nil, nil, ErrInvalidPayload
 			}
@@ -139,28 +140,28 @@ func parseRequestHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, map[st
 // CompileResolverRequestHeaders compiles the direct HTTP request header policy
 // used by an HTTP RemoteSpec. It intentionally does not extract x-dproxy
 // metadata; the resolver request applies the same header mutations directly.
-func CompileResolverRequestHeaders(section *HeaderPolicy) (proxy.RequestHeaderPlan, error) {
+func CompileResolverRequestHeaders(section *HeaderPolicy) (httpheader.RequestPlan, error) {
 	if section == nil {
 		section = &HeaderPolicy{}
 	}
 	if err := validateHeaderMode(section.Mode); err != nil {
-		return proxy.RequestHeaderPlan{}, err
+		return httpheader.RequestPlan{}, err
 	}
 	requestRaw, responseRaw, err := splitHeaderMutations(section.Mutations, false)
 	if err != nil || len(responseRaw) > 0 {
-		return proxy.RequestHeaderPlan{}, ErrInvalidPayload
+		return httpheader.RequestPlan{}, ErrInvalidPayload
 	}
 	ops, err := parseHeaderMutations(requestRaw)
 	if err != nil {
-		return proxy.RequestHeaderPlan{}, err
+		return httpheader.RequestPlan{}, err
 	}
 	for _, op := range ops {
-		if op.Selector.Kind == proxy.HeaderSelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") &&
-			(op.Action == proxy.HeaderAdd || len(op.Values) > 1) {
-			return proxy.RequestHeaderPlan{}, ErrInvalidPayload
+		if op.Selector.Kind == httpheader.SelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") &&
+			(op.Action == httpheader.ActionAdd || len(op.Values) > 1) {
+			return httpheader.RequestPlan{}, ErrInvalidPayload
 		}
 	}
-	return proxy.RequestHeaderPlan{
+	return httpheader.RequestPlan{
 		Mode:                    toHeaderMode(section.Mode),
 		PreserveProxyDisclosure: section.PreserveProxyDisclosure,
 		StripBeforeOps:          []string{"Authorization", "Content-Length"},
@@ -187,33 +188,33 @@ func splitHeaderMutations(raw []HeaderMutation, allowResponse bool) ([]HeaderMut
 	return request, response, nil
 }
 
-func parseResponseHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, error) {
+func parseResponseHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, error) {
 	ops, err := parseHeaderMutations(raw)
 	if err != nil {
 		return nil, err
 	}
 	for _, op := range ops {
-		if op.Selector.Kind == proxy.HeaderSelectorExact && proxy.IsResponseHeaderProtected(op.Selector.Pattern) {
+		if op.Selector.Kind == httpheader.SelectorExact && proxy.IsResponseHeaderProtected(op.Selector.Pattern) {
 			return nil, ErrInvalidPayload
 		}
 	}
 	return ops, nil
 }
 
-func parseHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, error) {
+func parseHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	ops := make([]proxy.HeaderOp, 0, len(raw))
+	ops := make([]httpheader.Op, 0, len(raw))
 	for _, mutation := range raw {
-		var action proxy.HeaderAction
+		var action httpheader.Action
 		switch mutation.Action {
 		case HeaderActionSet:
-			action = proxy.HeaderSet
+			action = httpheader.ActionSet
 		case HeaderActionRemove:
-			action = proxy.HeaderRemove
+			action = httpheader.ActionRemove
 		case HeaderActionAppend:
-			action = proxy.HeaderAdd
+			action = httpheader.ActionAdd
 		default:
 			return nil, ErrInvalidPayload
 		}
@@ -222,17 +223,17 @@ func parseHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, error) {
 		if (name == "") == (glob == "") {
 			return nil, ErrInvalidPayload
 		}
-		selector := proxy.HeaderSelector{Kind: proxy.HeaderSelectorExact, Pattern: name}
+		selector := httpheader.Selector{Kind: httpheader.SelectorExact, Pattern: name}
 		if glob != "" {
 			if _, err := path.Match(strings.ToLower(glob), ""); err != nil {
 				return nil, ErrInvalidPayload
 			}
-			selector = proxy.HeaderSelector{Kind: proxy.HeaderSelectorGlob, Pattern: glob}
+			selector = httpheader.Selector{Kind: httpheader.SelectorGlob, Pattern: glob}
 		} else if !isValidHeaderName(name) {
 			return nil, ErrInvalidPayload
 		}
 		switch action {
-		case proxy.HeaderAdd, proxy.HeaderSet:
+		case httpheader.ActionAdd, httpheader.ActionSet:
 			if len(mutation.Values) == 0 {
 				return nil, ErrInvalidPayload
 			}
@@ -241,12 +242,12 @@ func parseHeaderMutations(raw []HeaderMutation) ([]proxy.HeaderOp, error) {
 					return nil, ErrInvalidPayload
 				}
 			}
-		case proxy.HeaderRemove:
+		case httpheader.ActionRemove:
 			if len(mutation.Values) != 0 {
 				return nil, ErrInvalidPayload
 			}
 		}
-		ops = append(ops, proxy.HeaderOp{
+		ops = append(ops, httpheader.Op{
 			Action:   action,
 			Selector: selector,
 			Values:   append([]string(nil), mutation.Values...),
@@ -285,11 +286,11 @@ func isValidHeaderValue(value string) bool {
 	return true
 }
 
-func toHeaderMode(raw string) proxy.HeaderMode {
-	switch proxy.HeaderMode(strings.TrimSpace(raw)) {
-	case proxy.HeaderModeReplace:
-		return proxy.HeaderModeReplace
+func toHeaderMode(raw string) httpheader.Mode {
+	switch httpheader.Mode(strings.TrimSpace(raw)) {
+	case httpheader.ModeReplace:
+		return httpheader.ModeReplace
 	default:
-		return proxy.HeaderModePatch
+		return httpheader.ModePatch
 	}
 }

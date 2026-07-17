@@ -1,4 +1,4 @@
-package remoteredis
+package directiveredis
 
 import (
 	"errors"

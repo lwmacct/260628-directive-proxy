@@ -32,17 +32,17 @@ import (
 const httpTLSMinVersion = tls.VersionTLS12
 
 type runtime struct {
-	exchangeFactory *exchange.Manager
-	bodyStore       *bodystore.Controller
-	proxyTransport  http.RoundTripper
-	moduleRuntime   *module.Runtime
-	eventOutput     *event.Dispatcher
-	adminAuth       *authme.Auth
-	sourceAccess    *sourcehttp.Guard
-	sourceEngine    *sourceaccess.Engine
-	tls             *tlsRuntime
-	directiveReader *directiveRemoteReader
-	recovery        *recoveryhttp.Controller
+	exchangeFactory  *exchange.Manager
+	bodyStore        *bodystore.Controller
+	proxyTransport   http.RoundTripper
+	moduleRuntime    *module.Runtime
+	eventOutput      *event.Dispatcher
+	adminAuth        *authme.Auth
+	sourceAccess     *sourcehttp.Guard
+	sourceEngine     *sourceaccess.Engine
+	tls              *tlsRuntime
+	directiveRemotes *directiveRemotes
+	recovery         *recoveryhttp.Controller
 }
 
 func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
@@ -123,19 +123,19 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		return nil, fmt.Errorf("configure recovery transport: %w", err)
 	}
 	remoteConfig := cfg.Proxy.Directive.Remote
-	directiveReader := newDirectiveRemoteReader(remoteConfig)
+	directiveRemotes := newDirectiveRemotes(remoteConfig)
 	return &runtime{
-		exchangeFactory: exchangeFactory,
-		bodyStore:       bodyStore,
-		proxyTransport:  recoveryTransport,
-		moduleRuntime:   moduleRuntime,
-		eventOutput:     eventOutput,
-		adminAuth:       adminAuth,
-		sourceAccess:    sourceAccess,
-		sourceEngine:    sourceEngine,
-		tls:             tlsRuntime,
-		directiveReader: directiveReader,
-		recovery:        recoveryController,
+		exchangeFactory:  exchangeFactory,
+		bodyStore:        bodyStore,
+		proxyTransport:   recoveryTransport,
+		moduleRuntime:    moduleRuntime,
+		eventOutput:      eventOutput,
+		adminAuth:        adminAuth,
+		sourceAccess:     sourceAccess,
+		sourceEngine:     sourceEngine,
+		tls:              tlsRuntime,
+		directiveRemotes: directiveRemotes,
+		recovery:         recoveryController,
 	}, nil
 }
 
@@ -209,7 +209,7 @@ func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAcc
 	return guard, engine, nil
 }
 
-func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
 		BodyStore:       bodyStore,
@@ -219,12 +219,16 @@ func newProxyHandler(cfg *config.Server, reader directive.RemoteReader, exchange
 		options.ExchangeFactory = exchangeFactory
 		options.TrackBeforeResolve = true
 	}
-	return proxy.NewHandler(directive.NewResolver(directive.ResolverOptions{
-		RemoteReader:   reader,
+	resolverOptions := directive.ResolverOptions{
 		LookupTimeout:  remoteConfig.Timeout,
 		MaxTokenBytes:  cfg.Proxy.Directive.MaxTokenBytes,
 		MaxInlineBytes: cfg.Proxy.Directive.MaxInlineBytes,
-	}), transport, options)
+	}
+	if remotes != nil {
+		resolverOptions.HTTPReader = remotes.http
+		resolverOptions.RedisReader = remotes.redis
+	}
+	return proxy.NewHandler(directive.NewResolver(resolverOptions), transport, options)
 }
 
 func (rt *runtime) Close(ctx context.Context) error {
@@ -243,11 +247,11 @@ func (rt *runtime) Close(ctx context.Context) error {
 		}
 		rt.tls = nil
 	}
-	if rt.directiveReader != nil {
-		if err := rt.directiveReader.Close(); err != nil {
+	if rt.directiveRemotes != nil {
+		if err := rt.directiveRemotes.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		rt.directiveReader = nil
+		rt.directiveRemotes = nil
 	}
 	if rt.recovery != nil {
 		if err := rt.recovery.Close(); err != nil {

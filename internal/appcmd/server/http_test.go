@@ -100,7 +100,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	redisServer := miniredis.RunT(t)
 	enableRedisJSON(t, redisServer)
-	reader := newTestDirectiveReader(t, cfg)
+	remotes := newTestDirectiveRemotes(t, cfg)
 
 	var upstreamSource string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode redis token failed: %v", err)
 	}
-	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveReader: reader})
+	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveRemotes: remotes})
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -134,7 +134,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 
 func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	cfg := config.DefaultConfig().Server
-	reader := newTestDirectiveReader(t, cfg)
+	remotes := newTestDirectiveRemotes(t, cfg)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Directive-Source") != "http" {
 			t.Errorf("directive header was not applied: %#v", r.Header)
@@ -169,17 +169,17 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	req.RemoteAddr = "127.0.0.1:1234"
 	req.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
-	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveReader: reader})).Handler.ServeHTTP(recorder, req)
+	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{directiveRemotes: remotes})).Handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("unexpected HTTP resolver result: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
-func newTestDirectiveReader(t *testing.T, cfg config.Server) *directiveRemoteReader {
+func newTestDirectiveRemotes(t *testing.T, cfg config.Server) *directiveRemotes {
 	t.Helper()
-	reader := newDirectiveRemoteReader(cfg.Proxy.Directive.Remote)
-	t.Cleanup(func() { _ = reader.Close() })
-	return reader
+	remotes := newDirectiveRemotes(cfg.Proxy.Directive.Remote)
+	t.Cleanup(func() { _ = remotes.Close() })
+	return remotes
 }
 
 func TestHTTPServerReturnsProxyErrorForUnsupportedDPToken(t *testing.T) {

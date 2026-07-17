@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 var (
@@ -55,7 +55,7 @@ func ParseProxy(raw string) (*url.URL, error) {
 
 func validateHeaderMode(raw string) error {
 	switch strings.TrimSpace(raw) {
-	case "", string(proxy.HeaderModePatch), string(proxy.HeaderModeReplace):
+	case "", string(httpheader.ModePatch), string(httpheader.ModeReplace):
 		return nil
 	default:
 		return ErrInvalidPayload

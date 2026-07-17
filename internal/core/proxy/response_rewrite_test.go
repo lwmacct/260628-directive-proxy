@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 type testReadWriteCloser struct{ bytes.Buffer }
@@ -28,11 +30,11 @@ func TestModifyResponseAppliesOrderedOpsAndStripsReservedHeaders(t *testing.T) {
 		},
 		Request: request,
 	}
-	bindResponseHeaderPlan(response, request, ResponseHeaderPlan{Ops: []HeaderOp{
-		{Action: HeaderRemove, Selector: exactSelector("Server")},
-		{Action: HeaderRemove, Selector: globSelector("X-Upstream-*")},
-		{Action: HeaderAdd, Selector: exactSelector("Set-Cookie"), Values: []string{"b=2"}},
-		{Action: HeaderSet, Selector: exactSelector("Access-Control-Allow-Origin"), Values: []string{"*"}},
+	bindResponseHeaderPlan(response, request, httpheader.ResponsePlan{Ops: []httpheader.Op{
+		{Action: httpheader.ActionRemove, Selector: exactSelector("Server")},
+		{Action: httpheader.ActionRemove, Selector: globSelector("X-Upstream-*")},
+		{Action: httpheader.ActionAdd, Selector: exactSelector("Set-Cookie"), Values: []string{"b=2"}},
+		{Action: httpheader.ActionSet, Selector: exactSelector("Access-Control-Allow-Origin"), Values: []string{"*"}},
 	}})
 
 	if err := modifyResponse(response); err != nil {
@@ -62,8 +64,8 @@ func TestModifyResponsePreservesSwitchingProtocolHeaders(t *testing.T) {
 		},
 		Request: request,
 	}
-	bindResponseHeaderPlan(response, request, ResponseHeaderPlan{Ops: []HeaderOp{
-		{Action: HeaderRemove, Selector: globSelector("*")},
+	bindResponseHeaderPlan(response, request, httpheader.ResponsePlan{Ops: []httpheader.Op{
+		{Action: httpheader.ActionRemove, Selector: globSelector("*")},
 	}})
 
 	if err := modifyResponse(response); err != nil {
@@ -96,9 +98,9 @@ func TestHandlerAppliesResponseHeaderPlan(t *testing.T) {
 		resolverFunc(func(*http.Request) (Resolution, error) {
 			return Resolution{Plan: &Plan{
 				Target: target,
-				Headers: HeaderPlan{Response: ResponseHeaderPlan{Ops: []HeaderOp{
-					{Action: HeaderRemove, Selector: exactSelector("Server")},
-					{Action: HeaderSet, Selector: exactSelector("X-Downstream"), Values: []string{"rewritten"}},
+				Headers: httpheader.Plan{Response: httpheader.ResponsePlan{Ops: []httpheader.Op{
+					{Action: httpheader.ActionRemove, Selector: exactSelector("Server")},
+					{Action: httpheader.ActionSet, Selector: exactSelector("X-Downstream"), Values: []string{"rewritten"}},
 				}}},
 			}}, nil
 		}),

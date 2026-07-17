@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
@@ -327,8 +328,8 @@ func TestHandlerPatchHeaderPolicySurvivesReverseProxyPreprocessing(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			handler := NewHandler(
 				resolverFunc(func(*http.Request) (Resolution, error) {
-					return Resolution{Plan: &Plan{Target: target, JoinPath: true, Headers: HeaderPlan{
-						Request: RequestHeaderPlan{PreserveProxyDisclosure: tt.preserve},
+					return Resolution{Plan: &Plan{Target: target, JoinPath: true, Headers: httpheader.Plan{
+						Request: httpheader.RequestPlan{PreserveProxyDisclosure: tt.preserve},
 					}}}, nil
 				}),
 				roundTripFunc(func(req *http.Request) (*http.Response, error) {

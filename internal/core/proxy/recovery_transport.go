@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -525,7 +526,7 @@ func planFingerprint(plan *Plan) string {
 	data, err := json.Marshal(struct {
 		Target   string
 		Proxy    string
-		Headers  HeaderPlan
+		Headers  httpheader.Plan
 		Metadata map[string][]string
 		Modules  []module.Spec
 		Recovery any

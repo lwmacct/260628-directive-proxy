@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 type responseHeaderPlanContextKey struct{}
@@ -33,7 +35,7 @@ func IsResponseHeaderProtected(name string) bool {
 	return protected
 }
 
-func bindResponseHeaderPlan(response *http.Response, request *http.Request, plan ResponseHeaderPlan) {
+func bindResponseHeaderPlan(response *http.Response, request *http.Request, plan httpheader.ResponsePlan) {
 	if response == nil {
 		return
 	}
@@ -43,7 +45,7 @@ func bindResponseHeaderPlan(response *http.Response, request *http.Request, plan
 	if response.Request == nil {
 		return
 	}
-	ctx := context.WithValue(response.Request.Context(), responseHeaderPlanContextKey{}, cloneHeaderOps(plan.Ops))
+	ctx := context.WithValue(response.Request.Context(), responseHeaderPlanContextKey{}, httpheader.CloneOps(plan.Ops))
 	response.Request = response.Request.WithContext(ctx)
 }
 
@@ -54,20 +56,20 @@ func modifyResponse(response *http.Response) error {
 	if response.Header == nil {
 		response.Header = make(http.Header)
 	}
-	var ops []HeaderOp
+	var ops []httpheader.Op
 	if response.Request != nil {
-		ops, _ = response.Request.Context().Value(responseHeaderPlanContextKey{}).([]HeaderOp)
+		ops, _ = response.Request.Context().Value(responseHeaderPlanContextKey{}).([]httpheader.Op)
 	}
 	for _, op := range ops {
-		for _, name := range matchingHeaderNames(response.Header, op.Selector) {
+		for _, name := range httpheader.MatchingNames(response.Header, op.Selector) {
 			if !IsResponseHeaderProtected(name) {
-				applyHeaderOp(response.Header, name, op)
+				httpheader.ApplyOp(response.Header, name, op)
 			}
 		}
 	}
-	stripDproxyHeaders(response.Header)
+	httpheader.StripDproxy(response.Header)
 	if response.StatusCode != http.StatusSwitchingProtocols {
-		stripHopByHopHeaders(response.Header)
+		httpheader.StripHopByHop(response.Header)
 	}
 	return nil
 }

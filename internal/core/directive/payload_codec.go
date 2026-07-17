@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"net/url"
 	"strings"
 	"unicode/utf8"
 )
@@ -163,20 +162,7 @@ func decodeRemoteSpec(raw []byte) (RemoteSpec, error) {
 func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 	spec.Type = strings.TrimSpace(spec.Type)
 	spec.URL = strings.TrimSpace(spec.URL)
-	parsed, err := url.Parse(spec.URL)
-	if err != nil || parsed.Host == "" {
-		return RemoteSpec{}, ErrInvalidPayload
-	}
-	switch spec.Type {
-	case RemoteTypeHTTP:
-		if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
-			return RemoteSpec{}, ErrInvalidPayload
-		}
-	case RemoteTypeRedis:
-		if (parsed.Scheme != "redis" && parsed.Scheme != "rediss") || spec.Key == "" || spec.Headers != nil {
-			return RemoteSpec{}, ErrInvalidPayload
-		}
-	default:
+	if spec.Type != RemoteTypeHTTP && spec.Type != RemoteTypeRedis {
 		return RemoteSpec{}, ErrInvalidPayload
 	}
 	key, err := normalizeRemoteKey(spec.Key, spec.Type == RemoteTypeRedis)
@@ -184,7 +170,7 @@ func normalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 		return RemoteSpec{}, err
 	}
 	spec.Key = key
-	if _, err := CompileResolverRequestHeaders(spec.Headers); err != nil {
+	if _, err := compileRemoteSpec(spec); err != nil {
 		return RemoteSpec{}, err
 	}
 	return spec, nil

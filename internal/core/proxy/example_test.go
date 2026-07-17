@@ -3,6 +3,8 @@ package proxy
 import (
 	"net/http"
 	"net/url"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 type staticResolver struct{}
@@ -12,10 +14,10 @@ func (staticResolver) Prepare(*http.Request) (PreparedDirective, error) {
 	return staticPrepared{resolution: Resolution{Plan: &Plan{
 		Target:   target,
 		JoinPath: true,
-		Headers: HeaderPlan{Request: RequestHeaderPlan{Ops: []HeaderOp{{
-			Action: HeaderSet,
-			Selector: HeaderSelector{
-				Kind:    HeaderSelectorExact,
+		Headers: httpheader.Plan{Request: httpheader.RequestPlan{Ops: []httpheader.Op{{
+			Action: httpheader.ActionSet,
+			Selector: httpheader.Selector{
+				Kind:    httpheader.SelectorExact,
 				Pattern: "Authorization",
 			},
 			Values: []string{"Bearer upstream-token"},
