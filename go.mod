@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/google/uuid v1.6.0
-	github.com/lwmacct/251207-go-pkg-cfgm v0.33.260716
+	github.com/lwmacct/251207-go-pkg-cfgm v0.35.260718
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
 	github.com/lwmacct/260614-go-pkg-tlsreload v0.15.260716

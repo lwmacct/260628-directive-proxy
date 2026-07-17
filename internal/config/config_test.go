@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
+	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/templexp"
 )
 
 var files = cfgm.ConfigFiles[Config]{
@@ -19,7 +21,49 @@ var files = cfgm.ConfigFiles[Config]{
 func TestWriteConfigExample(t *testing.T)     { files.WriteExample(t) }
 func TestRuntimeConfigKeysValid(t *testing.T) { files.ValidateRuntimeConfig(t) }
 
+func setDirectiveTokenSecret(t *testing.T) {
+	t.Helper()
+	t.Setenv("DIRECTIVE_TOKEN_SECRET", "test-directive-token-secret")
+}
+
+func TestConfigReportsMissingDirectiveTokenSecret(t *testing.T) {
+	t.Setenv("DIRECTIVE_TOKEN_SECRET", "")
+
+	_, err := Manager.Load(t.Context())
+	if err == nil {
+		t.Fatal("expected missing directive token secret error")
+	}
+	var requiredErr *templexp.RequiredError
+	if !errors.As(err, &requiredErr) {
+		t.Fatalf("expected required template error, got %v", err)
+	}
+	if requiredErr.Name != "DIRECTIVE_TOKEN_SECRET" {
+		t.Fatalf("unexpected required variable: %q", requiredErr.Name)
+	}
+	if !strings.Contains(err.Error(), "root.server.proxy.directive.token-secret") {
+		t.Fatalf("expected directive token-secret config path, got %v", err)
+	}
+}
+
+func TestConfigFileOverridesDirectiveTokenSecretTemplate(t *testing.T) {
+	t.Setenv("DIRECTIVE_TOKEN_SECRET", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "server:\n  proxy:\n    directive:\n      token-secret: from-file\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Manager.Load(t.Context(), cfgm.File(path))
+	if err != nil {
+		t.Fatalf("file token secret must override the default template: %v", err)
+	}
+	if loaded.Server.Proxy.Directive.TokenSecret != "from-file" {
+		t.Fatalf("unexpected directive token secret: %q", loaded.Server.Proxy.Directive.TokenSecret)
+	}
+}
+
 func TestConfigFileUsesCommandHierarchy(t *testing.T) {
+	setDirectiveTokenSecret(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("server:\n  proxy:\n    recovery:\n      max-attempts-limit: 7\n  fluent:\n    ack: true\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -45,6 +89,7 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 }
 
 func TestConfigFileLoadsInlineTLSConfiguration(t *testing.T) {
+	setDirectiveTokenSecret(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte("server:\n  http:\n    tls:\n      enabled: true\n      poll-interval: 15s\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -62,6 +107,7 @@ func TestConfigFileLoadsInlineTLSConfiguration(t *testing.T) {
 }
 
 func TestConfigFileLoadsInlineFluentClientConfiguration(t *testing.T) {
+	setDirectiveTokenSecret(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := "server:\n  fluent:\n    ack: true\n    retry:\n      max-attempts: 3\n    timeout:\n      connect: 2s\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -81,6 +127,7 @@ func TestConfigFileLoadsInlineFluentClientConfiguration(t *testing.T) {
 }
 
 func TestConfigFileLoadsProxyTransport(t *testing.T) {
+	setDirectiveTokenSecret(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := "server:\n  proxy:\n    transport:\n      max-idle-conns: 321\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -96,6 +143,7 @@ func TestConfigFileLoadsProxyTransport(t *testing.T) {
 }
 
 func TestConfigFileRejectsRemovedFluentOutputConfiguration(t *testing.T) {
+	setDirectiveTokenSecret(t)
 	for _, content := range []string{
 		"server:\n  fluent:\n    connections: 4\n",
 		"server:\n  fluent:\n    queue:\n      max-records: 8192\n",
@@ -111,6 +159,7 @@ func TestConfigFileRejectsRemovedFluentOutputConfiguration(t *testing.T) {
 }
 
 func TestConfigFileRejectsLegacyFlatFluentClientConfiguration(t *testing.T) {
+	setDirectiveTokenSecret(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	content := "server:\n  fluent:\n    retry-max-attempts: 3\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {

@@ -165,7 +165,7 @@ func DefaultConfig() Config {
 					ReadTimeout:        30 * time.Second,
 				},
 				Directive: ProxyDirective{
-					TokenSecret:   "${DIRECTIVE_TOKEN_SECRET}",
+					TokenSecret:   "${DIRECTIVE_TOKEN_SECRET:?directive token HMAC secret is required}",
 					MaxTokenBytes: 64 << 10,
 					SourceAccess: func() DirectiveSourceAccess {
 						access := sourceaccess.DefaultConfig()

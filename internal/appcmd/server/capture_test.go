@@ -56,7 +56,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
@@ -155,7 +155,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime}
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Target:  directive.TargetSection{BaseURL: upstream.URL},
@@ -220,7 +220,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()

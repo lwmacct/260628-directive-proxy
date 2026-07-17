@@ -23,8 +23,6 @@ import (
 	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 )
 
-const testDirectiveSecret = "${DIRECTIVE_TOKEN_SECRET}"
-
 func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
 	t.Helper()
 	if err := redisServer.Server().Register("JSON.GET", func(peer *miniredisServer.Peer, _ string, args []string) {
@@ -44,7 +42,7 @@ func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
 }
 
 func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	var proxyPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proxyPath = r.URL.Path
@@ -105,7 +103,7 @@ func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
 }
 
 func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	redisServer := miniredis.RunT(t)
 	enableRedisJSON(t, redisServer)
 	remotes := newTestDirectiveRemotes(t, cfg)
@@ -139,7 +137,7 @@ func TestHTTPServerResolvesRedisDirectiveEndToEnd(t *testing.T) {
 }
 
 func TestHTTPServerResolvesFileDirectiveEndToEnd(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	cfg.Proxy.Directive.Remote.File.Root = t.TempDir()
 	path := filepath.Join(cfg.Proxy.Directive.Remote.File.Root, "team-a", "services")
 	if err := os.MkdirAll(path, 0o700); err != nil {
@@ -171,7 +169,7 @@ func TestHTTPServerResolvesFileDirectiveEndToEnd(t *testing.T) {
 }
 
 func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	remotes := newTestDirectiveRemotes(t, cfg)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Directive-Source") != "http" {
@@ -259,7 +257,7 @@ func TestHTTPServerRejectsWrongDirectiveTokenSecret(t *testing.T) {
 }
 
 func TestHTTPServerForwardsProxyRequestBody(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	var proxyBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -345,7 +343,7 @@ func TestHTTPServerServesDirectiveWorkbenchSPA(t *testing.T) {
 }
 
 func TestDirectiveSourceAccessIsDisabledByDefault(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -383,7 +381,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 }
 
 func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
-	cfg := config.DefaultConfig().Server
+	cfg := newTestServerConfig()
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
 	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: "198.51.100.7"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}

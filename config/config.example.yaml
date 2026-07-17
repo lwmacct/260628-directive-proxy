@@ -98,7 +98,7 @@ server:
 
     # 指令来源配置
     directive:
-      token-secret: "${DIRECTIVE_TOKEN_SECRET}" # directive token HMAC PSK
+      token-secret: "${DIRECTIVE_TOKEN_SECRET:?directive token HMAC secret is required}" # directive token HMAC PSK
       max-token-bytes: 65536 # 完整 directive token 最大字节数
 
       # Directive 入口来源白名单
