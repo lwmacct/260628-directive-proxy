@@ -274,7 +274,7 @@ func (t *RecoveryTransport) roundTrip(request *http.Request, policy *recovery.Po
 	return response, err, timedOut.Load()
 }
 
-func (t *RecoveryTransport) recoverAttempt(ctx context.Context, policy *recovery.Policy, attempt *exchange.Attempt, source SourceMetadata,
+func (t *RecoveryTransport) recoverAttempt(ctx context.Context, policy *recovery.Policy, attempt *exchange.Attempt, source DirectiveSource,
 	trigger recovery.Trigger, response *recovery.Response,
 ) (exchange.RecoveryResult, bool, error) {
 	if t == nil || policy == nil || attempt == nil {

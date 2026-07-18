@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 )
 
 type ScopeKind string
@@ -38,6 +39,7 @@ func (NopInstance) Finish(FinishContext) error { return nil }
 
 type OpenContext struct {
 	TraceID   string
+	Metadata  metadata.Set
 	Attempt   int
 	StartedAt time.Time
 }
@@ -54,6 +56,7 @@ const (
 type Context struct {
 	Context    context.Context
 	TraceID    string
+	Metadata   metadata.Set
 	Attempt    int
 	EventID    string
 	Sequence   uint64

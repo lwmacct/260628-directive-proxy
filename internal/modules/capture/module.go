@@ -17,7 +17,6 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 const Name = "builtin.capture"
@@ -163,7 +162,7 @@ func (capture *instance) onDirectivePrepared(ctx module.Context, value lifecycle
 	ctx.Emitter.Emit("capture.directive.prepared", map[string]any{
 		"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "resource": value.Resource,
 		"duration_millis": value.Duration.Milliseconds(), "payload_sha256": value.PayloadSHA256,
-		"target_url": target, "metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
+		"target_url": target,
 	})
 	return nil
 }
@@ -179,7 +178,7 @@ func (capture *instance) onAttemptStarted(ctx module.Context, value lifecycle.At
 	ctx.Emitter.Emit("capture.attempt.started", map[string]any{
 		"attempt": ctx.Attempt, "mode": value.Mode, "backend": value.Backend,
 		"endpoint": value.Endpoint, "resource": value.Resource, "payload_sha256": value.PayloadSHA256,
-		"target_url": target, "metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
+		"target_url": target,
 	})
 	return nil
 }
@@ -217,7 +216,6 @@ func (capture *instance) onRecoveryStarted(ctx module.Context, value lifecycle.R
 			"endpoint": value.Directive.Endpoint, "resource": value.Directive.Resource,
 			"payload_sha256": value.Directive.PayloadSHA256,
 		},
-		"metadata":              redactMetadata(value.Metadata, capture.spec.RedactHeaders),
 		"controller_url":        value.ControllerURL,
 		"controller_timeout_ms": value.ControllerTimeoutMS,
 		"controller_headers":    redactHTTPHeaders(value.ControllerHeaders, capture.spec.RedactHeaders),
@@ -451,17 +449,6 @@ func redactHTTPHeaders(headers http.Header, patterns []string) map[string][]stri
 		}
 	}
 	return result
-}
-
-func redactMetadata(metadata requestmeta.Metadata, patterns []string) map[string][]string {
-	if len(metadata) == 0 {
-		return nil
-	}
-	headers := make(http.Header, len(metadata))
-	for name, values := range metadata {
-		headers[name] = append([]string(nil), values...)
-	}
-	return redactHTTPHeaders(headers, patterns)
 }
 
 func matchesPattern(value string, patterns []string) bool {

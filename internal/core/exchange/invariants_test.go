@@ -31,6 +31,20 @@ func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
 	current.Complete()
 }
 
+func TestWrapResponseWriterUsesDPTraceHeader(t *testing.T) {
+	manager := NewManager(ManagerOptions{MaxAttempts: 1}, nil)
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	recorder := httptest.NewRecorder()
+	current.WrapResponseWriter(recorder)
+	if recorder.Header().Get("X-Dp-Trace-ID") != current.TraceID() {
+		t.Fatalf("missing X-Dp trace header: %#v", recorder.Header())
+	}
+	if len(recorder.Header()) != 1 {
+		t.Fatalf("unexpected response headers: %#v", recorder.Header())
+	}
+	current.Complete()
+}
+
 func TestAttemptScopeCanOnlyBeOpenedOnce(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
@@ -51,21 +65,18 @@ func TestAttemptScopeCanOnlyBeOpenedOnce(t *testing.T) {
 func TestExchangeEnforcesDirectivePreparationOrder(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	info := DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")}
-	if err := current.PrepareDirective(info); !errors.Is(err, ErrProgramNotConfigured) {
-		t.Fatalf("directive was prepared before program configuration: %v", err)
+	if _, err := current.BeginAttempt(func() {}); !errors.Is(err, ErrExchangeNotConfigured) {
+		t.Fatalf("attempt started before exchange configuration: %v", err)
 	}
-	if err := current.ConfigureProgram(nil); err != nil {
+	configuration := Configuration{
+		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
+		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_test"}),
+	}
+	if err := current.Configure(configuration); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := current.BeginAttempt(func() {}); !errors.Is(err, ErrDirectiveNotPrepared) {
-		t.Fatalf("attempt started before directive preparation: %v", err)
-	}
-	if err := current.PrepareDirective(info); err != nil {
-		t.Fatal(err)
-	}
-	if err := current.PrepareDirective(info); !errors.Is(err, ErrDirectiveAlreadySet) {
-		t.Fatalf("directive was prepared twice: %v", err)
+	if err := current.Configure(configuration); !errors.Is(err, ErrExchangeConfigured) {
+		t.Fatalf("exchange was configured twice: %v", err)
 	}
 	current.Complete()
 }
@@ -73,7 +84,10 @@ func TestExchangeEnforcesDirectivePreparationOrder(t *testing.T) {
 func TestExchangeFailsClosedWhenProgramRuntimeIsUnavailable(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	if err := current.ConfigureProgram(&program.Executable{}); err == nil {
+	if err := current.Configure(Configuration{
+		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
+		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_test"}), Program: &program.Executable{},
+	}); err == nil {
 		t.Fatal("compiled directive program was silently skipped")
 	}
 	current.Complete()
@@ -140,7 +154,10 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	requestContext, cancel := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil).WithContext(requestContext)
 	current := manager.Start(request)
-	if err := current.ConfigureProgram(executable); err != nil {
+	if err := current.Configure(Configuration{
+		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
+		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_test"}), Program: executable,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	select {

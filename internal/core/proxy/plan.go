@@ -5,17 +5,15 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type Plan struct {
-	Target   *url.URL
-	Proxy    *url.URL
-	Headers  httpheader.Plan
-	Metadata requestmeta.Metadata
+	Target  *url.URL
+	Proxy   *url.URL
+	Headers httpheader.Plan
 }
 
-type SourceMetadata struct {
+type DirectiveSource struct {
 	Mode          string
 	Backend       string
 	Endpoint      string
@@ -32,6 +30,5 @@ func ClonePlan(in *Plan) *Plan {
 	out.Target = cloneURL(in.Target)
 	out.Proxy = cloneURL(in.Proxy)
 	out.Headers = httpheader.ClonePlan(in.Headers)
-	out.Metadata = requestmeta.Clone(in.Metadata)
 	return &out
 }

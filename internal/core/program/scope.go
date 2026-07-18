@@ -350,7 +350,7 @@ func (s *Scope) eventContextAt(ctx context.Context, observedAt time.Time, eventI
 	if observedAt.IsZero() {
 		observedAt = nowUTC()
 	}
-	return module.Context{Context: ctx, TraceID: s.context.TraceID, Attempt: attempt, EventID: eventID, Sequence: sequence, ObservedAt: observedAt, Emitter: emitter}
+	return module.Context{Context: ctx, TraceID: s.context.TraceID, Metadata: s.context.Metadata, Attempt: attempt, EventID: eventID, Sequence: sequence, ObservedAt: observedAt, Emitter: emitter}
 }
 
 func (s *Scope) nextEventSequence() uint64 {
@@ -543,7 +543,6 @@ func cloneAttemptStarted(value lifecycle.AttemptStarted) lifecycle.AttemptStarte
 		target := *value.Target
 		value.Target = &target
 	}
-	value.Metadata = cloneMetadata(value.Metadata)
 	return value
 }
 
@@ -552,7 +551,6 @@ func cloneDirectivePrepared(value lifecycle.DirectivePrepared) lifecycle.Directi
 		target := *value.Target
 		value.Target = &target
 	}
-	value.Metadata = cloneMetadata(value.Metadata)
 	return value
 }
 
@@ -563,7 +561,6 @@ func cloneUpstreamStarted(value lifecycle.UpstreamStarted) lifecycle.UpstreamSta
 
 func cloneResponseStarted(value lifecycle.ResponseStarted) lifecycle.ResponseStarted {
 	value.Header = value.Header.Clone()
-	value.Metadata = cloneMetadata(value.Metadata)
 	return value
 }
 
@@ -582,7 +579,6 @@ func cloneSSEData(value lifecycle.SSEData) lifecycle.SSEData {
 }
 
 func cloneRecoveryStarted(value lifecycle.RecoveryStarted) lifecycle.RecoveryStarted {
-	value.Metadata = cloneMetadata(value.Metadata)
 	value.ControllerHeaders = value.ControllerHeaders.Clone()
 	if value.Response != nil {
 		response := *value.Response
@@ -594,17 +590,6 @@ func cloneRecoveryStarted(value lifecycle.RecoveryStarted) lifecycle.RecoverySta
 		value.Response = &response
 	}
 	return value
-}
-
-func cloneMetadata(value map[string][]string) map[string][]string {
-	if len(value) == 0 {
-		return nil
-	}
-	cloned := make(map[string][]string, len(value))
-	for name, values := range value {
-		cloned[name] = append([]string(nil), values...)
-	}
-	return cloned
 }
 
 func nowUTC() time.Time { return time.Now().UTC() }

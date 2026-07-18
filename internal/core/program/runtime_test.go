@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
@@ -35,7 +36,7 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.StartRun("trace", executable)
+	run, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestExecutableCompilesOnceAndOpensEachAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.StartRun("trace", executable)
+	run, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,20 @@ func TestRuntimeFailsClosedAfterClose(t *testing.T) {
 	if _, err := runtime.Compile(Program{}); !errors.Is(err, ErrRuntimeClosed) {
 		t.Fatalf("closed runtime compiled a program: %v", err)
 	}
-	if _, err := runtime.StartRun("trace", executable); !errors.Is(err, ErrRuntimeClosed) {
+	if _, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace")); !errors.Is(err, ErrRuntimeClosed) {
 		t.Fatalf("closed runtime started a run: %v", err)
 	}
+}
+
+func runtimeMetadata(t *testing.T, traceID string) metadata.Set {
+	t.Helper()
+	fields, err := metadata.Compile(map[string]string{metadata.KeyUserKey: "uk_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err = fields.WithTraceID(traceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fields
 }

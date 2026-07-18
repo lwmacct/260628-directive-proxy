@@ -9,7 +9,6 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type responseWriter struct {
@@ -31,7 +30,7 @@ func (current *Exchange) WrapResponseWriter(writer http.ResponseWriter) http.Res
 	if current == nil || writer == nil {
 		return writer
 	}
-	writer.Header().Set("X-Dproxy-Trace-ID", current.traceID)
+	writer.Header().Set("X-Dp-Trace-ID", current.traceID)
 	return &responseWriter{ResponseWriter: writer, exchange: current}
 }
 
@@ -40,14 +39,13 @@ func (attempt *Attempt) ObserveUpstreamResponse(response *http.Response) {
 		return
 	}
 	current := attempt.exchange
-	metadata := requestmeta.Clone(attempt.source.Metadata)
 	current.lifecycleMu.Lock()
 	attempt.projection = program.NewUpstreamObserver(
 		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attempt.scope,
 	)
 	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
 		return scope.UpstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{
-			StatusCode: response.StatusCode, Header: response.Header.Clone(), Metadata: metadata,
+			StatusCode: response.StatusCode, Header: response.Header.Clone(),
 		})
 	})
 	current.lifecycleMu.Unlock()

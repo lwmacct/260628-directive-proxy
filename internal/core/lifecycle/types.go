@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type RequestStarted struct {
@@ -28,7 +26,6 @@ type AttemptStarted struct {
 	Resource      string
 	PayloadSHA256 string
 	Target        *url.URL
-	Metadata      requestmeta.Metadata
 }
 
 type DirectivePrepared struct {
@@ -39,7 +36,6 @@ type DirectivePrepared struct {
 	Duration      time.Duration
 	PayloadSHA256 string
 	Target        *url.URL
-	Metadata      requestmeta.Metadata
 }
 
 type UpstreamStarted struct {
@@ -50,7 +46,6 @@ type UpstreamStarted struct {
 type ResponseStarted struct {
 	StatusCode int
 	Header     http.Header
-	Metadata   requestmeta.Metadata
 }
 
 type BodyChunk struct{ Data []byte }
@@ -139,7 +134,6 @@ type RecoveryStarted struct {
 	TriggerTimeoutMS    int64
 	Attempt             RecoveryAttempt
 	Directive           RecoveryDirective
-	Metadata            requestmeta.Metadata
 	Response            *RecoveryResponse
 	ControllerURL       string
 	ControllerTimeoutMS int64

@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 )
 
 const (
@@ -117,6 +119,10 @@ func ValidateDocument(document Document) (Document, error) {
 }
 
 func normalizePayload(payload Payload) (Payload, error) {
+	compiledMetadata, err := metadata.Compile(payload.Metadata)
+	if err != nil {
+		return Payload{}, ErrInvalidPayload
+	}
 	target, err := normalizeTarget(payload.Target)
 	if err != nil {
 		return Payload{}, err
@@ -130,9 +136,10 @@ func normalizePayload(payload Payload) (Payload, error) {
 		return Payload{}, err
 	}
 	payload.Target = target
+	payload.Metadata = compiledMetadata.Map()
 	payload.Program = program
 	payload.Recovery = recoverySpec
-	if _, _, err := CompilePayload(payload, AssembleOptions{}); err != nil {
+	if _, err := CompilePayload(payload, AssembleOptions{}); err != nil {
 		return Payload{}, err
 	}
 	return payload, nil

@@ -26,7 +26,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	firstSent := make(chan struct{})
 	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if value := r.Header.Get("X-Dproxy-Request-ID"); value != "" {
+		if value := r.Header.Get("X-Dp-Request-ID"); value != "" {
 			t.Errorf("request metadata leaked upstream: %q", value)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -62,12 +62,12 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Target: directive.TargetSection{BaseURL: upstream.URL},
+		Metadata: map[string]string{"user_key": "uk_capture", "request_id": "capture-request"},
+		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Program: program.Program{Request: []program.Spec{{
 			ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}}},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
-			{Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{"capture-request"}},
 			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionRemove, Name: "X-Upstream"},
 			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionSet, Name: "X-Downstream", Values: []string{"rewritten"}},
 		}},
@@ -121,10 +121,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 			if event.Topic == "capture.response.sse.event" {
 				values = append(values, event.Data["data"].(string))
 			}
-			if event.Topic == "capture.directive.prepared" {
-				metadata := event.Data["metadata"].(map[string][]string)
-				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
-			}
+			metadataCaptured = event.Metadata["user_key"] == "uk_capture" && event.Metadata["request_id"] == "capture-request" && event.Metadata["trace_id"] == event.TraceID
 			if event.Topic == "capture.response.headers" {
 				headers := event.Data["headers"].(map[string][]string)
 				responseHeadersCaptured = len(headers["X-Downstream"]) == 1 && headers["X-Downstream"][0] == "rewritten" && len(headers["X-Upstream"]) == 0
@@ -159,8 +156,9 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	cfg := newTestServerConfig()
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime}
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Target:  directive.TargetSection{BaseURL: upstream.URL},
-		Program: program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
+		Metadata: map[string]string{"user_key": "uk_disabled"},
+		Target:   directive.TargetSection{BaseURL: upstream.URL},
+		Program:  program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +224,8 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Target: directive.TargetSection{BaseURL: upstream.URL},
+		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a"},
+		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Program: program.Program{Attempt: []program.Spec{{
 			ID: "usage", Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
 		}}},
@@ -254,6 +253,9 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 			usage := record.Data["usage"].(map[string]any)
 			if usage["total_tokens"] != int64(13) || record.Data["response_id"] != "resp_proxy" {
 				t.Fatalf("unexpected usage record: %#v", record)
+			}
+			if record.Metadata["user_key"] != "uk_usage" || record.Metadata["tenant_id"] != "tenant-a" || record.Metadata["trace_id"] != record.TraceID {
+				t.Fatalf("usage record missing metadata: %#v", record)
 			}
 			return
 		}

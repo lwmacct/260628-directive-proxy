@@ -202,7 +202,7 @@ func shard(traceID string, count int) int {
 
 func estimateRecordBytes(record Record) int64 {
 	size := int64(len(record.SchemaVersion) + len(record.Producer) + len(record.Topic) + len(record.RecordID) + len(record.TraceID) + len(record.OccurredAt) + 64)
-	return size + estimateValueBytes(record.Data)
+	return size + estimateValueBytes(record.Metadata) + estimateValueBytes(record.Data)
 }
 
 func estimateValueBytes(value any) int64 {
@@ -225,16 +225,16 @@ func estimateValueBytes(value any) int64 {
 			total += int64(len(key)) + estimateValueBytes(item)
 		}
 		return total
-	case map[string][]string:
-		var total int64
-		for key, items := range typed {
-			total += int64(len(key)) + estimateValueBytes(items)
-		}
-		return total
 	case map[string]string:
 		var total int64
 		for key, item := range typed {
 			total += int64(len(key) + len(item))
+		}
+		return total
+	case map[string][]string:
+		var total int64
+		for key, items := range typed {
+			total += int64(len(key)) + estimateValueBytes(items)
 		}
 		return total
 	case []any:

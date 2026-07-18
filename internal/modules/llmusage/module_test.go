@@ -8,6 +8,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
@@ -24,7 +25,7 @@ type recordingOutput struct {
 	attempt int
 }
 
-func (factory *recordingFactory) Open(string) event.Session { return factory }
+func (factory *recordingFactory) Open(string, metadata.Set) event.Session { return factory }
 func (factory *recordingFactory) Emitter(_ string, attempt int) event.Emitter {
 	return recordingOutput{factory: factory, attempt: attempt}
 }
@@ -111,7 +112,7 @@ func configuredScope(t *testing.T, raw string, attempt int) (*program.Scope, *re
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.StartRun("trace", executable)
+	run, err := runtime.StartRun("trace", executable, usageTestMetadata(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,4 +125,17 @@ func configuredScope(t *testing.T, raw string, attempt int) (*program.Scope, *re
 		runtime.Close()
 	})
 	return scope, records
+}
+
+func usageTestMetadata(t *testing.T) metadata.Set {
+	t.Helper()
+	fields, err := metadata.Compile(map[string]string{metadata.KeyUserKey: "uk_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err = fields.WithTraceID("trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fields
 }

@@ -6,19 +6,20 @@ import (
 	"time"
 )
 
-const SchemaVersion = "dproxy.event.v2"
+const SchemaVersion = "dp.event.v3"
 
 type Record struct {
-	SchemaVersion string         `msg:"schema_version"`
-	Producer      string         `msg:"producer"`
-	Topic         string         `msg:"topic"`
-	RecordID      string         `msg:"record_id"`
-	TraceID       string         `msg:"trace_id"`
-	Attempt       int            `msg:"attempt,omitempty"`
-	Sequence      uint64         `msg:"sequence"`
-	OccurredAt    string         `msg:"occurred_at"`
-	Data          map[string]any `msg:"data"`
-	Time          time.Time      `msg:"-"`
+	SchemaVersion string            `msg:"schema_version"`
+	Producer      string            `msg:"producer"`
+	Topic         string            `msg:"topic"`
+	RecordID      string            `msg:"record_id"`
+	TraceID       string            `msg:"trace_id"`
+	Metadata      map[string]string `msg:"metadata"`
+	Attempt       int               `msg:"attempt,omitempty"`
+	Sequence      uint64            `msg:"sequence"`
+	OccurredAt    string            `msg:"occurred_at"`
+	Data          map[string]any    `msg:"data"`
+	Time          time.Time         `msg:"-"`
 	resource      *recordResource
 }
 
@@ -57,6 +58,7 @@ func (r Record) Map() map[string]any {
 		"topic":          r.Topic,
 		"record_id":      r.RecordID,
 		"trace_id":       r.TraceID,
+		"metadata":       r.Metadata,
 		"sequence":       r.Sequence,
 		"occurred_at":    r.OccurredAt,
 		"data":           r.Data,

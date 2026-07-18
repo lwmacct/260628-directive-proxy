@@ -31,10 +31,10 @@ type recoveryPrepared struct {
 func (prepared *recoveryPrepared) Program() *program.Executable { return prepared.program }
 func (prepared *recoveryPrepared) Prepared(t *testing.T) *PreparedDirective {
 	t.Helper()
-	value, err := NewPreparedDirective(SourceMetadata{
+	value, err := NewPreparedDirective(DirectiveSource{
 		Mode: "remote", Backend: "redis", Endpoint: "redis://redis.example/1", Resource: "routing",
 		PayloadSHA256: "payload-digest",
-	}, prepared.plan, prepared.program, prepared.policy)
+	}, prepared.plan, prepared.program, prepared.policy, proxyTestMetadata())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,9 +122,6 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	if err := current.ConfigureProgram(prepared.Program()); err != nil {
-		t.Fatal(err)
-	}
 	var calls int
 	var seenBodies []string
 	var seenTargets []string
@@ -223,7 +220,6 @@ func TestRecoveryTransportForwardsCapturedResponseWhenControllerSaysForward(t *t
 	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"X-Test": {"one"}}, Body: io.NopCloser(strings.NewReader("small-error")), Request: request}, nil
 	})
@@ -265,7 +261,6 @@ func TestRecoveryTransportReportsControllerError(t *testing.T) {
 	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
@@ -304,7 +299,6 @@ func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
 	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
@@ -343,7 +337,6 @@ func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
 	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
@@ -381,7 +374,6 @@ func TestRecoveryTransportFailsUnexpectedResponseWhenControllerSaysFail(t *testi
 	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("upstream failed")), Request: request}, nil
 	})
@@ -413,7 +405,6 @@ func TestRecoveryTransportFailsTransportErrorWhenControllerSaysFail(t *testing.T
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("dial failed")
 	})
@@ -437,7 +428,6 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
 	current := manager.Start(inbound)
-	_ = current.ConfigureProgram(prepared.Program())
 	var calls int
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		calls++
@@ -469,7 +459,7 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 
 func TestPreparedDirectiveClonesPlanAndRecovery(t *testing.T) {
 	target := mustProxyURL(t, "https://upstream.example")
-	prepared, err := NewPreparedDirective(SourceMetadata{Mode: "inline"}, &Plan{Target: target}, nil, testRecoveryPolicy())
+	prepared, err := NewPreparedDirective(DirectiveSource{Mode: "inline"}, &Plan{Target: target}, nil, testRecoveryPolicy(), proxyTestMetadata())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,9 +497,12 @@ func recoveryTestContext(t *testing.T, inbound *http.Request, current *exchange.
 	prepared := fixture.Prepared(t)
 	plan := prepared.Plan()
 	source := prepared.Source()
-	if err := current.PrepareDirective(exchange.DirectiveInfo{
-		Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
-		PayloadSHA256: source.PayloadSHA256, Duration: source.Duration, Target: plan.Target, Metadata: plan.Metadata,
+	if err := current.Configure(exchange.Configuration{
+		Directive: exchange.DirectiveInfo{
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
+			PayloadSHA256: source.PayloadSHA256, Duration: source.Duration, Target: plan.Target,
+		},
+		Metadata: prepared.Metadata(), Program: prepared.Program(),
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -10,26 +10,44 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
-func (current *Exchange) ConfigureProgram(executable *program.Executable) error {
-	if current == nil {
-		return nil
+func (current *Exchange) Configure(configuration Configuration) error {
+	if current == nil || configuration.Directive.Target == nil {
+		return ErrDirectiveInvalid
 	}
+	fields, err := configuration.Metadata.WithTraceID(current.traceID)
+	if err != nil {
+		return ErrDirectiveInvalid
+	}
+	info := configuration.Directive
+	value := lifecycle.DirectivePrepared{
+		Mode: info.Mode, Backend: info.Backend, Endpoint: info.Endpoint, Resource: info.Resource,
+		Duration: info.Duration, PayloadSHA256: info.PayloadSHA256, Target: cloneURL(info.Target),
+	}
+	current.stateMu.Lock()
+	if current.configured {
+		current.stateMu.Unlock()
+		return ErrExchangeConfigured
+	}
+	if current.completed.Load() || current.phase == PhaseFinished || current.attemptCount > 0 {
+		current.stateMu.Unlock()
+		return context.Canceled
+	}
+	current.directive = value
+	current.metadata = fields
+	current.configured = true
+	current.stateMu.Unlock()
+
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if current.programConfigured {
-		return errors.New("directive program is already configured")
-	}
-	current.programConfigured = true
-	if executable == nil {
+	if configuration.Program == nil {
 		return nil
 	}
 	if current.programRuntime == nil {
-		return errors.New("program runtime is unavailable")
+		return ErrProgramRuntimeUnavailable
 	}
-	run, err := current.programRuntime.StartRun(current.traceID, executable)
+	run, err := current.programRuntime.StartRun(current.traceID, configuration.Program, fields)
 	if err != nil {
 		return err
 	}
@@ -43,45 +61,10 @@ func (current *Exchange) ConfigureProgram(executable *program.Executable) error 
 	if scope == nil {
 		return nil
 	}
-	return scope.RequestStarted(current.ctx, current.requestStarted)
-}
-
-func (current *Exchange) PrepareDirective(info DirectiveInfo) error {
-	if current == nil || info.Target == nil {
-		return ErrDirectiveInvalid
+	if err := scope.RequestStarted(current.ctx, current.requestStarted); err != nil {
+		return err
 	}
-	metadata, err := requestmeta.Normalize(info.Metadata)
-	if err != nil {
-		return ErrDirectiveInvalid
-	}
-	value := lifecycle.DirectivePrepared{
-		Mode: info.Mode, Backend: info.Backend, Endpoint: info.Endpoint, Resource: info.Resource,
-		Duration: info.Duration, PayloadSHA256: info.PayloadSHA256, Target: cloneURL(info.Target), Metadata: metadata,
-	}
-	current.lifecycleMu.Lock()
-	configured := current.programConfigured
-	current.lifecycleMu.Unlock()
-	if !configured {
-		return ErrProgramNotConfigured
-	}
-	current.stateMu.Lock()
-	if current.directivePrepared {
-		current.stateMu.Unlock()
-		return ErrDirectiveAlreadySet
-	}
-	if current.completed.Load() || current.phase == PhaseFinished || current.attemptCount > 0 {
-		current.stateMu.Unlock()
-		return context.Canceled
-	}
-	current.directive = value
-	current.directivePrepared = true
-	current.stateMu.Unlock()
-	current.lifecycleMu.Lock()
-	defer current.lifecycleMu.Unlock()
-	if current.requestScope != nil {
-		return current.requestScope.DirectivePrepared(current.ctx, value)
-	}
-	return nil
+	return scope.DirectivePrepared(current.ctx, value)
 }
 
 func (current *Exchange) RequestBodyChunk(data []byte) error {

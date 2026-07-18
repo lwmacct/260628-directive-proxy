@@ -8,6 +8,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
@@ -51,9 +52,9 @@ func (output *captureOutput) EmitBorrowed(topic string, data map[string]any) boo
 
 type captureRuntime struct{ output *captureOutput }
 
-func (runtime *captureRuntime) Open(string) event.Session         { return runtime }
-func (runtime *captureRuntime) Emitter(string, int) event.Emitter { return runtime.output }
-func (*captureRuntime) Close()                                    {}
+func (runtime *captureRuntime) Open(string, metadata.Set) event.Session { return runtime }
+func (runtime *captureRuntime) Emitter(string, int) event.Emitter       { return runtime.output }
+func (*captureRuntime) Close()                                          {}
 
 func TestRequestCaptureRechunksStreamingBody(t *testing.T) {
 	output := &captureOutput{}
@@ -140,7 +141,7 @@ func configuredScope(t *testing.T, raw string, output *captureOutput) *program.S
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.StartRun("trace", executable)
+	run, err := runtime.StartRun("trace", executable, captureTestMetadata(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +154,19 @@ func configuredScope(t *testing.T, raw string, output *captureOutput) *program.S
 		runtime.Close()
 	})
 	return scope
+}
+
+func captureTestMetadata(t *testing.T) metadata.Set {
+	t.Helper()
+	fields, err := metadata.Compile(map[string]string{metadata.KeyUserKey: "uk_test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err = fields.WithTraceID("trace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fields
 }
 
 func hasTopic(items []capturedEmission, topic string) bool {

@@ -37,6 +37,7 @@ inline token 的解码内容是：
 
 ```json
 {
+  "metadata": {"user_id": "user-1", "user_key": "key-1", "tenant_id": "tenant-a"},
   "target": {"base_url": "https://api.example.com/v1"},
   "headers": {
     "mode": "patch",
@@ -93,6 +94,7 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 ```json
 {
+  "metadata": {"user_id": "user-1", "user_key": "key-1", "tenant_id": "tenant-a"},
   "target": {"base_url": "https://api.example.com/v2"},
   "program": {
     "request": [
@@ -112,13 +114,15 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 Attempt 重读。Recovery retry 使用同一份已解析 Payload。
 
-Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program 和 Recovery。Exchange 在读取正文前发布一次 `DirectivePrepared`；每次 Attempt 只打开新 scope，并携带同一 source、target、payload digest 和 metadata。
+Payload 可以声明可选 metadata：最多 15 项的 `map<string,string>`，key 使用小写 snake_case。core 不要求任何业务身份字段；`metadata` 包仅预设常用的 `user_id`、`user_key` key API。`trace_id` 是系统保留字段，directive 不得提供；Exchange 原子配置 PreparedDirective 时生成 UUIDv7 并注入，最终 metadata 在整个请求和所有 Recovery Attempt 中保持不变。
+
+Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program、Recovery 和 Metadata。HTTP Plan 只拥有 HTTP 执行字段，不拥有 metadata。Exchange 在读取正文前一次性配置 directive facts、Program 和 Metadata 并打开 request scope；RecoveryTransport 在第一个 Attempt 前从同一 PreparedDirective 安装已收紧的 Recovery budget。每次 Attempt 只打开新 scope，Module Context 自动携带同一份 metadata。
 
 `target` 是严格 one-of，必须且只能包含 `base_url` 或 `exact_url`。`base_url` 作为反向代理基址，在 Prepare 阶段拼接入站 path 并追加入站 query；`exact_url` 是完整目标地址，忽略入站 path/query。编译后的最终 URL 写入不可变 Plan，Recovery attempt 复用同一个结果。
 
 HTTP resolver 使用长生命周期连接池；HTTPS 显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1。resolver 与上游共用 `server.proxy.transport` 配置，但使用相互隔离的 transport 实例；明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 
-Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `side: request|response`，action 只允许 `set|remove|append`；数组顺序就是应用顺序。`mode` 和 `preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 直接复用同一结构，但只允许 request side，因为它描述的是 resolver 请求本身。默认 patch 以原请求头为基线：directive Authorization 与原 Content-Length 在 mutations 前移除，代理披露头默认移除；mutations 可以重新设置 resolver Authorization；最后统一移除 `x-dproxy-*` 和 hop-by-hop headers。
+Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `side: request|response`，action 只允许 `set|remove|append`；数组顺序就是应用顺序。`mode` 和 `preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 直接复用同一结构，但只允许 request side，因为它描述的是 resolver 请求本身。默认 patch 以原请求头为基线：directive Authorization 与原 Content-Length 在 mutations 前移除，代理披露头默认移除；mutations 可以重新设置 resolver Authorization；最后统一移除 `x-dp-*` 和 hop-by-hop headers。
 
 ## Recovery Controller
 
@@ -180,7 +184,12 @@ Controller 接收同步 `POST`，协议为 `dproxy.recovery.v1`。`Idempotency-K
     "endpoint": "https://resolver.example.com/v1/team-a/service-a",
     "payload_sha256": "..."
   },
-  "metadata": {"X-Dproxy-Request-Id": ["request-1"]},
+  "metadata": {
+    "user_id": "user-1",
+    "user_key": "key-1",
+    "tenant_id": "tenant-a",
+    "trace_id": "0198..."
+  },
   "response": {
     "status_code": 401,
     "headers": {"Content-Type": ["application/json"]},
@@ -212,7 +221,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 ## Replay Store 与 Exchange
 
-每个入站请求在进程内建模为一个 `Exchange`，并通过 `X-Dproxy-Trace-ID` 返回 UUIDv7 trace ID。Exchange 只拥有生命周期和当前 Attempt，不提供查询 API 或跨请求身份。
+每个入站请求在进程内建模为一个 `Exchange`，并通过 `X-Dp-Trace-ID` 返回 UUIDv7 trace ID。Exchange 只拥有生命周期和当前 Attempt，不提供查询 API 或跨请求身份。
 
 请求正文使用单写入、多 reader 的流式 Replay Store。当前 Attempt 可以在客户端仍上传时读取正文；Recovery 决定 `retry` 后，新 Attempt 从 offset 0 重放已有前缀，追上尾部后继续等待后续数据。小正文保存在分段内存中，超过阈值或全局内存紧张时转入匿名临时文件。
 
@@ -226,7 +235,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 - [`builtin.llmusage`](docs/module-llmusage.md)：LLM token usage 提取；
 - [`builtin.llmperf`](docs/module-llmperf.md)：LLM 响应性能测量。
 
-Module 经内部有界队列输出统一 `dproxy.event.v2` Record。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
+Module 经内部有界队列向 Fluent 输出统一 `dp.event.v3` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 顶层自动包含完整 `metadata`（directive 可选字段加系统 `trace_id`），各 topic 的 `data` 不重复该公共字段；Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
 已解析 Payload 的 Program 在 Prepare 阶段编译一次为不可变 Executable；request scope 打开一次，Recovery 的每个 Attempt 仅从同一批 Binding 打开新实例，不重新编译 Module 配置。`core/exchange` 拥有生命周期，`core/lifecycle` 定义端口值，`core/module` 定义 SPI，`core/program` 负责编译与执行。
 

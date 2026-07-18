@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 type AssembleOptions struct {
@@ -22,40 +22,50 @@ const (
 	maxModuleSpecBytes = 64 << 10
 )
 
-func CompilePayload(payload Payload, opts AssembleOptions) (*proxy.Plan, *recovery.Policy, error) {
+type CompiledPayload struct {
+	Plan     *proxy.Plan
+	Metadata metadata.Set
+	Recovery *recovery.Policy
+}
+
+func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, error) {
+	compiledMetadata, err := metadata.Compile(payload.Metadata)
+	if err != nil {
+		return CompiledPayload{}, ErrInvalidPayload
+	}
 	target, err := compileTarget(payload.Target, opts.InboundURL)
 	if err != nil {
-		return nil, nil, ErrInvalidPayload
+		return CompiledPayload{}, ErrInvalidPayload
 	}
 	headers := HeaderPolicy{}
 	if payload.Headers != nil {
 		headers = *payload.Headers
 	}
 	if err := validateHeaderMode(headers.Mode); err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
 	proxyURL, err := ParseProxy(payload.Proxy)
 	if err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
 	requestRaw, responseRaw, err := splitHeaderMutations(headers.Mutations, true)
 	if err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
-	requestOps, metadata, err := parseRequestHeaderMutations(requestRaw)
+	requestOps, err := parseRequestHeaderMutations(requestRaw)
 	if err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
 	responseOps, err := parseResponseHeaderMutations(responseRaw)
 	if err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
 	if _, err := normalizeProgram(payload.Program, true, true); err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
 	recoveryPolicy, err := CompileRecovery(payload.Recovery)
 	if err != nil {
-		return nil, nil, err
+		return CompiledPayload{}, err
 	}
 	stripBeforeOps := make([]string, 0, len(opts.StripHeaders))
 	for _, name := range opts.StripHeaders {
@@ -66,20 +76,23 @@ func CompilePayload(payload Payload, opts AssembleOptions) (*proxy.Plan, *recove
 		stripBeforeOps = append(stripBeforeOps, name)
 	}
 
-	return &proxy.Plan{
-		Target: target,
-		Proxy:  proxyURL,
-		Headers: httpheader.Plan{
-			Request: httpheader.RequestPlan{
-				Mode:                    toHeaderMode(headers.Mode),
-				PreserveProxyDisclosure: headers.PreserveProxyDisclosure,
-				StripBeforeOps:          stripBeforeOps,
-				Ops:                     requestOps,
+	return CompiledPayload{
+		Plan: &proxy.Plan{
+			Target: target,
+			Proxy:  proxyURL,
+			Headers: httpheader.Plan{
+				Request: httpheader.RequestPlan{
+					Mode:                    toHeaderMode(headers.Mode),
+					PreserveProxyDisclosure: headers.PreserveProxyDisclosure,
+					StripBeforeOps:          stripBeforeOps,
+					Ops:                     requestOps,
+				},
+				Response: httpheader.ResponsePlan{Ops: responseOps},
 			},
-			Response: httpheader.ResponsePlan{Ops: responseOps},
 		},
-		Metadata: metadata,
-	}, recoveryPolicy, nil
+		Metadata: compiledMetadata,
+		Recovery: recoveryPolicy,
+	}, nil
 }
 
 func compileTarget(section TargetSection, inbound *url.URL) (*url.URL, error) {
@@ -163,36 +176,27 @@ func isHTTPURL(u *url.URL) bool {
 	return strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")
 }
 
-func parseRequestHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, map[string][]string, error) {
+func parseRequestHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, error) {
 	ops, err := parseHeaderMutations(raw)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	out := make([]httpheader.Op, 0, len(ops))
-	metadata := make(requestmeta.Metadata)
 	for _, op := range ops {
 		if op.Selector.Kind == httpheader.SelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") {
 			if op.Action == httpheader.ActionAdd || len(op.Values) > 1 {
-				return nil, nil, ErrInvalidPayload
+				return nil, ErrInvalidPayload
 			}
 		}
-		if op.Selector.Kind == httpheader.SelectorExact && requestmeta.IsName(op.Selector.Pattern) {
-			if err := requestmeta.Apply(metadata, string(op.Action), op.Selector.Pattern, op.Values); err != nil {
-				return nil, nil, ErrInvalidPayload
-			}
-			continue
+		if op.Selector.Kind == httpheader.SelectorExact && httpheader.IsSystemHeader(op.Selector.Pattern) {
+			return nil, ErrInvalidPayload
 		}
-		out = append(out, op)
 	}
-	if len(metadata) == 0 {
-		metadata = nil
-	}
-	return out, metadata, nil
+	return ops, nil
 }
 
 // CompileResolverRequestHeaders compiles the direct HTTP request header policy
-// used by an HTTP RemoteSpec. It intentionally does not extract x-dproxy
-// metadata; the resolver request applies the same header mutations directly.
+// used by an HTTP RemoteSpec. It intentionally does not extract metadata from
+// system headers; the resolver request applies header mutations directly.
 func CompileResolverRequestHeaders(section *HeaderPolicy) (httpheader.RequestPlan, error) {
 	if section == nil {
 		section = &HeaderPolicy{}
@@ -209,6 +213,9 @@ func CompileResolverRequestHeaders(section *HeaderPolicy) (httpheader.RequestPla
 		return httpheader.RequestPlan{}, err
 	}
 	for _, op := range ops {
+		if op.Selector.Kind == httpheader.SelectorExact && httpheader.IsSystemHeader(op.Selector.Pattern) {
+			return httpheader.RequestPlan{}, ErrInvalidPayload
+		}
 		if op.Selector.Kind == httpheader.SelectorExact && strings.EqualFold(op.Selector.Pattern, "Host") &&
 			(op.Action == httpheader.ActionAdd || len(op.Values) > 1) {
 			return httpheader.RequestPlan{}, ErrInvalidPayload

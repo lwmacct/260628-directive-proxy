@@ -12,7 +12,7 @@
 - 将 dp family 请求与保留 API 请求分流，decoder 只接受当前 `dp.20.<kind>.<base64url-json>.<hmac>` 五段格式并校验 HMAC
 - inline 第四段直接解码为 `Payload`；remote 第四段直接解码为 `RemoteSpec`，编译为 typed reference 后通过 HTTP/Redis/File reader 读取同一 `Payload`
 - 校验当前版本 token、RemoteSpec 与 directive payload schema
-- 将 payload 编译为固定的 Source、HTTP Plan、Program 和 Recovery
+- 将 payload 编译为固定的 Source、HTTP Plan、Program、Recovery 和 Metadata
 
 ## 处理流程
 
@@ -20,17 +20,18 @@
 2. 非 dp family token 由 proxy handler 交给下一个 HTTP handler；dp family token 必须是当前 `dp.<version>.inline/remote.<base64url-json>`。
 3. `payload_codec.go` 直接解码 inline `Payload` 或 remote `RemoteSpec`，不接受额外 envelope。
 4. remote spec 在 Prepare 阶段编译为 `HTTPReference`、`RedisReference` 或 `FileReference`，并由对应 reader 解引用一次；取得的 payload 进入与 inline 相同的严格解码流程。
-5. `assemble.go` 在 Prepare 阶段将 target 与入站 URL 编译成最终 URL，生成 HTTP `proxy.Plan` 和独立 Recovery policy；resolver 编译 Program，并把来源观测信息与三者一起封装为不可变 `proxy.PreparedDirective`。
+5. `assemble.go` 在 Prepare 阶段将 target 与入站 URL 编译成最终 URL，并生成 HTTP `proxy.Plan`、Metadata 和独立 Recovery policy；resolver 编译 Program，并把来源观测信息与四者一起封装为不可变 `proxy.PreparedDirective`。
 
 ## 实现约定
 
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - `dp.20.<kind>.<base64url-json>.<hmac>` 明确区分 inline directive 与自包含 RemoteSpec；实际版本只由 `TokenVersion` 定义。
-- target 必须且只能包含 `base_url` 或 `exact_url`；Plan 只保存编译后的最终 URL、HTTP 执行字段和 request metadata，不携带合成策略或 Recovery。
+- target 必须且只能包含 `base_url` 或 `exact_url`；Plan 只保存编译后的最终 URL 和 HTTP 执行字段，不携带 metadata、合成策略或 Recovery。
+- metadata 是可选 string map；`user_id`、`user_key` 只是 core 预设 key，`trace_id` 由 Exchange 保留并注入。
 - inline JSON 本身就是 Payload；remote JSON 本身就是 RemoteSpec。
 - RemoteSpec 只包含读取信息，声明 payload、program、recovery 或其他执行字段必须拒绝。
 - RemoteSpec 顶层必须且只能包含 `http`、`redis`、`file` 之一，不使用共享 `type` 和跨 backend 可选字段。
-- HTTP RemoteSpec 的直接请求头复用 Inline request header policy；默认 patch 原请求头，Authorization、Content-Length 和代理披露头在 mutations 前清理，`x-dproxy-*` 与 hop-by-hop header 在 mutations 后统一清理。
+- HTTP RemoteSpec 的直接请求头复用 Inline request header policy；默认 patch 原请求头，Authorization、Content-Length 和代理披露头在 mutations 前清理，`x-dp-*` 与 hop-by-hop header 在 mutations 后统一清理。
 - HTTP 返回体、Redis 8+ JSON 根文档和 File 文件必须是完整 payload；program 与 recovery 只属于 Payload。
 - remote Payload 每个请求只读取一次，不做字段合并、Attempt 重读、回退、value 缓存或递归引用。
 - Redis directive 只使用 `JSON.GET key` 读取根文档；String key 不兼容，由写入方使用 `JSON.SET key $` 管理。

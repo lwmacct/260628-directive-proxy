@@ -6,11 +6,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 )
 
 type Trace struct {
 	dispatcher *Dispatcher
 	traceID    string
+	metadata   metadata.Set
 	mu         sync.Mutex
 	sequence   uint64
 	closed     atomic.Bool
@@ -22,11 +25,11 @@ type traceEmitter struct {
 	attempt  int
 }
 
-func (dispatcher *Dispatcher) Open(traceID string) Session {
-	if dispatcher == nil || dispatcher.closed.Load() || strings.TrimSpace(traceID) == "" {
+func (dispatcher *Dispatcher) Open(traceID string, fields metadata.Set) Session {
+	if dispatcher == nil || dispatcher.closed.Load() || strings.TrimSpace(traceID) == "" || fields.TraceID() != traceID {
 		return nil
 	}
-	return &Trace{dispatcher: dispatcher, traceID: traceID}
+	return &Trace{dispatcher: dispatcher, traceID: traceID, metadata: fields}
 }
 
 func (trace *Trace) Emitter(producer string, attempt int) Emitter {
@@ -68,6 +71,7 @@ func (trace *Trace) emit(producer, topic string, attempt int, data map[string]an
 		Topic:         topic,
 		RecordID:      fmt.Sprintf("%s:%08d", trace.traceID, trace.sequence),
 		TraceID:       trace.traceID,
+		Metadata:      trace.metadata.Map(),
 		Attempt:       attempt,
 		Sequence:      trace.sequence,
 		OccurredAt:    now.Format(time.RFC3339Nano),

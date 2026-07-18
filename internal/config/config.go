@@ -207,7 +207,7 @@ func DefaultConfig() Config {
 			Fluent: func() fluent.Config {
 				config := fluent.DefaultConfig()
 				config.Endpoint = "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}"
-				config.TagPrefix = "dproxy"
+				config.TagPrefix = "dp"
 				return config
 			}(),
 		},

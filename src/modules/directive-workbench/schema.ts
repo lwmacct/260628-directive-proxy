@@ -27,7 +27,6 @@ const protectedResponseHeaders = new Set([
   "connection",
   "content-length",
   "date",
-  "dproxy-retry-id",
   "host",
   "keep-alive",
   "proxy-authenticate",
@@ -164,7 +163,7 @@ function parseHeaderMutation(value: unknown, label: string, text: Text["authCons
   if (hasName) {
     exactName = stringValue(input.name, `${label}.name`, text);
     if (!isHeaderName(exactName)) throw new Error(text.invalidHeaderName(`${label}.name`));
-    if (side === "response" && (protectedResponseHeaders.has(exactName.toLowerCase()) || exactName.toLowerCase().startsWith("x-dproxy-"))) throw new Error(text.invalidHeaderName(`${label}.name`));
+    if (exactName.toLowerCase().startsWith("x-dp-") || side === "response" && protectedResponseHeaders.has(exactName.toLowerCase())) throw new Error(text.invalidHeaderName(`${label}.name`));
     selector = { name: exactName };
   } else {
     selector = { glob: parseGlob(input.glob, `${label}.glob`, text) };
@@ -213,7 +212,8 @@ function parseProgram(value: unknown, label: string, text: Text["authConsole"], 
 
 function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePayload {
   const input = record(value, "payload", text);
-  knownKeys(input, ["target", "proxy", "headers", "program", "recovery"], "payload", text);
+  knownKeys(input, ["metadata", "target", "proxy", "headers", "program", "recovery"], "payload", text);
+  const metadata = parseMetadata(input.metadata, text);
   const targetInput = record(input.target, "payload.target", text);
   knownKeys(targetInput, ["base_url", "exact_url"], "payload.target", text);
   const targetFields = ["base_url", "exact_url"].filter((name) => targetInput[name] !== undefined);
@@ -241,7 +241,33 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
   }
   const program = parseProgram(input.program, "payload.program", text, true);
   const recovery = parseRecovery(input.recovery, text);
-  return { target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(program ? { program } : {}), ...(recovery ? { recovery } : {}) };
+  return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(program ? { program } : {}), ...(recovery ? { recovery } : {}) };
+}
+
+function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  const input = record(value, "payload.metadata", text);
+  const entries = Object.entries(input);
+  if (entries.length > 15) throw new Error(text.mustBe("payload.metadata", "object with at most 15 fields"));
+  const metadata: Record<string, string> = {};
+  let totalBytes = 0;
+  for (const [key, rawValue] of entries) {
+    const keyBytes = new TextEncoder().encode(key).length;
+    if (!/^[a-z][a-z0-9_]*$/.test(key) || keyBytes > 64 || key === "trace_id") {
+      throw new Error(text.mustBe(`payload.metadata.${key}`, "lowercase snake_case key other than trace_id, up to 64 bytes"));
+    }
+    if (typeof rawValue !== "string" || !rawValue || rawValue !== rawValue.trim() || /[\r\n]/.test(rawValue)) {
+      throw new Error(text.nonEmptyString(`payload.metadata.${key}`));
+    }
+    const valueBytes = new TextEncoder().encode(rawValue).length;
+    if (valueBytes > 512) throw new Error(text.mustBe(`payload.metadata.${key}`, "string up to 512 bytes"));
+    totalBytes += keyBytes + valueBytes;
+    metadata[key] = rawValue;
+  }
+  if (totalBytes > 8192 - "trace_id".length - 512) {
+    throw new Error(text.mustBe("payload.metadata", "object within the directive metadata byte limit"));
+  }
+  return entries.length ? metadata : undefined;
 }
 
 function durationMilliseconds(value: string) {

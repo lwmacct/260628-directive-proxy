@@ -170,19 +170,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	source := prepared.Source()
 	if current != nil {
-		if configureErr := current.ConfigureProgram(prepared.Program()); configureErr != nil {
-			moduleErr := error(ErrInvalidDirective)
-			if source.Mode == "remote" {
-				moduleErr = ErrRemoteDirectiveInvalid
-			}
-			writeDirectiveError(w, moduleErr)
-			return
-		}
-		if prepareErr := current.PrepareDirective(exchange.DirectiveInfo{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
-			PayloadSHA256: source.PayloadSHA256, Duration: source.Duration,
-			Target: plan.Target, Metadata: plan.Metadata,
-		}); prepareErr != nil {
+		if configureErr := current.Configure(exchange.Configuration{
+			Directive: exchange.DirectiveInfo{
+				Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
+				PayloadSHA256: source.PayloadSHA256, Duration: source.Duration, Target: plan.Target,
+			},
+			Metadata: prepared.Metadata(), Program: prepared.Program(),
+		}); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if source.Mode == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid

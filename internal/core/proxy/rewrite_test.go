@@ -202,11 +202,11 @@ func TestApplyRewriteCanPreserveProxyDisclosureHeaders(t *testing.T) {
 	}
 }
 
-func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
+func TestApplyRewriteAlwaysRemovesSystemHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
-	in.Header.Set("X-Dproxy-Inbound", "drop")
-	in.Header["x-dproxy-lowercase"] = []string{"drop"}
+	in.Header.Set("X-Dp-Inbound", "drop")
+	in.Header["x-dp-lowercase"] = []string{"drop"}
 	in.Header.Set("X-Upstream", "keep")
 	out := in.Clone(in.Context())
 	req := &httputil.ProxyRequest{In: in, Out: out}
@@ -215,13 +215,13 @@ func TestApplyRewriteAlwaysRemovesDproxyHeaders(t *testing.T) {
 		Target: target,
 		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
 			Action:   httpheader.ActionSet,
-			Selector: exactSelector("X-Dproxy-Injected"),
+			Selector: exactSelector("X-Dp-Injected"),
 			Values:   []string{"drop"},
 		}),
 	})
 
 	for name := range req.Out.Header {
-		if strings.HasPrefix(strings.ToLower(name), "x-dproxy-") {
+		if strings.HasPrefix(strings.ToLower(name), "x-dp-") {
 			t.Fatalf("dproxy header reached outbound request: %s", name)
 		}
 	}

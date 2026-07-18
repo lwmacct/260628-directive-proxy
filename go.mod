@@ -17,6 +17,7 @@ require (
 	github.com/lwmacct/260718-go-pkg-clientip v0.2.260718
 	github.com/lwmacct/260718-go-pkg-ipallow v0.3.260718
 	github.com/redis/go-redis/v9 v9.21.0
+	github.com/tinylib/msgp v1.6.4
 	github.com/urfave/cli/v3 v3.10.1
 )
 
@@ -30,7 +31,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
-	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect

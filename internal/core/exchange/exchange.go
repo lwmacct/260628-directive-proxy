@@ -13,10 +13,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 const maxProjectedSSEEventBytes = 16 << 20
@@ -31,19 +31,19 @@ type Exchange struct {
 	method         string
 	idempotencyKey string
 
-	stateMu           sync.Mutex
-	phase             Phase
-	current           *Attempt
-	attemptCount      int
-	directive         lifecycle.DirectivePrepared
-	directivePrepared bool
-	maxAttempts       int
-	maxElapsed        time.Duration
+	stateMu      sync.Mutex
+	phase        Phase
+	current      *Attempt
+	attemptCount int
+	directive    lifecycle.DirectivePrepared
+	metadata     metadata.Set
+	configured   bool
+	maxAttempts  int
+	maxElapsed   time.Duration
 
 	lifecycleMu          sync.Mutex
 	requestScope         *program.Scope
 	requestStarted       lifecycle.RequestStarted
-	programConfigured    bool
 	requestBodyEnded     bool
 	responseStatus       int
 	downstreamEnded      bool
@@ -124,9 +124,9 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc) (*Attempt, erro
 		current.stateMu.Unlock()
 		return nil, ErrMaxAttempts
 	}
-	if !current.directivePrepared {
+	if !current.configured {
 		current.stateMu.Unlock()
-		return nil, ErrDirectiveNotPrepared
+		return nil, ErrExchangeNotConfigured
 	}
 	current.attemptCount++
 	attempt := &Attempt{
@@ -244,7 +244,7 @@ func (attempt *Attempt) RecoveryContext() RecoveryContext {
 	return RecoveryContext{
 		TraceID: current.traceID, Attempt: attempt.number,
 		MaxAttempts: current.maxAttempts, StartedAt: current.startedAt, Elapsed: elapsed, Remaining: remaining,
-		NextAttempt: attempt.number + 1, RetryAllowed: retryAllowed, Metadata: requestmeta.Clone(attempt.source.Metadata),
+		NextAttempt: attempt.number + 1, RetryAllowed: retryAllowed, Metadata: current.metadata,
 	}
 }
 
@@ -333,6 +333,6 @@ func cloneURL(in *url.URL) *url.URL {
 func attemptStartedFromDirective(value lifecycle.DirectivePrepared) lifecycle.AttemptStarted {
 	return lifecycle.AttemptStarted{
 		Mode: value.Mode, Backend: value.Backend, Endpoint: value.Endpoint, Resource: value.Resource,
-		PayloadSHA256: value.PayloadSHA256, Target: cloneURL(value.Target), Metadata: requestmeta.Clone(value.Metadata),
+		PayloadSHA256: value.PayloadSHA256, Target: cloneURL(value.Target),
 	}
 }

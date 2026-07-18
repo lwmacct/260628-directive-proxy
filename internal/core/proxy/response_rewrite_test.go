@@ -25,7 +25,7 @@ func TestModifyResponseAppliesOrderedOpsAndStripsReservedHeaders(t *testing.T) {
 			"Server":            {"upstream"},
 			"Set-Cookie":        {"a=1"},
 			"X-Connection-Only": {"drop"},
-			"X-Dproxy-Trace-Id": {"forged"},
+			"X-Dp-Trace-Id":     {"forged"},
 			"X-Upstream-One":    {"drop"},
 		},
 		Request: request,
@@ -40,7 +40,7 @@ func TestModifyResponseAppliesOrderedOpsAndStripsReservedHeaders(t *testing.T) {
 	if err := modifyResponse(response); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"Connection", "Server", "X-Connection-Only", "X-Dproxy-Trace-Id", "X-Upstream-One"} {
+	for _, name := range []string{"Connection", "Server", "X-Connection-Only", "X-Dp-Trace-Id", "X-Upstream-One"} {
 		if got := response.Header.Get(name); got != "" {
 			t.Fatalf("expected %s to be removed, got %q", name, got)
 		}

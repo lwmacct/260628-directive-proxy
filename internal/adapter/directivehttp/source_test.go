@@ -157,7 +157,7 @@ func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 
 func TestSourceDefaultPolicyStripsReservedHeaders(t *testing.T) {
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Dproxy-Secret") != "" || r.Header.Get("X-Forwarded-For") != "" ||
+		if r.Header.Get("Authorization") != "" || r.Header.Get("X-Dp-Secret") != "" || r.Header.Get("X-Forwarded-For") != "" ||
 			r.Header.Get("Connection") != "" || r.Header.Get("Upgrade") != "" || r.Header.Get("X-Tenant") != "team-a" ||
 			r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("unexpected resolver headers: %#v", r.Header)
@@ -169,7 +169,7 @@ func TestSourceDefaultPolicyStripsReservedHeaders(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodPost, "http://gateway.local/", nil)
 	req.Header.Set("Authorization", "Bearer dp.20.remote.payload.mac")
-	req.Header.Set("X-Dproxy-Secret", "drop")
+	req.Header.Set("X-Dp-Secret", "drop")
 	req.Header.Set("X-Forwarded-For", "192.0.2.1")
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "Upgrade")

@@ -14,7 +14,6 @@ var protectedResponseHeaders = map[string]struct{}{
 	"connection":          {},
 	"content-length":      {},
 	"date":                {},
-	"dproxy-retry-id":     {},
 	"host":                {},
 	"keep-alive":          {},
 	"proxy-authenticate":  {},
@@ -28,7 +27,7 @@ var protectedResponseHeaders = map[string]struct{}{
 
 func IsResponseHeaderProtected(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if strings.HasPrefix(name, "x-dproxy-") {
+	if httpheader.IsSystemHeader(name) {
 		return true
 	}
 	_, protected := protectedResponseHeaders[name]
@@ -67,7 +66,7 @@ func modifyResponse(response *http.Response) error {
 			}
 		}
 	}
-	httpheader.StripDproxy(response.Header)
+	httpheader.StripSystemHeaders(response.Header)
 	if response.StatusCode != http.StatusSwitchingProtocols {
 		httpheader.StripHopByHop(response.Header)
 	}

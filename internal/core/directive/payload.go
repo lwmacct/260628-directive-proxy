@@ -95,11 +95,12 @@ type FileRemoteSpec struct {
 }
 
 type Payload struct {
-	Target   TargetSection   `json:"target"`
-	Proxy    string          `json:"proxy,omitempty"`
-	Headers  *HeaderPolicy   `json:"headers,omitempty"`
-	Program  program.Program `json:"program,omitempty"`
-	Recovery *RecoverySpec   `json:"recovery,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Target   TargetSection     `json:"target"`
+	Proxy    string            `json:"proxy,omitempty"`
+	Headers  *HeaderPolicy     `json:"headers,omitempty"`
+	Program  program.Program   `json:"program,omitempty"`
+	Recovery *RecoverySpec     `json:"recovery,omitempty"`
 }
 
 type TargetSection struct {

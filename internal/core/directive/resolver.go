@@ -80,7 +80,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 	}
 
 	payload := document.Payload
-	source := proxy.SourceMetadata{Mode: KindInline}
+	source := proxy.DirectiveSource{Mode: KindInline}
 	if document.Kind == KindRemote {
 		resolved, metadata, resolveErr := r.resolveRemotePayload(req, *document.Remote)
 		if resolveErr != nil {
@@ -92,7 +92,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 	if payload == nil {
 		return nil, proxy.ErrInvalidDirective
 	}
-	plan, recoveryPolicy, err := CompilePayload(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}, InboundURL: req.URL})
+	compiled, err := CompilePayload(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}, InboundURL: req.URL})
 	if err != nil {
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid
@@ -118,7 +118,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 			return nil, proxy.ErrInvalidDirective
 		}
 	}
-	prepared, err := proxy.NewPreparedDirective(source, plan, executable, recoveryPolicy)
+	prepared, err := proxy.NewPreparedDirective(source, compiled.Plan, executable, compiled.Recovery, compiled.Metadata)
 	if err != nil {
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid
@@ -128,9 +128,9 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 	return prepared, nil
 }
 
-func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Payload, proxy.SourceMetadata, error) {
+func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Payload, proxy.DirectiveSource, error) {
 	reference, err := compileRemoteSpec(spec)
-	source := proxy.SourceMetadata{
+	source := proxy.DirectiveSource{
 		Mode: KindRemote, Backend: reference.backend, Endpoint: reference.endpoint, Resource: reference.resource,
 	}
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
@@ -27,6 +28,7 @@ type Run struct {
 	runtime       *Runtime
 	executable    *Executable
 	traceID       string
+	metadata      metadata.Set
 	emission      event.Session
 	eventSequence atomic.Uint64
 	closed        atomic.Bool
@@ -84,7 +86,7 @@ func (runtime *Runtime) Compile(source Program) (*Executable, error) {
 	return &Executable{request: request, attempt: attempt}, nil
 }
 
-func (runtime *Runtime) StartRun(traceID string, executable *Executable) (*Run, error) {
+func (runtime *Runtime) StartRun(traceID string, executable *Executable, fields metadata.Set) (*Run, error) {
 	if runtime == nil {
 		return nil, errors.New("program runtime is unavailable")
 	}
@@ -97,13 +99,16 @@ func (runtime *Runtime) StartRun(traceID string, executable *Executable) (*Run, 
 	if executable == nil {
 		return nil, errors.New("compiled program is unavailable")
 	}
+	if fields.TraceID() != traceID {
+		return nil, errors.New("program metadata is incomplete")
+	}
 	emission := event.Session(discardSession{})
 	if runtime.emission != nil {
-		if opened := runtime.emission.Open(traceID); opened != nil {
+		if opened := runtime.emission.Open(traceID, fields); opened != nil {
 			emission = opened
 		}
 	}
-	return &Run{runtime: runtime, executable: executable, traceID: traceID, emission: emission}, nil
+	return &Run{runtime: runtime, executable: executable, traceID: traceID, metadata: fields, emission: emission}, nil
 }
 
 func (runtime *Runtime) ModuleHealth() HealthSnapshot {
@@ -136,6 +141,7 @@ func (run *Run) OpenRequest(ctx module.OpenContext) (*Scope, error) {
 		return nil, ErrRunClosed
 	}
 	ctx.TraceID = run.traceID
+	ctx.Metadata = run.metadata
 	return openScope(ctx, run.executable.request, run)
 }
 
@@ -144,6 +150,7 @@ func (run *Run) OpenAttempt(ctx module.OpenContext) (*Scope, error) {
 		return nil, ErrRunClosed
 	}
 	ctx.TraceID = run.traceID
+	ctx.Metadata = run.metadata
 	return openScope(ctx, run.executable.attempt, run)
 }
 

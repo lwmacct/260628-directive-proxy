@@ -68,7 +68,7 @@ export function createInitialEditor(): EditorState {
     preserveProxyDisclosure: false,
     headerMutations: [
       newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
-      newHeaderMutation("set", "name", "X-Dproxy-Key", ["dproxy-demo-key"]),
+      newHeaderMutation("set", "name", "X-Api-Key", ["demo-api-key"]),
     ],
     requestProgram: [newModuleSpec("capture", "builtin.capture")],
     attemptProgram: [],

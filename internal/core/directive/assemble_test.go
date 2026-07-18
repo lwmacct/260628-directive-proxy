@@ -6,9 +6,10 @@ import (
 )
 
 func TestCompilePayload(t *testing.T) {
-	plan, _, err := CompilePayload(Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com/base"},
-		Proxy:  "socks5://user:pass@127.0.0.1:1080",
+	compiled, err := CompilePayload(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
+		Proxy:    "socks5://user:pass@127.0.0.1:1080",
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
 			HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
@@ -19,6 +20,7 @@ func TestCompilePayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
+	plan := compiled.Plan
 	if plan.Target.String() != "https://api.example.com/base" {
 		t.Fatalf("unexpected target: %s", plan.Target.String())
 	}
@@ -30,9 +32,22 @@ func TestCompilePayload(t *testing.T) {
 	}
 }
 
-func TestCompilePayloadBuildsReplaceHeaderMode(t *testing.T) {
-	plan, _, err := CompilePayload(Payload{
+func TestCompilePayloadAllowsOmittedMetadata(t *testing.T) {
+	compiled, err := CompilePayload(Payload{
 		Target: TargetSection{BaseURL: "https://api.example.com/base"},
+	}, AssembleOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.Metadata.Map() != nil || compiled.Metadata.TraceID() != "" {
+		t.Fatalf("unexpected directive metadata: %#v", compiled.Metadata.Map())
+	}
+}
+
+func TestCompilePayloadBuildsReplaceHeaderMode(t *testing.T) {
+	compiled, err := CompilePayload(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{Mode: "replace", Mutations: []HeaderMutation{{
 			Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Host", Values: []string{"custom.example.com"},
 		}}},
@@ -40,6 +55,7 @@ func TestCompilePayloadBuildsReplaceHeaderMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
+	plan := compiled.Plan
 	if plan.Headers.Request.Mode != "replace" {
 		t.Fatalf("unexpected header mode: %s", plan.Headers.Request.Mode)
 	}
@@ -49,8 +65,9 @@ func TestCompilePayloadBuildsReplaceHeaderMode(t *testing.T) {
 }
 
 func TestCompilePayloadBuildsGlobHeaderSelector(t *testing.T) {
-	plan, _, err := CompilePayload(Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com/base"},
+	compiled, err := CompilePayload(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionRemove, Glob: "M-Runtime-*"},
 		),
@@ -58,14 +75,16 @@ func TestCompilePayloadBuildsGlobHeaderSelector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
+	plan := compiled.Plan
 	if len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Selector.Kind != "glob" || plan.Headers.Request.Ops[0].Selector.Pattern != "M-Runtime-*" {
 		t.Fatalf("unexpected header ops: %#v", plan.Headers.Request.Ops)
 	}
 }
 
 func TestCompilePayloadBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
-	plan, _, err := CompilePayload(Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com/base"},
+	compiled, err := CompilePayload(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{PreserveProxyDisclosure: true, Mutations: []HeaderMutation{{
 			Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server",
 		}}},
@@ -73,14 +92,16 @@ func TestCompilePayloadBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
+	plan := compiled.Plan
 	if !plan.Headers.Request.PreserveProxyDisclosure || len(plan.Headers.Response.Ops) != 1 || plan.Headers.Response.Ops[0].Selector.Pattern != "Server" {
 		t.Fatalf("unexpected header plan: %#v", plan.Headers)
 	}
 }
 
 func TestCompilePayloadSplitsMixedHeaderSides(t *testing.T) {
-	plan, _, err := CompilePayload(Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com/base"},
+	compiled, err := CompilePayload(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
 			{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server"},
 			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Request", Values: []string{"request"}},
@@ -90,6 +111,7 @@ func TestCompilePayloadSplitsMixedHeaderSides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
+	plan := compiled.Plan
 	if len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Selector.Pattern != "X-Request" {
 		t.Fatalf("unexpected request ops: %#v", plan.Headers.Request.Ops)
 	}
@@ -130,11 +152,11 @@ func TestCompilePayloadCompilesTargetAgainstInboundURL(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			plan, _, err := CompilePayload(Payload{Target: tt.target}, AssembleOptions{InboundURL: inbound})
+			compiled, err := CompilePayload(Payload{Metadata: testDirectiveMetadata(), Target: tt.target}, AssembleOptions{InboundURL: inbound})
 			if err != nil {
 				t.Fatalf("assemble failed: %v", err)
 			}
-			if got := plan.Target.String(); got != tt.want {
+			if got := compiled.Plan.Target.String(); got != tt.want {
 				t.Fatalf("unexpected target: got %q want %q", got, tt.want)
 			}
 		})
@@ -148,43 +170,44 @@ func TestCompilePayloadRejectsInvalidTargetUnion(t *testing.T) {
 		{BaseURL: "ftp://api.example.com"},
 		{ExactURL: "api.example.com/action"},
 	} {
-		if _, _, err := CompilePayload(Payload{Target: target}, AssembleOptions{}); err == nil {
+		if _, err := CompilePayload(Payload{Metadata: testDirectiveMetadata(), Target: target}, AssembleOptions{}); err == nil {
 			t.Fatalf("expected invalid target: %#v", target)
 		}
 	}
 }
 
-func TestCompilePayloadExtractsDproxyMetadataAndRemovesItFromOutboundOps(t *testing.T) {
-	plan, _, err := CompilePayload(Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com"},
+func TestCompilePayloadKeepsMetadataOutsidePlan(t *testing.T) {
+	compiled, err := CompilePayload(Payload{
+		Metadata: map[string]string{"user_key": "uk_user_1", "request_id": "request-1"},
+		Target:   TargetSection{BaseURL: "https://api.example.com"},
 		Headers: requestHeaders(
-			HeaderMutation{Action: HeaderActionSet, Name: "x-dproxy-request-id", Values: []string{"request-1"}},
-			HeaderMutation{Action: HeaderActionAppend, Name: "X-Dproxy-Request-ID", Values: []string{"request-2"}},
 			HeaderMutation{Action: HeaderActionSet, Name: "X-Upstream", Values: []string{"forwarded"}},
 		),
 	}, AssembleOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := plan.Metadata["X-Dproxy-Request-Id"]; len(got) != 2 || got[0] != "request-1" || got[1] != "request-2" {
-		t.Fatalf("unexpected metadata: %#v", plan.Metadata)
+	if compiled.Metadata.UserKey() != "uk_user_1" || compiled.Metadata.Get("request_id") != "request-1" {
+		t.Fatalf("unexpected metadata: %#v", compiled.Metadata.Map())
 	}
-	if len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Selector.Pattern != "X-Upstream" {
-		t.Fatalf("metadata leaked into outbound ops: %#v", plan.Headers.Request.Ops)
+	if len(compiled.Plan.Headers.Request.Ops) != 1 || compiled.Plan.Headers.Request.Ops[0].Selector.Pattern != "X-Upstream" {
+		t.Fatalf("metadata affected outbound ops: %#v", compiled.Plan.Headers.Request.Ops)
 	}
 }
 
-func TestCompilePayloadRejectsReservedOrInvalidDproxyMetadata(t *testing.T) {
+func TestCompilePayloadRejectsSystemHeaderMutations(t *testing.T) {
 	for _, mutation := range []HeaderMutation{
-		{Action: HeaderActionSet, Name: "X-Dproxy-Trace-ID", Values: []string{"forged"}},
-		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{""}},
-		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{" padded "}},
-		{Action: HeaderActionSet, Name: "X-Dproxy-Request-ID", Values: []string{"bad\nvalue"}},
+		{Action: HeaderActionSet, Name: "X-Dp-Trace-ID", Values: []string{"forged"}},
+		{Action: HeaderActionSet, Name: "X-Dp-Request-ID", Values: []string{"request-1"}},
 	} {
-		if _, _, err := CompilePayload(Payload{Target: TargetSection{BaseURL: "https://api.example.com"}, Headers: requestHeaders(mutation)}, AssembleOptions{}); err == nil {
-			t.Fatalf("expected invalid metadata mutation: %#v", mutation)
+		if _, err := CompilePayload(Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}, Headers: requestHeaders(mutation)}, AssembleOptions{}); err == nil {
+			t.Fatalf("expected reserved header mutation to fail: %#v", mutation)
 		}
 	}
+}
+
+func testDirectiveMetadata() map[string]string {
+	return map[string]string{"user_key": "uk_test"}
 }
 
 func requestHeaders(mutations ...HeaderMutation) *HeaderPolicy {

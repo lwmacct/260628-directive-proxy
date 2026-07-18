@@ -9,7 +9,8 @@ import (
 
 func TestRecoveryPayloadRoundTripAndCompile(t *testing.T) {
 	payload := Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com"},
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com"},
 		Recovery: &RecoverySpec{
 			Controller: RecoveryControllerSpec{
 				URL: "https://control.example.com/recovery", Headers: map[string]string{"authorization": "Bearer secret"},
@@ -69,7 +70,7 @@ func TestRecoveryValidationRejectsInvalidPolicies(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			spec := valid()
 			mutate(spec)
-			if err := Validate(Payload{Target: TargetSection{BaseURL: "https://api.example.com"}, Recovery: spec}); err == nil {
+			if err := Validate(Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}, Recovery: spec}); err == nil {
 				t.Fatal("invalid recovery policy was accepted")
 			}
 		})

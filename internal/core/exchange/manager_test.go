@@ -11,10 +11,10 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
@@ -28,13 +28,10 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	current := manager.Start(req)
 	current.ConfigureRecovery(&recovery.Policy{Budget: recovery.Budget{MaxAttempts: 3, MaxElapsed: time.Minute}}, 10, time.Minute)
 	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}}})
-	if err := current.ConfigureProgram(executable); err != nil {
-		t.Fatal(err)
-	}
 	target := mustURL(t, "https://upstream.example/v1/chat?token=upstream-secret")
-	if err := current.PrepareDirective(DirectiveInfo{
-		Mode: "remote", Backend: "redis", Resource: "routing", PayloadSHA256: "digest-1", Target: target,
-		Metadata: requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}},
+	if err := current.Configure(Configuration{
+		Directive: DirectiveInfo{Mode: "remote", Backend: "redis", Resource: "routing", PayloadSHA256: "digest-1", Target: target},
+		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_user_1", "request_id": "request-1"}), Program: executable,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +86,12 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		}
 		if record.Topic == "capture.attempt.started" {
 			attemptStartedCount++
-			metadata := record.Data["metadata"].(map[string][]string)
-			if record.Data["payload_sha256"] != "digest-1" || metadata["X-Dproxy-Request-Id"][0] != "request-1" {
+			if record.Data["payload_sha256"] != "digest-1" || record.Metadata["request_id"] != "request-1" {
 				t.Fatalf("attempt did not reuse prepared directive: %#v", record.Data)
 			}
+		}
+		if record.Metadata["user_key"] != "uk_user_1" || record.Metadata["trace_id"] != current.TraceID() || record.TraceID != current.TraceID() {
+			t.Fatalf("record did not carry exchange metadata: %#v", record)
 		}
 		if record.Topic == "capture.recovery.started" || record.Topic == "capture.recovery.decided" || record.Topic == "capture.recovery.finished" {
 			recoveryTopics = append(recoveryTopics, record.Topic)
@@ -126,17 +125,15 @@ func TestRecoveryRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 	}
 }
 
-func TestExchangeMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
+func TestExchangeMetadataIsAttachedToEveryRecord(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}}})
-	if err := current.ConfigureProgram(executable); err != nil {
-		t.Fatal(err)
-	}
-	if err := current.PrepareDirective(DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example"), Metadata: requestmeta.Metadata{
-		"X-Dproxy-Request-Id": {"request-1"}, "X-Dproxy-Secret-Key": {"secret"},
-	}}); err != nil {
+	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}})
+	if err := current.Configure(Configuration{
+		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
+		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_user_1", "tenant_id": "tenant-a"}), Program: executable,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	attempt, _ := current.BeginAttempt(func() {})
@@ -144,17 +141,47 @@ func TestExchangeMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	current.Complete()
 	runtime.Close()
 	_ = dispatcher.Close(context.Background())
-	for _, record := range output.Records() {
-		if record.Topic != "capture.directive.prepared" {
-			continue
-		}
-		metadata := record.Data["metadata"].(map[string][]string)
-		if metadata["X-Dproxy-Secret-Key"][0] != "<redacted>" || metadata["X-Dproxy-Request-Id"][0] != "request-1" {
-			t.Fatalf("unexpected captured metadata: %#v", metadata)
-		}
-		return
+	records := output.Records()
+	if len(records) == 0 {
+		t.Fatal("capture emitted no records")
 	}
-	t.Fatal("prepared directive metadata was not captured")
+	for _, record := range records {
+		if record.Metadata["user_key"] != "uk_user_1" || record.Metadata["tenant_id"] != "tenant-a" || record.Metadata["trace_id"] != current.TraceID() {
+			t.Fatalf("record missing metadata: %#v", record)
+		}
+	}
+}
+
+func TestExchangeInjectsTraceIntoEmptyDirectiveMetadata(t *testing.T) {
+	runtime, dispatcher, output := newCaptureRuntime(t)
+	manager := NewManager(ManagerOptions{MaxAttempts: 1}, runtime)
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}})
+	fields, err := metadata.Compile(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Configure(Configuration{
+		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
+		Metadata:  fields,
+		Program:   executable,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current.Complete()
+	runtime.Close()
+	if err := dispatcher.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	records := output.Records()
+	if len(records) == 0 {
+		t.Fatal("capture emitted no records")
+	}
+	for _, record := range records {
+		if len(record.Metadata) != 1 || record.Metadata[metadata.KeyTraceID] != current.TraceID() {
+			t.Fatalf("record metadata is not system-only: %#v", record.Metadata)
+		}
+	}
 }
 
 func TestModuleRuntimeRejectsUnknownRequestModules(t *testing.T) {
@@ -200,10 +227,19 @@ func mustURL(t *testing.T, raw string) *url.URL {
 
 func prepareInlineExchange(t *testing.T, current *Exchange) {
 	t.Helper()
-	if err := current.ConfigureProgram(nil); err != nil {
+	if err := current.Configure(Configuration{
+		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
+		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_test"}),
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := current.PrepareDirective(DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")}); err != nil {
+}
+
+func exchangeMetadata(t *testing.T, input map[string]string) metadata.Set {
+	t.Helper()
+	fields, err := metadata.Compile(input)
+	if err != nil {
 		t.Fatal(err)
 	}
+	return fields
 }

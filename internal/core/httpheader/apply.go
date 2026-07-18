@@ -43,6 +43,12 @@ var hopByHopHeaders = []string{
 	"Upgrade",
 }
 
+const SystemHeaderPrefix = "x-dp-"
+
+func IsSystemHeader(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), SystemHeaderPrefix)
+}
+
 type RequestOptions struct {
 	PreserveTransport bool
 }
@@ -69,7 +75,7 @@ func ApplyRequest(out *http.Request, originalHeaders http.Header, plan RequestPl
 		stripProxyDisclosureHeaders(out.Header)
 	}
 	applyRequestOps(out, plan.Ops)
-	StripDproxy(out.Header)
+	StripSystemHeaders(out.Header)
 	StripHopByHop(out.Header)
 	if len(transportHeaders) > 0 {
 		copyHeaders(out.Header, transportHeaders)
@@ -133,9 +139,9 @@ func ApplyOp(headers http.Header, name string, op Op) {
 	}
 }
 
-func StripDproxy(headers http.Header) {
+func StripSystemHeaders(headers http.Header) {
 	for name := range headers {
-		if strings.HasPrefix(strings.ToLower(name), "x-dproxy-") {
+		if IsSystemHeader(name) {
 			delete(headers, name)
 		}
 	}

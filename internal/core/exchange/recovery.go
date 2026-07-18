@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
@@ -16,7 +17,7 @@ var ErrRecoveryNotStarted = errors.New("exchange recovery cycle was not started"
 type RecoveryInput struct {
 	Trigger   recovery.Trigger
 	Directive recovery.DirectiveInfo
-	Metadata  map[string][]string
+	Metadata  metadata.Set
 	Response  *recovery.Response
 }
 
@@ -59,7 +60,7 @@ func NewRecoveryCycle(attempt *Attempt, policy *recovery.Policy, controller reco
 		},
 		Trigger:   input.Trigger,
 		Directive: input.Directive,
-		Metadata:  cloneMetadata(input.Metadata),
+		Metadata:  input.Metadata.Map(),
 		Response:  cloneRecoveryResponse(input.Response),
 	}
 	cycle := &RecoveryCycle{
@@ -229,7 +230,7 @@ func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) lifecy
 			Endpoint: event.Directive.Endpoint, Resource: event.Directive.Resource,
 			PayloadSHA256: event.Directive.PayloadSHA256,
 		},
-		Metadata: event.Metadata, Response: moduleRecoveryResponse(event.Response),
+		Response:      moduleRecoveryResponse(event.Response),
 		ControllerURL: controllerURL, ControllerTimeoutMS: policy.Controller.Timeout.Milliseconds(),
 		ControllerHeaders: policy.Controller.Headers.Clone(),
 	}
@@ -291,15 +292,4 @@ func recoveryErrorCode(err error) string {
 	default:
 		return lifecycle.RecoveryErrorCodeRecoveryFailed
 	}
-}
-
-func cloneMetadata(in map[string][]string) map[string][]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string][]string, len(in))
-	for name, values := range in {
-		out[name] = append([]string(nil), values...)
-	}
-	return out
 }

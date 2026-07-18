@@ -15,11 +15,12 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 )
 
 type resolverResult struct {
 	Plan   *Plan
-	Source SourceMetadata
+	Source DirectiveSource
 }
 
 type resolverFunc func(*http.Request) (resolverResult, error)
@@ -36,7 +37,15 @@ func (f resolverFunc) Prepare(req *http.Request) (*PreparedDirective, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewPreparedDirective(result.Source, result.Plan, nil, nil)
+	return NewPreparedDirective(result.Source, result.Plan, nil, nil, proxyTestMetadata())
+}
+
+func proxyTestMetadata() metadata.Set {
+	fields, err := metadata.Compile(map[string]string{metadata.KeyUserKey: "uk_test"})
+	if err != nil {
+		panic(err)
+	}
+	return fields
 }
 
 type preparedResolver struct {

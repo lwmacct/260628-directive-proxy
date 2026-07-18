@@ -43,7 +43,7 @@ directive 使用有序数组声明程序：
 - `Attempt` 是 Exchange 创建的强类型子对象，拥有一次上游访问和 attempt scope；
 - `program.Executable` 在 Prepare 阶段生成一次；Recovery Attempt 复用同一批不可变 Binding，只重新调用 `Binding.Open` 创建实例。
 
-`proxy.PreparedDirective` 是 Prepare 阶段唯一的产物，固定持有 `Source + Plan + Program + Recovery`。其中 Plan 描述 target、proxy、header policy 和 request metadata，Recovery 独立归属；Transport 在 Attempt 循环外读取一次这些值。
+`proxy.PreparedDirective` 是 Prepare 阶段唯一的产物，固定持有 `Source + Plan + Program + Recovery + Metadata`。其中 Plan 只描述 target、proxy 和 header policy，Recovery 与 Metadata 独立归属；Transport 在 Attempt 循环外读取一次这些值，Exchange 再以单次 `Configure` 原子安装 directive、Program 和 metadata。
 
 生命周期方法直接接收 `*Attempt`，不传递裸 attempt 整数，也没有每请求 coordinator goroutine/channel。状态转换与 Module 事件提交分别由明确的 mutex 串行化。
 
@@ -52,6 +52,7 @@ directive 使用有序数组声明程序：
 - request scope 由 Exchange 在读取请求正文前打开，跨越全部 Recovery Attempt 和下游响应；
 - attempt scope 在每次 Attempt 构造上游请求前打开，Recovery retry、transport error 或响应 body 结束时关闭；
 - request Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
+- request/attempt scope 的 `module.OpenContext` 与每次回调的 `module.Context` 自动携带同一份不可变 metadata；
 - scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`；客户端取消只改变 Finish cause，不跳过 drain。
 
 ## 类型化端口
@@ -93,7 +94,7 @@ upstream raw
 
 `core/program.Runtime` 负责 Definition registry、Program 编译、Run、Scope 和 Module 健康。Module 通过 `module.Context.Emitter` 产生可选外部 Record；Runtime 只依赖 `core/event.Provider`。
 
-`core/event.Dispatcher` 实现该 provider，负责 `dproxy.event.v2` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`attempt`、`sequence`、`occurred_at` 和 `data`。
+`core/event.Dispatcher` 实现该 provider，负责 `dp.event.v3` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`metadata`、`attempt`、`sequence`、`occurred_at` 和 `data`；Dispatcher 在顶层统一附加 metadata，因此 producer 不在 topic data 中重复它。Fluent 默认 tag 前缀为 `dp`。
 
 `server.fluent.enabled=false` 时不创建 Dispatcher、Sink、Queue 或连接；Program runtime 使用 discard emitter，Module 仍注册、编译和执行，因此修改型 Module 不依赖事件输出。
 

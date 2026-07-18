@@ -135,15 +135,15 @@ type Response struct {
 }
 
 type Event struct {
-	Protocol   string              `json:"protocol"`
-	EventID    string              `json:"event_id"`
-	TraceID    string              `json:"trace_id"`
-	ObservedAt time.Time           `json:"observed_at"`
-	Attempt    AttemptInfo         `json:"attempt"`
-	Trigger    Trigger             `json:"trigger"`
-	Directive  DirectiveInfo       `json:"directive"`
-	Metadata   map[string][]string `json:"metadata,omitempty"`
-	Response   *Response           `json:"response,omitempty"`
+	Protocol   string            `json:"protocol"`
+	EventID    string            `json:"event_id"`
+	TraceID    string            `json:"trace_id"`
+	ObservedAt time.Time         `json:"observed_at"`
+	Attempt    AttemptInfo       `json:"attempt"`
+	Trigger    Trigger           `json:"trigger"`
+	Directive  DirectiveInfo     `json:"directive"`
+	Metadata   map[string]string `json:"metadata"`
+	Response   *Response         `json:"response,omitempty"`
 }
 
 type Decision struct {

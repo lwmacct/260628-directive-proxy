@@ -21,6 +21,12 @@ var files = cfgm.ConfigFiles[Config]{
 func TestWriteConfigExample(t *testing.T)     { files.WriteExample(t) }
 func TestRuntimeConfigKeysValid(t *testing.T) { files.ValidateRuntimeConfig(t) }
 
+func TestDefaultFluentTagPrefixUsesDP(t *testing.T) {
+	if prefix := DefaultConfig().Server.Fluent.TagPrefix; prefix != "dp" {
+		t.Fatalf("unexpected Fluent tag prefix: %q", prefix)
+	}
+}
+
 func setDirectiveTokenSecret(t *testing.T) {
 	t.Helper()
 	t.Setenv("DIRECTIVE_TOKEN_SECRET", "test-directive-token-secret")

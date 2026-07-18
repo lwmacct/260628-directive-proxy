@@ -155,7 +155,7 @@ server:
 
     # Forward authentication settings
     auth: null
-    tag-prefix: "dproxy" # Prefix added to every event tag
+    tag-prefix: "dp" # Prefix added to every event tag
     ack: false # Require Forward acknowledgements
 
     # Buffer and automatic batching settings

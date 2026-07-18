@@ -5,20 +5,21 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 var (
-	ErrMaxAttempts            = errors.New("exchange maximum attempts reached")
-	ErrRecoveryBudgetExceeded = errors.New("exchange recovery time budget is exhausted")
-	ErrIdempotencyKeyRequired = errors.New("exchange idempotency key is required for retry")
-	ErrRecoveryFailed         = errors.New("exchange recovery failed")
-	ErrAttemptActive          = errors.New("exchange already has an active attempt")
-	ErrAttemptScopeOpened     = errors.New("exchange attempt scope is already open")
-	ErrProgramNotConfigured   = errors.New("exchange program is not configured")
-	ErrDirectiveNotPrepared   = errors.New("exchange directive is not prepared")
-	ErrDirectiveAlreadySet    = errors.New("exchange directive is already prepared")
-	ErrDirectiveInvalid       = errors.New("exchange directive is invalid")
+	ErrMaxAttempts               = errors.New("exchange maximum attempts reached")
+	ErrRecoveryBudgetExceeded    = errors.New("exchange recovery time budget is exhausted")
+	ErrIdempotencyKeyRequired    = errors.New("exchange idempotency key is required for retry")
+	ErrRecoveryFailed            = errors.New("exchange recovery failed")
+	ErrAttemptActive             = errors.New("exchange already has an active attempt")
+	ErrAttemptScopeOpened        = errors.New("exchange attempt scope is already open")
+	ErrExchangeNotConfigured     = errors.New("exchange is not configured")
+	ErrExchangeConfigured        = errors.New("exchange is already configured")
+	ErrProgramRuntimeUnavailable = errors.New("exchange program runtime is unavailable")
+	ErrDirectiveInvalid          = errors.New("exchange directive is invalid")
 )
 
 type Phase string
@@ -49,7 +50,12 @@ type DirectiveInfo struct {
 	PayloadSHA256 string
 	Duration      time.Duration
 	Target        *url.URL
-	Metadata      requestmeta.Metadata
+}
+
+type Configuration struct {
+	Directive DirectiveInfo
+	Metadata  metadata.Set
+	Program   *program.Executable
 }
 
 type ManagerOptions struct {
@@ -65,5 +71,5 @@ type RecoveryContext struct {
 	Remaining    time.Duration
 	NextAttempt  int
 	RetryAllowed bool
-	Metadata     requestmeta.Metadata
+	Metadata     metadata.Set
 }

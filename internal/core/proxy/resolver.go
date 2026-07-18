@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 var (
@@ -27,30 +27,26 @@ type Resolver interface {
 // Payload validation and Program compilation are complete before this value is
 // constructed; every Attempt consumes the same Plan and Recovery policy.
 type PreparedDirective struct {
-	source   SourceMetadata
+	source   DirectiveSource
 	plan     *Plan
 	program  *program.Executable
 	recovery *recovery.Policy
+	metadata metadata.Set
 }
 
-func NewPreparedDirective(source SourceMetadata, plan *Plan, executable *program.Executable, policy *recovery.Policy) (*PreparedDirective, error) {
-	if plan == nil || plan.Target == nil {
-		return nil, ErrInvalidDirective
-	}
-	normalized, err := requestmeta.Normalize(plan.Metadata)
-	if err != nil {
+func NewPreparedDirective(source DirectiveSource, plan *Plan, executable *program.Executable, policy *recovery.Policy, fields metadata.Set) (*PreparedDirective, error) {
+	if plan == nil || plan.Target == nil || fields.TraceID() != "" {
 		return nil, ErrInvalidDirective
 	}
 	cloned := ClonePlan(plan)
-	cloned.Metadata = normalized
 	return &PreparedDirective{
-		source: source, plan: cloned, program: executable, recovery: recovery.ClonePolicy(policy),
+		source: source, plan: cloned, program: executable, recovery: recovery.ClonePolicy(policy), metadata: fields,
 	}, nil
 }
 
-func (prepared *PreparedDirective) Source() SourceMetadata {
+func (prepared *PreparedDirective) Source() DirectiveSource {
 	if prepared == nil {
-		return SourceMetadata{}
+		return DirectiveSource{}
 	}
 	return prepared.source
 }
@@ -74,4 +70,11 @@ func (prepared *PreparedDirective) Recovery() *recovery.Policy {
 		return nil
 	}
 	return recovery.ClonePolicy(prepared.recovery)
+}
+
+func (prepared *PreparedDirective) Metadata() metadata.Set {
+	if prepared == nil {
+		return metadata.Set{}
+	}
+	return prepared.metadata
 }

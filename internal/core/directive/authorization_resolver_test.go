@@ -11,7 +11,8 @@ import (
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	raw, err := Encode(testTokenSecret, Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com/v1"},
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
 			HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
@@ -42,7 +43,8 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 
 func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
 	raw, err := Encode(testTokenSecret, Payload{
-		Target: TargetSection{ExactURL: "https://api.example.com/action?signature=fixed"},
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{ExactURL: "https://api.example.com/action?signature=fixed"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +62,8 @@ func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
 
 func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
 	raw, err := Encode(testTokenSecret, Payload{
-		Target: TargetSection{BaseURL: "https://api.example.com"},
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
 			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test", Values: []string{"original"}},
 			{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Response", Values: []string{"original"}},
@@ -156,7 +159,7 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 }
 
 func TestResolverRejectsWrongTokenSecret(t *testing.T) {
-	raw, err := Encode(testTokenSecret, Payload{Target: TargetSection{BaseURL: "https://api.example.com"}})
+	raw, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
