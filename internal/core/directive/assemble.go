@@ -60,7 +60,7 @@ func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, err
 	if err != nil {
 		return CompiledPayload{}, err
 	}
-	if _, err := normalizeProgram(payload.Program, true, true); err != nil {
+	if _, err := normalizeProgram(payload.Program); err != nil {
 		return CompiledPayload{}, err
 	}
 	recoveryPolicy, err := CompileRecovery(payload.Recovery)

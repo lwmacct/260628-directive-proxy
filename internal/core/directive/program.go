@@ -5,31 +5,20 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
-func normalizeProgram(source program.Program, allowRequest, allowAttempt bool) (program.Program, error) {
-	if !allowRequest && len(source.Request) > 0 || !allowAttempt && len(source.Attempt) > 0 {
-		return program.Program{}, ErrInvalidPayload
-	}
-	request, err := normalizeModuleSpecs(source.Request)
-	if err != nil {
-		return program.Program{}, err
-	}
-	attempt, err := normalizeModuleSpecs(source.Attempt)
-	if err != nil {
-		return program.Program{}, err
-	}
-	return program.Program{Request: request, Attempt: attempt}, nil
-}
-
-func normalizeModuleSpecs(specs []program.Spec) ([]program.Spec, error) {
-	if len(specs) > maxModuleSpecs {
+func normalizeProgram(source program.Program) (program.Program, error) {
+	if len(source) > maxModuleSpecs {
 		return nil, ErrInvalidPayload
 	}
-	result := make([]program.Spec, len(specs))
-	seen := make(map[string]struct{}, len(specs))
-	for index, spec := range specs {
+	result := make(program.Program, len(source))
+	seen := make(map[string]struct{}, len(source))
+	for index, spec := range source {
+		if spec.Scope != module.ScopeExchange && spec.Scope != module.ScopeAttempt {
+			return nil, ErrInvalidPayload
+		}
 		if spec.ID == "" || spec.ID != strings.TrimSpace(spec.ID) || len(spec.ID) > maxModuleNameBytes || !isModuleName(spec.ID) {
 			return nil, ErrInvalidPayload
 		}

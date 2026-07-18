@@ -84,14 +84,20 @@ func TestModuleEmitsNotObservedForChatStreamWithoutUsage(t *testing.T) {
 }
 
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().Compile([]byte(`{"protocol":"auto","unknown":true}`)); err == nil {
+	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeAttempt}, []byte(`{"protocol":"auto","unknown":true}`)); err == nil {
 		t.Fatal("unknown config field was accepted")
+	}
+}
+
+func TestModuleRejectsExchangeScope(t *testing.T) {
+	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeExchange}, []byte(`{"protocol":"auto"}`)); err == nil {
+		t.Fatal("llmusage accepted exchange scope")
 	}
 }
 
 func TestModuleAcceptsResourceLimits(t *testing.T) {
 	raw := []byte(`{"protocol":"auto","max-sse-metadata-bytes":1024,"max-result-bytes":4096,"max-nesting-depth":32}`)
-	compiled, err := New().Compile(raw)
+	compiled, err := New().Compile(module.CompileContext{Scope: module.ScopeAttempt}, raw)
 	if err != nil {
 		t.Fatalf("resource limits were rejected: %v", err)
 	}
@@ -101,14 +107,14 @@ func TestModuleAcceptsResourceLimits(t *testing.T) {
 	}
 }
 
-func configuredScope(t *testing.T, raw string, attempt int) (*program.Scope, *recordingFactory) {
+func configuredScope(t *testing.T, raw string, attempt int) (*program.ScopeSet, *recordingFactory) {
 	t.Helper()
 	records := &recordingFactory{}
 	runtime, err := program.NewRuntime([]module.Definition{New()}, records)
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{Attempt: []program.Spec{{ID: "usage", Module: Name, Config: []byte(raw)}}})
+	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeAttempt, ID: "usage", Module: Name, Config: []byte(raw)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +130,7 @@ func configuredScope(t *testing.T, raw string, attempt int) (*program.Scope, *re
 		run.Close()
 		runtime.Close()
 	})
-	return scope, records
+	return program.NewScopeSet(scope), records
 }
 
 func usageTestMetadata(t *testing.T) metadata.Set {

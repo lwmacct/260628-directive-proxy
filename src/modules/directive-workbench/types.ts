@@ -20,6 +20,7 @@ export type HeaderMutation = {
 
 export type EditorModuleSpec = {
   key: string;
+  scope: "exchange" | "attempt";
   id: string;
   module: string;
   config?: unknown;
@@ -62,20 +63,15 @@ export type EditorState = {
   requestHeaderMode: "patch" | "replace";
   preserveProxyDisclosure: boolean;
   headerMutations: HeaderMutation[];
-  requestProgram: EditorModuleSpec[];
-  attemptProgram: EditorModuleSpec[];
+  program: EditorModuleSpec[];
   recovery: RecoveryEditorState;
 };
 
 export type ModuleSpec = {
+  scope: "exchange" | "attempt";
   id: string;
   module: string;
   config?: unknown;
-};
-
-export type DirectiveProgram = {
-  request?: ModuleSpec[];
-  attempt?: ModuleSpec[];
 };
 
 export type DirectivePayload = {
@@ -83,7 +79,7 @@ export type DirectivePayload = {
   target: { base_url: string } | { exact_url: string };
   proxy?: string;
   headers?: DirectiveHeaderPolicy;
-  program?: DirectiveProgram;
+  program?: ModuleSpec[];
   recovery?: RecoverySpec;
 };
 

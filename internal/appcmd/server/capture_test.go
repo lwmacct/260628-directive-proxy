@@ -64,9 +64,9 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_capture", "request_id": "capture-request"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program: program.Program{Request: []program.Spec{{
-			ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
-		}}},
+		Program: program.Program{{
+			Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
+		}},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
 			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionRemove, Name: "X-Upstream"},
 			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionSet, Name: "X-Downstream", Values: []string{"rewritten"}},
@@ -158,7 +158,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_disabled"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program:  program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
+		Program:  program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{}`)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,9 +226,9 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program: program.Program{Attempt: []program.Spec{{
-			ID: "usage", Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
-		}}},
+		Program: program.Program{{
+			Scope: module.ScopeAttempt, ID: "usage", Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)

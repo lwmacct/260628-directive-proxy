@@ -111,7 +111,7 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodPost, "https://gateway.example.com/v1/resources?region=cn", nil)
 	req.Host = "gateway.example.com"
-	req.Header.Set("Authorization", "Bearer dp.20.remote.payload.mac")
+	req.Header.Set("Authorization", "Bearer dp.21.remote.payload.mac")
 	req.Header.Set("X-Tenant", "team-a")
 	req.Header.Set("Connection", "X-Hop")
 	req.Header.Set("X-Hop", "drop")
@@ -168,7 +168,7 @@ func TestSourceDefaultPolicyStripsReservedHeaders(t *testing.T) {
 	source := testSource()
 	t.Cleanup(func() { _ = source.Close() })
 	req := httptest.NewRequest(http.MethodPost, "http://gateway.local/", nil)
-	req.Header.Set("Authorization", "Bearer dp.20.remote.payload.mac")
+	req.Header.Set("Authorization", "Bearer dp.21.remote.payload.mac")
 	req.Header.Set("X-Dp-Secret", "drop")
 	req.Header.Set("X-Forwarded-For", "192.0.2.1")
 	req.Header.Set("X-Tenant", "team-a")

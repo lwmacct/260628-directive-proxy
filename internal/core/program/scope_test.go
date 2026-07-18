@@ -13,11 +13,9 @@ import (
 )
 
 type testBinding struct {
-	scope module.ScopeKind
-	open  func() module.Instance
+	open func() module.Instance
 }
 
-func (binding testBinding) Scope() module.ScopeKind { return binding.scope }
 func (binding testBinding) Open(module.OpenContext) (module.Instance, error) {
 	return binding.open(), nil
 }
@@ -57,7 +55,7 @@ func TestAsyncBeforeCommitBarrierPreservesModuleOrder(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "ordered", moduleName: "test.ordered", binding: testBinding{scope: module.ScopeRequest, open: func() module.Instance { return instance }}}})
+	scope := openTestScope(t, []compiled{{id: "ordered", moduleName: "test.ordered", binding: testBinding{open: func() module.Instance { return instance }}}})
 	if err := scope.RequestStarted(t.Context(), lifecycle.RequestStarted{}); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +86,30 @@ func TestMutatorsRunInDirectiveProgramOrder(t *testing.T) {
 	}
 }
 
+func TestMutatorsPreserveGlobalOrderAcrossScopes(t *testing.T) {
+	exchangeScope, err := openScope(module.OpenContext{TraceID: "trace", Scope: module.ScopeExchange}, []compiled{
+		mutationModuleAt(1, "exchange", "exchange"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptScope, err := openScope(module.OpenContext{TraceID: "trace", Scope: module.ScopeAttempt, Attempt: 1}, []compiled{
+		mutationModuleAt(0, "attempt", "attempt"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := NewScopeSet(exchangeScope, attemptScope)
+	request, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err := active.MutateOutboundRequest(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if got := request.Header.Values("X-Module-Order"); !reflect.DeepEqual(got, []string{"attempt", "exchange"}) {
+		t.Fatalf("cross-scope mutators ignored global directive order: %#v", got)
+	}
+	_ = active.Finish(context.Background(), module.FinishCompleted)
+}
+
 func TestStreamObserverCreatesOnlySubscribedSSEView(t *testing.T) {
 	var rawChunks int
 	var events []lifecycle.SSEData
@@ -101,7 +123,7 @@ func TestStreamObserverCreatesOnlySubscribedSSEView(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "projection", moduleName: "test.projection", binding: testBinding{scope: module.ScopeAttempt, open: func() module.Instance { return instance }}}})
+	scope := openTestScope(t, []compiled{{id: "projection", moduleName: "test.projection", binding: testBinding{open: func() module.Instance { return instance }}}})
 	observer := NewUpstreamObserver("text/event-stream; charset=utf-8", 1024, scope)
 	if err := observer.Observe(t.Context(), time.Now(), []byte("event: delta\ndata: hello\n\n")); err != nil {
 		t.Fatal(err)
@@ -124,7 +146,7 @@ func TestAsyncBodyChunkOwnsItsQueuedView(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "copy", moduleName: "test.copy", binding: testBinding{scope: module.ScopeAttempt, open: func() module.Instance { return instance }}}})
+	scope := openTestScope(t, []compiled{{id: "copy", moduleName: "test.copy", binding: testBinding{open: func() module.Instance { return instance }}}})
 	data := []byte("original")
 	if err := scope.UpstreamBodyChunk(t.Context(), lifecycle.BodyChunk{Data: data}); err != nil {
 		t.Fatal(err)
@@ -165,8 +187,7 @@ func TestDroppedBeforeCommitHandlerDoesNotWait(t *testing.T) {
 		})
 	}}
 	scope := openTestScope(t, []compiled{{id: "drop", moduleName: "test.drop", binding: testBinding{
-		scope: module.ScopeRequest,
-		open:  func() module.Instance { return instance },
+		open: func() module.Instance { return instance },
 	}}})
 	if err := scope.RequestStarted(t.Context(), lifecycle.RequestStarted{}); err != nil {
 		t.Fatal(err)
@@ -185,23 +206,26 @@ func TestDroppedBeforeCommitHandlerDoesNotWait(t *testing.T) {
 }
 
 func mutationModule(id, value string) compiled {
+	return mutationModuleAt(0, id, value)
+}
+
+func mutationModuleAt(order int, id, value string) compiled {
 	instance := testInstance{bind: func(registrar module.Registrar) {
 		registrar.MutateOutboundRequest(module.SyncPolicy(), func(_ module.Context, request *http.Request) error {
 			request.Header.Add("X-Module-Order", value)
 			return nil
 		})
 	}}
-	return compiled{id: id, moduleName: "test.mutation", binding: testBinding{
-		scope: module.ScopeAttempt,
-		open:  func() module.Instance { return instance },
+	return compiled{order: order, id: id, moduleName: "test.mutation", binding: testBinding{
+		open: func() module.Instance { return instance },
 	}}
 }
 
-func openTestScope(t *testing.T, entries []compiled) *Scope {
+func openTestScope(t *testing.T, entries []compiled) *ScopeSet {
 	t.Helper()
 	scope, err := openScope(module.OpenContext{TraceID: "trace", Attempt: 1}, entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return scope
+	return NewScopeSet(scope)
 }

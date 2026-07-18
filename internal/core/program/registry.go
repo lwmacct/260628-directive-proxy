@@ -12,6 +12,7 @@ type registry struct {
 }
 
 type compiled struct {
+	order      int
 	id         string
 	moduleName string
 	binding    module.Binding
@@ -35,40 +36,47 @@ func newRegistry(definitions ...module.Definition) (*registry, error) {
 	return result, nil
 }
 
-func (r *registry) compile(kind module.ScopeKind, specs []Spec) ([]compiled, error) {
+func (r *registry) compile(specs Program) ([]compiled, []compiled, error) {
 	if len(specs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if r == nil {
-		return nil, fmt.Errorf("module registry is unavailable")
+		return nil, nil, fmt.Errorf("module registry is unavailable")
 	}
-	result := make([]compiled, 0, len(specs))
+	exchange := make([]compiled, 0, len(specs))
+	attempt := make([]compiled, 0, len(specs))
 	seen := make(map[string]struct{}, len(specs))
 	for index, spec := range specs {
+		if spec.Scope != module.ScopeExchange && spec.Scope != module.ScopeAttempt {
+			return nil, nil, fmt.Errorf("module scope at index %d is invalid", index)
+		}
 		if strings.TrimSpace(spec.ID) == "" {
-			return nil, fmt.Errorf("module id at index %d is empty", index)
+			return nil, nil, fmt.Errorf("module id at index %d is empty", index)
 		}
 		if _, exists := seen[spec.ID]; exists {
-			return nil, fmt.Errorf("module id %q is repeated", spec.ID)
+			return nil, nil, fmt.Errorf("module id %q is repeated", spec.ID)
 		}
 		seen[spec.ID] = struct{}{}
 		definition := r.definitions[spec.Module]
 		if definition == nil {
-			return nil, fmt.Errorf("module %q at index %d is not registered", spec.Module, index)
+			return nil, nil, fmt.Errorf("module %q at index %d is not registered", spec.Module, index)
 		}
-		binding, err := definition.Compile(spec.Config)
+		binding, err := definition.Compile(module.CompileContext{Scope: spec.Scope}, spec.Config)
 		if err != nil {
-			return nil, fmt.Errorf("compile module %q (%s): %w", spec.Module, spec.ID, err)
+			return nil, nil, fmt.Errorf("compile module %q (%s): %w", spec.Module, spec.ID, err)
 		}
 		if binding == nil {
-			return nil, fmt.Errorf("compile module %q (%s): nil binding", spec.Module, spec.ID)
+			return nil, nil, fmt.Errorf("compile module %q (%s): nil binding", spec.Module, spec.ID)
 		}
-		if binding.Scope() != kind {
-			return nil, fmt.Errorf("module %q (%s) has scope %q, not %q", spec.Module, spec.ID, binding.Scope(), kind)
+		item := compiled{order: index, id: spec.ID, moduleName: spec.Module, binding: binding}
+		switch spec.Scope {
+		case module.ScopeExchange:
+			exchange = append(exchange, item)
+		case module.ScopeAttempt:
+			attempt = append(attempt, item)
 		}
-		result = append(result, compiled{id: spec.ID, moduleName: spec.Module, binding: binding})
 	}
-	return result, nil
+	return exchange, attempt, nil
 }
 
 func (r *registry) names() []string {

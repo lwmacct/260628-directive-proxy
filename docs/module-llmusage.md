@@ -4,8 +4,9 @@
 
 ```json
 {
-  "program": {
-    "attempt": [{
+  "program": [
+    {
+      "scope": "attempt",
       "id": "usage",
       "module": "builtin.llmusage",
       "config": {
@@ -15,8 +16,8 @@
         "max-result-bytes": 0,
         "max-nesting-depth": 0
       }
-    }]
-  }
+    }
+  ]
 }
 ```
 
@@ -29,6 +30,6 @@
 - `UpstreamJSONChunk`；
 - upstream body end。
 
-它不订阅 raw upstream chunk。SSE 解析由 request/attempt scope 共享投影完成，Module 只接收语义 data event。处理运行在 ordered async lane，并在 attempt scope 结束前 drain。
+它不订阅 raw upstream chunk。SSE 解析由当前活跃的 exchange/attempt scope 共享投影完成，Module 只接收语义 data event。处理运行在 ordered async lane，并在 attempt scope 结束前 drain。
 
 输出 topics：`llm.usage.observed`、`llm.usage.not_observed`、`llm.usage.failed`。

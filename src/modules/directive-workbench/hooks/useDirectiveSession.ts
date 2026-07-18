@@ -23,7 +23,7 @@ type Direction = "builder" | "json" | "token";
 function createArtifacts(source: DirectiveSource, editor: EditorState, text: Text["authConsole"]): Artifacts {
   const draft = buildEnvelope(source, editor);
   try {
-    if (source === "inline" && [...editor.requestProgram, ...editor.attemptProgram].some((item) => !item.configValid)) {
+    if (source === "inline" && editor.program.some((item) => !item.configValid)) {
       throw new Error(text.invalidModuleConfig);
     }
     const envelope = validateDirective(draft, text);

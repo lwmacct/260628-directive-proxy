@@ -16,13 +16,13 @@ type runtimeDefinition struct {
 }
 
 func (definition runtimeDefinition) Name() string { return definition.name }
-func (definition runtimeDefinition) Compile(json.RawMessage) (module.Binding, error) {
+func (definition runtimeDefinition) Compile(module.CompileContext, json.RawMessage) (module.Binding, error) {
 	return definition.compile(), nil
 }
 
 func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	definition := runtimeDefinition{name: "panic.module", compile: func() module.Binding {
-		return testBinding{scope: module.ScopeRequest, open: func() module.Instance {
+		return testBinding{open: func() module.Instance {
 			return testInstance{bind: func(registrar module.Registrar) {
 				registrar.OnRequestStarted(module.SyncPolicy(), func(module.Context, lifecycle.RequestStarted) error { panic("boom") })
 			}}
@@ -32,7 +32,7 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{Request: []Spec{{ID: "panic", Module: "panic.module", Config: []byte(`{}`)}}})
+	executable, err := runtime.Compile(Program{{Scope: module.ScopeExchange, ID: "panic", Module: "panic.module", Config: []byte(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,11 +40,11 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := run.OpenRequest(module.OpenContext{})
+	scope, err := run.OpenExchange(module.OpenContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := scope.RequestStarted(t.Context(), lifecycle.RequestStarted{}); err == nil {
+	if err := NewScopeSet(scope).RequestStarted(t.Context(), lifecycle.RequestStarted{}); err == nil {
 		t.Fatal("module panic did not fail the barrier")
 	}
 	health := runtime.ModuleHealth()
@@ -58,7 +58,7 @@ func TestExecutableCompilesOnceAndOpensEachAttempt(t *testing.T) {
 	openCalls := 0
 	definition := runtimeDefinition{name: "attempt.module", compile: func() module.Binding {
 		compileCalls++
-		return testBinding{scope: module.ScopeAttempt, open: func() module.Instance {
+		return testBinding{open: func() module.Instance {
 			openCalls++
 			return testInstance{}
 		}}
@@ -67,7 +67,7 @@ func TestExecutableCompilesOnceAndOpensEachAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{Attempt: []Spec{{ID: "attempt", Module: "attempt.module", Config: []byte(`{}`)}}})
+	executable, err := runtime.Compile(Program{{Scope: module.ScopeAttempt, ID: "attempt", Module: "attempt.module", Config: []byte(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}

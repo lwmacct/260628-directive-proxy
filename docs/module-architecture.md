@@ -7,7 +7,7 @@ program.Program（Payload 中的有序 Spec）
   -> program.Runtime.Compile（每个已解析 Payload 一次）
 program.Executable（不可变 Binding 列表）
   -> program.Run（每个 Exchange）
-  -> request / attempt Scope
+  -> exchange / attempt Scope
 module.Binding.Open
   -> module.Instance.Bind(module.Registrar)
 core/lifecycle 类型化 ports
@@ -17,18 +17,14 @@ directive 使用有序数组声明程序：
 
 ```json
 {
-  "program": {
-    "request": [
-      {"id":"capture","module":"builtin.capture","config":{}}
-    ],
-    "attempt": [
-      {"id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}
-    ]
-  }
+  "program": [
+    {"scope":"exchange","id":"capture","module":"builtin.capture","config":{}},
+    {"scope":"attempt","id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}
+  ]
 }
 ```
 
-`id` 在同一数组内唯一，并作为 Record 的 `producer`；`module` 选择进程级 Definition。数组顺序就是 mutation 和事件提交顺序，不使用 map，也不存在隐式优先级。
+`scope` 是必填字段，只允许 `exchange` 或 `attempt`；`id` 在整个 Program 内唯一，并作为 Record 的 `producer`；`module` 选择进程级 Definition。数组顺序是所有当前活跃 Module 的全局 mutation 和事件提交顺序，不使用 map，也不存在按 scope 注入的隐式优先级。Definition 在 `CompileContext` 中收到 directive 声明的 scope，可以拒绝自己不支持的生命周期。
 
 ## 与 Exchange 生命周期的关系
 
@@ -39,7 +35,7 @@ directive 使用有序数组声明程序：
 - `core/program` 注册 Definition、编译 Program、创建 Run/Scope、执行 handler、投影流并汇总健康；
 - `core/exchange` 是生命周期唯一拥有者，驱动 request、attempt、recovery 和 downstream 状态转换；
 - `Manager` 是轻量 Exchange factory，只携带 Program runtime 和服务端 Attempt 上限，不维护活动索引或外部 command；
-- `Exchange` 拥有入站请求生命周期、request scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RecoveryTransport；
+- `Exchange` 拥有入站请求生命周期、exchange scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RecoveryTransport；
 - `Attempt` 是 Exchange 创建的强类型子对象，拥有一次上游访问和 attempt scope；
 - `program.Executable` 在 Prepare 阶段生成一次；Recovery Attempt 复用同一批不可变 Binding，只重新调用 `Binding.Open` 创建实例。
 
@@ -49,10 +45,11 @@ directive 使用有序数组声明程序：
 
 ## Scope
 
-- request scope 由 Exchange 在读取请求正文前打开，跨越全部 Recovery Attempt 和下游响应；
+- exchange scope 由 Exchange 在读取请求正文前打开，跨越全部 Recovery Attempt 和下游响应；
 - attempt scope 在每次 Attempt 构造上游请求前打开，Recovery retry、transport error 或响应 body 结束时关闭；
-- request Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
-- request/attempt scope 的 `module.OpenContext` 与每次回调的 `module.Context` 自动携带同一份不可变 metadata；
+- exchange Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
+- exchange/attempt scope 的 `module.OpenContext` 与每次回调的 `module.Context` 自动携带同一份不可变 metadata；
+- Program runtime 把两个 scope 中当前活跃的实例按原始数组索引合并；共同端口、mutation 和流投影都严格遵守同一个全局顺序；
 - scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`；客户端取消只改变 Finish cause，不跳过 drain。
 
 ## 类型化端口

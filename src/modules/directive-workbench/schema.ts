@@ -3,7 +3,6 @@ import type {
   DirectiveEnvelope,
   DirectiveHeaderMutation,
   DirectivePayload,
-  DirectiveProgram,
   ModuleSpec,
   RecoverySpec,
   RemoteSpec,
@@ -180,7 +179,8 @@ function parseHeaderMutation(value: unknown, label: string, text: Text["authCons
 
 function parseModule(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec {
   const input = record(value, label, text);
-  knownKeys(input, ["id", "module", "config"], label, text);
+  knownKeys(input, ["scope", "id", "module", "config"], label, text);
+  if (input.scope !== "exchange" && input.scope !== "attempt") throw new Error(text.onlyValues(`${label}.scope`, "exchange, attempt"));
   if (typeof input.id !== "string" || input.id === "" || input.id !== input.id.trim()) throw new Error(text.nonEmptyString(`${label}.id`));
   if (typeof input.module !== "string" || input.module === "" || input.module !== input.module.trim()) throw new Error(text.nonEmptyString(`${label}.module`));
   const id = input.id;
@@ -190,24 +190,16 @@ function parseModule(value: unknown, label: string, text: Text["authConsole"]): 
     throw new Error(text.mustBe(label, "module names using lowercase letters, digits, dots, or hyphens"));
   }
   if (input.config !== undefined && new TextEncoder().encode(JSON.stringify(input.config)).length > 65536) throw new Error(text.mustBe(`${label}.config`, "JSON <= 64 KiB"));
-  return { id, module, ...(input.config === undefined ? {} : { config: input.config }) };
+  return { scope: input.scope, id, module, ...(input.config === undefined ? {} : { config: input.config }) };
 }
 
-function parseProgram(value: unknown, label: string, text: Text["authConsole"], allowAttempt: boolean): DirectiveProgram | undefined {
+function parseProgram(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec[] | undefined {
   if (value === undefined) return undefined;
-  const input = record(value, label, text);
-  knownKeys(input, allowAttempt ? ["request", "attempt"] : ["request"], label, text);
-  const parseList = (raw: unknown, listLabel: string) => {
-    if (raw === undefined) return undefined;
-    const values = arrayValue(raw, listLabel, text);
-    if (values.length > 16) throw new Error(text.mustBe(listLabel, "array with at most 16 modules"));
-    const modules = values.map((item, index) => parseModule(item, `${listLabel}[${index}]`, text));
-    if (new Set(modules.map((item) => item.id)).size !== modules.length) throw new Error(text.mustBe(listLabel, "modules with unique ids"));
-    return modules.length ? modules : undefined;
-  };
-  const request = parseList(input.request, `${label}.request`);
-  const attempt = allowAttempt ? parseList(input.attempt, `${label}.attempt`) : undefined;
-  return request || attempt ? { ...(request ? { request } : {}), ...(attempt ? { attempt } : {}) } : undefined;
+  const values = arrayValue(value, label, text);
+  if (values.length > 16) throw new Error(text.mustBe(label, "array with at most 16 modules"));
+  const modules = values.map((item, index) => parseModule(item, `${label}[${index}]`, text));
+  if (new Set(modules.map((item) => item.id)).size !== modules.length) throw new Error(text.mustBe(label, "modules with globally unique ids"));
+  return modules.length ? modules : undefined;
 }
 
 function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePayload {
@@ -239,7 +231,7 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
       ...(headersInput.mutations === undefined ? {} : { mutations: arrayValue(headersInput.mutations, "payload.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `payload.headers.mutations[${index}]`, text, false)) }),
     };
   }
-  const program = parseProgram(input.program, "payload.program", text, true);
+  const program = parseProgram(input.program, "payload.program", text);
   const recovery = parseRecovery(input.recovery, text);
   return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(program ? { program } : {}), ...(recovery ? { recovery } : {}) };
 }

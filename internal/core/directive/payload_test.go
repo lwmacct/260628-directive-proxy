@@ -74,6 +74,17 @@ func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsPreviousDirectiveVersion(t *testing.T) {
+	encoded, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := strings.Replace(encoded, "."+TokenVersion+".", ".20.", 1)
+	if _, err := Decode(testTokenSecret, legacy); !errors.Is(err, ErrInvalidPayload) {
+		t.Fatalf("previous directive version was not rejected: %v", err)
+	}
+}
+
 func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	input := RemoteSpec{
 		HTTP: &HTTPRemoteSpec{

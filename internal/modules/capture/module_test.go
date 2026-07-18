@@ -106,8 +106,14 @@ func TestResponseCaptureReportsOutputQueueDropsWithoutBlocking(t *testing.T) {
 }
 
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().Compile([]byte(`{"unknown":true}`)); err == nil {
+	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeExchange}, []byte(`{"unknown":true}`)); err == nil {
 		t.Fatal("unknown config field was accepted")
+	}
+}
+
+func TestModuleRejectsAttemptScope(t *testing.T) {
+	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeAttempt}, []byte(`{}`)); err == nil {
+		t.Fatal("capture accepted attempt scope")
 	}
 }
 
@@ -130,14 +136,14 @@ func TestCaptureDefaultsPreserveObservableCredentials(t *testing.T) {
 	}
 }
 
-func configuredScope(t *testing.T, raw string, output *captureOutput) *program.Scope {
+func configuredScope(t *testing.T, raw string, output *captureOutput) *program.ScopeSet {
 	t.Helper()
 	provider := &captureRuntime{output: output}
 	runtime, err := program.NewRuntime([]module.Definition{New()}, provider)
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{Request: []program.Spec{{ID: "capture", Module: Name, Config: []byte(raw)}}})
+	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: Name, Config: []byte(raw)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +151,7 @@ func configuredScope(t *testing.T, raw string, output *captureOutput) *program.S
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := run.OpenRequest(module.OpenContext{})
+	scope, err := run.OpenExchange(module.OpenContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +159,7 @@ func configuredScope(t *testing.T, raw string, output *captureOutput) *program.S
 		run.Close()
 		runtime.Close()
 	})
-	return scope
+	return program.NewScopeSet(scope)
 }
 
 func captureTestMetadata(t *testing.T) metadata.Set {

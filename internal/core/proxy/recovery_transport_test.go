@@ -65,11 +65,12 @@ type recoveryEventInstance struct{ recorder *recoveryEventRecorder }
 
 func (definition recoveryEventDefinition) Name() string { return "test.recovery.events" }
 
-func (definition recoveryEventDefinition) Compile(json.RawMessage) (module.Binding, error) {
+func (definition recoveryEventDefinition) Compile(ctx module.CompileContext, _ json.RawMessage) (module.Binding, error) {
+	if ctx.Scope != module.ScopeAttempt {
+		return nil, errors.New("test.recovery.events requires attempt scope")
+	}
 	return recoveryEventBinding{recorder: definition.recorder}, nil
 }
-
-func (binding recoveryEventBinding) Scope() module.ScopeKind { return module.ScopeAttempt }
 
 func (binding recoveryEventBinding) Open(module.OpenContext) (module.Instance, error) {
 	return &recoveryEventInstance{recorder: binding.recorder}, nil
@@ -485,7 +486,7 @@ func testRecoveryPolicy() *recovery.Policy {
 
 func compileRecoveryProgram(t *testing.T, runtime *program.Runtime) *program.Executable {
 	t.Helper()
-	executable, err := runtime.Compile(program.Program{Attempt: []program.Spec{{ID: "events", Module: "test.recovery.events"}}})
+	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeAttempt, ID: "events", Module: "test.recovery.events"}})
 	if err != nil {
 		t.Fatal(err)
 	}

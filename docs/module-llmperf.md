@@ -4,8 +4,9 @@
 
 ```json
 {
-  "program": {
-    "attempt": [{
+  "program": [
+    {
+      "scope": "attempt",
       "id": "perf",
       "module": "builtin.llmperf",
       "config": {
@@ -15,8 +16,8 @@
         "max-retained-bytes": 0,
         "max-nesting-depth": 0
       }
-    }]
-  }
+    }
+  ]
 }
 ```
 

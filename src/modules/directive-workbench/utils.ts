@@ -27,6 +27,7 @@ function buildHeaderMutations(items: HeaderMutation[]): DirectiveHeaderMutation[
 
 function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
   return items.map((item) => ({
+    scope: item.scope,
     id: item.id,
     module: item.module,
     ...(item.config === undefined ? {} : { config: item.config }),
@@ -48,12 +49,7 @@ export function buildPayload(input: EditorState): DirectivePayload {
     ...(mutations.length ? { mutations } : {}),
   };
   if (Object.keys(headers).length) payload.headers = headers;
-  if (input.requestProgram.length || input.attemptProgram.length) {
-    payload.program = {
-      ...(input.requestProgram.length ? { request: buildProgram(input.requestProgram) } : {}),
-      ...(input.attemptProgram.length ? { attempt: buildProgram(input.attemptProgram) } : {}),
-    };
-  }
+  if (input.program.length) payload.program = buildProgram(input.program);
   const recovery = buildRecovery(input.recovery);
   if (recovery) payload.recovery = recovery;
   return payload;
@@ -126,8 +122,7 @@ function payloadToEditor(payload: DirectivePayload) {
     requestHeaderMode: payload.headers?.mode ?? "patch",
     preserveProxyDisclosure: payload.headers?.preserve_proxy_disclosure ?? false,
     headerMutations: toEditorHeaderMutations(payload.headers?.mutations ?? []),
-    requestProgram: (payload.program?.request ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
-    attemptProgram: (payload.program?.attempt ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {})),
+    program: (payload.program ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {}, item.scope)),
     recovery: payload.recovery,
   };
 }

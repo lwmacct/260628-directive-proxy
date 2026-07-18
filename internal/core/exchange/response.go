@@ -41,10 +41,10 @@ func (attempt *Attempt) ObserveUpstreamResponse(response *http.Response) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	attempt.projection = program.NewUpstreamObserver(
-		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attempt.scope,
+		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(attempt),
 	)
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.UpstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{
+	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.UpstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{
 			StatusCode: response.StatusCode, Header: response.Header.Clone(),
 		})
 	})
@@ -65,18 +65,13 @@ func (attempt *Attempt) processUpstreamBodyChunk(data []byte) ([]byte, error) {
 	if attempt.closed.Load() {
 		return nil, context.Canceled
 	}
-	if err := current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.UpstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
+	if err := current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.UpstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	}); err != nil {
 		return nil, err
 	}
-	if current.requestScope != nil {
-		if err := current.requestScope.MutateUpstreamBodyChunk(current.ctx, &draft); err != nil {
-			return nil, err
-		}
-	}
-	if attempt.scope != nil {
-		if err := attempt.scope.MutateUpstreamBodyChunk(current.ctx, &draft); err != nil {
+	if active := current.activeProgram(attempt); active != nil {
+		if err := active.MutateUpstreamBodyChunk(current.ctx, &draft); err != nil {
 			return nil, err
 		}
 	}
@@ -112,15 +107,11 @@ func (current *Exchange) responseHeaders(status int, headers http.Header) {
 	current.lifecycleMu.Lock()
 	current.responseStatus = status
 	current.downstreamAttempt = attempt
-	var attemptScope *program.Scope
-	if attempt != nil {
-		attemptScope = attempt.scope
-	}
 	current.downstreamProjection = program.NewDownstreamObserver(
-		headers.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attemptScope,
+		headers.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(attempt),
 	)
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.DownstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{StatusCode: status, Header: headers.Clone()})
+	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.DownstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{StatusCode: status, Header: headers.Clone()})
 	})
 	current.lifecycleMu.Unlock()
 }
@@ -131,8 +122,8 @@ func (current *Exchange) responseBodyChunk(data []byte) {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(current.downstreamAttempt, func(scope *program.Scope) error {
-		return scope.DownstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
+	_ = current.dispatchLocked(current.downstreamAttempt, func(active *program.ScopeSet) error {
+		return active.DownstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	})
 	if current.downstreamProjection != nil {
 		_ = current.downstreamProjection.Observe(current.ctx, time.Now().UTC(), data)
@@ -153,8 +144,8 @@ func (current *Exchange) finishDownstream() {
 		_ = current.downstreamProjection.Finish(current.ctx, time.Now().UTC())
 		current.downstreamProjection = nil
 	}
-	_ = current.dispatchLocked(current.downstreamAttempt, func(scope *program.Scope) error {
-		return scope.DownstreamBodyEnded(current.ctx, lifecycle.BodyEnded{})
+	_ = current.dispatchLocked(current.downstreamAttempt, func(active *program.ScopeSet) error {
+		return active.DownstreamBodyEnded(current.ctx, lifecycle.BodyEnded{})
 	})
 }
 

@@ -1,23 +1,25 @@
 package program
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+)
 
 type Spec struct {
-	ID     string          `json:"id"`
-	Module string          `json:"module"`
-	Config json.RawMessage `json:"config,omitempty"`
+	Scope  module.ScopeKind `json:"scope"`
+	ID     string           `json:"id"`
+	Module string           `json:"module"`
+	Config json.RawMessage  `json:"config,omitempty"`
 }
 
-type Program struct {
-	Request []Spec `json:"request,omitempty"`
-	Attempt []Spec `json:"attempt,omitempty"`
-}
+type Program []Spec
 
 type Compiler interface {
 	Compile(Program) (*Executable, error)
 }
 
 type Executable struct {
-	request []compiled
-	attempt []compiled
+	exchange []compiled
+	attempt  []compiled
 }

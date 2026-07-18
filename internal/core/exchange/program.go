@@ -51,20 +51,21 @@ func (current *Exchange) Configure(configuration Configuration) error {
 	if err != nil {
 		return err
 	}
-	scope, err := run.OpenRequest(module.OpenContext{StartedAt: current.startedAt})
+	scope, err := run.OpenExchange(module.OpenContext{StartedAt: current.startedAt})
 	if err != nil {
 		run.Close()
 		return err
 	}
 	current.run = run
-	current.requestScope = scope
-	if scope == nil {
+	current.exchangeScope = scope
+	current.exchangeProgram = program.NewScopeSet(scope)
+	if current.exchangeProgram == nil {
 		return nil
 	}
-	if err := scope.RequestStarted(current.ctx, current.requestStarted); err != nil {
+	if err := current.exchangeProgram.RequestStarted(current.ctx, current.requestStarted); err != nil {
 		return err
 	}
-	return scope.DirectivePrepared(current.ctx, value)
+	return current.exchangeProgram.DirectivePrepared(current.ctx, value)
 }
 
 func (current *Exchange) RequestBodyChunk(data []byte) error {
@@ -73,8 +74,8 @@ func (current *Exchange) RequestBodyChunk(data []byte) error {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if current.requestScope != nil {
-		return current.requestScope.RequestBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
+	if current.exchangeProgram != nil {
+		return current.exchangeProgram.RequestBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	}
 	return nil
 }
@@ -89,8 +90,8 @@ func (current *Exchange) RequestBodyEnd(total int64, digest string, complete boo
 		return
 	}
 	current.requestBodyEnded = true
-	if current.requestScope != nil {
-		_ = current.requestScope.RequestBodyEnded(current.ctx, lifecycle.RequestBodyEnded{Total: total, SHA256: digest, Complete: complete})
+	if current.exchangeProgram != nil {
+		_ = current.exchangeProgram.RequestBodyEnded(current.ctx, lifecycle.RequestBodyEnded{Total: total, SHA256: digest, Complete: complete})
 	}
 }
 
@@ -123,16 +124,12 @@ func (attempt *Attempt) OpenScope() error {
 		return context.Canceled
 	}
 	attempt.scope = scope
-	if current.requestScope != nil {
-		current.requestScope.SetAttempt(attempt.number)
-		if err := current.requestScope.AttemptStarted(current.ctx, attempt.source); err != nil {
-			return err
-		}
-	}
-	if scope == nil {
+	attempt.program = program.NewScopeSet(current.exchangeScope, scope)
+	if attempt.program == nil {
 		return nil
 	}
-	return scope.AttemptStarted(current.ctx, attempt.source)
+	attempt.program.SetAttempt(attempt.number)
+	return attempt.program.AttemptStarted(current.ctx, attempt.source)
 }
 
 func (attempt *Attempt) MutateOutboundRequest(request *http.Request) error {
@@ -142,13 +139,8 @@ func (attempt *Attempt) MutateOutboundRequest(request *http.Request) error {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if current.requestScope != nil {
-		if err := current.requestScope.MutateOutboundRequest(request.Context(), request); err != nil {
-			return err
-		}
-	}
-	if attempt.scope != nil {
-		return attempt.scope.MutateOutboundRequest(request.Context(), request)
+	if active := current.activeProgram(attempt); active != nil {
+		return active.MutateOutboundRequest(request.Context(), request)
 	}
 	return nil
 }
@@ -161,13 +153,8 @@ func (attempt *Attempt) MutateOutboundBodyChunk(data []byte) ([]byte, error) {
 	draft := lifecycle.BodyDraft{Data: append([]byte(nil), data...)}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if current.requestScope != nil {
-		if err := current.requestScope.MutateOutboundBodyChunk(current.ctx, &draft); err != nil {
-			return nil, err
-		}
-	}
-	if attempt.scope != nil {
-		if err := attempt.scope.MutateOutboundBodyChunk(current.ctx, &draft); err != nil {
+	if active := current.activeProgram(attempt); active != nil {
+		if err := active.MutateOutboundBodyChunk(current.ctx, &draft); err != nil {
 			return nil, err
 		}
 	}
@@ -181,8 +168,8 @@ func (attempt *Attempt) HasOutboundBodyMutators() bool {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	return current.requestScope != nil && current.requestScope.HasOutboundBodyMutators() ||
-		attempt.scope != nil && attempt.scope.HasOutboundBodyMutators()
+	active := current.activeProgram(attempt)
+	return active != nil && active.HasOutboundBodyMutators()
 }
 
 func (attempt *Attempt) MutateUpstreamResponse(response *http.Response) error {
@@ -193,13 +180,8 @@ func (attempt *Attempt) MutateUpstreamResponse(response *http.Response) error {
 	draft := lifecycle.ResponseDraft{Response: response}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if current.requestScope != nil {
-		if err := current.requestScope.MutateUpstreamResponse(current.ctx, &draft); err != nil {
-			return err
-		}
-	}
-	if attempt.scope != nil {
-		return attempt.scope.MutateUpstreamResponse(current.ctx, &draft)
+	if active := current.activeProgram(attempt); active != nil {
+		return active.MutateUpstreamResponse(current.ctx, &draft)
 	}
 	return nil
 }
@@ -226,8 +208,8 @@ func (attempt *Attempt) BeginUpstream(req *http.Request) bool {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.UpstreamStarted(current.ctx, lifecycle.UpstreamStarted{TargetURL: targetURL, Header: headers})
+	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.UpstreamStarted(current.ctx, lifecycle.UpstreamStarted{TargetURL: targetURL, Header: headers})
 	})
 	return true
 }
@@ -281,8 +263,8 @@ func (attempt *Attempt) RecoveryStarted(value lifecycle.RecoveryStarted) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.RecoveryStarted(current.ctx, value)
+	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.RecoveryStarted(current.ctx, value)
 	})
 }
 
@@ -293,8 +275,8 @@ func (attempt *Attempt) RecoveryDecided(value lifecycle.RecoveryDecided) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.RecoveryDecided(current.ctx, value)
+	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.RecoveryDecided(current.ctx, value)
 	})
 }
 
@@ -305,8 +287,8 @@ func (attempt *Attempt) RecoveryFinished(value lifecycle.RecoveryFinished) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.RecoveryFinished(current.ctx, value)
+	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		return active.RecoveryFinished(current.ctx, value)
 	})
 }
 
@@ -322,35 +304,36 @@ func (attempt *Attempt) finishLifecycle(outcome lifecycle.Outcome, cause module.
 		attempt.projection = nil
 	}
 	if emitBodyEnd {
-		_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-			return scope.UpstreamBodyEnded(current.ctx, lifecycle.BodyEnded{Cause: bodyCause})
+		_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+			return active.UpstreamBodyEnded(current.ctx, lifecycle.BodyEnded{Cause: bodyCause})
 		})
 	}
-	if current.requestScope != nil {
-		current.requestScope.SetAttempt(attempt.number)
-		_ = current.requestScope.AttemptFinished(current.ctx, lifecycle.AttemptFinished{Outcome: outcome})
+	if active := current.activeProgram(attempt); active != nil {
+		_ = active.AttemptFinished(current.ctx, lifecycle.AttemptFinished{Outcome: outcome})
 	}
 	if attempt.scope != nil {
-		_ = attempt.scope.AttemptFinished(current.ctx, lifecycle.AttemptFinished{Outcome: outcome})
 		_ = attempt.scope.Finish(context.WithoutCancel(current.ctx), cause)
 		attempt.scope = nil
 	}
 }
 
-func (current *Exchange) dispatchLocked(attempt *Attempt, run func(*program.Scope) error) error {
+func (current *Exchange) activeProgram(attempt *Attempt) *program.ScopeSet {
+	if attempt != nil && attempt.program != nil {
+		attempt.program.SetAttempt(attempt.number)
+		return attempt.program
+	}
+	if current.exchangeProgram != nil && attempt != nil {
+		current.exchangeProgram.SetAttempt(attempt.number)
+	}
+	return current.exchangeProgram
+}
+
+func (current *Exchange) dispatchLocked(attempt *Attempt, run func(*program.ScopeSet) error) error {
 	if run == nil {
 		return nil
 	}
-	if current.requestScope != nil {
-		if attempt != nil {
-			current.requestScope.SetAttempt(attempt.number)
-		}
-		if err := run(current.requestScope); err != nil {
-			return err
-		}
-	}
-	if attempt != nil && attempt.scope != nil {
-		return run(attempt.scope)
+	if active := current.activeProgram(attempt); active != nil {
+		return run(active)
 	}
 	return nil
 }

@@ -75,15 +75,11 @@ func (runtime *Runtime) Compile(source Program) (*Executable, error) {
 	if runtime.closed.Load() {
 		return nil, ErrRuntimeClosed
 	}
-	request, err := runtime.registry.compile(module.ScopeRequest, source.Request)
+	exchange, attempt, err := runtime.registry.compile(source)
 	if err != nil {
-		return nil, fmt.Errorf("compile request program: %w", err)
+		return nil, fmt.Errorf("compile program: %w", err)
 	}
-	attempt, err := runtime.registry.compile(module.ScopeAttempt, source.Attempt)
-	if err != nil {
-		return nil, fmt.Errorf("compile attempt program: %w", err)
-	}
-	return &Executable{request: request, attempt: attempt}, nil
+	return &Executable{exchange: exchange, attempt: attempt}, nil
 }
 
 func (runtime *Runtime) StartRun(traceID string, executable *Executable, fields metadata.Set) (*Run, error) {
@@ -136,13 +132,14 @@ func (runtime *Runtime) Close() {
 	}
 }
 
-func (run *Run) OpenRequest(ctx module.OpenContext) (*Scope, error) {
+func (run *Run) OpenExchange(ctx module.OpenContext) (*Scope, error) {
 	if run == nil || run.closed.Load() {
 		return nil, ErrRunClosed
 	}
 	ctx.TraceID = run.traceID
 	ctx.Metadata = run.metadata
-	return openScope(ctx, run.executable.request, run)
+	ctx.Scope = module.ScopeExchange
+	return openScope(ctx, run.executable.exchange, run)
 }
 
 func (run *Run) OpenAttempt(ctx module.OpenContext) (*Scope, error) {
@@ -151,6 +148,7 @@ func (run *Run) OpenAttempt(ctx module.OpenContext) (*Scope, error) {
 	}
 	ctx.TraceID = run.traceID
 	ctx.Metadata = run.metadata
+	ctx.Scope = module.ScopeAttempt
 	return openScope(ctx, run.executable.attempt, run)
 }
 

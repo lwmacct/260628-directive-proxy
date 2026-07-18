@@ -120,10 +120,7 @@ export function StructuredEditorPanel(props: {
     }, {
       key: "modules",
       label: text.modules,
-      children: <Flex gap="large" vertical>
-        <div><Label strong>{text.requestModules}</Label><div className="section-description">{text.requestModulesDescription}</div><ModuleProgramEditor text={text} value={editor.requestProgram} onChange={(requestProgram) => onUpdate({ requestProgram })} /></div>
-        <div><Label strong>{text.attemptModules}</Label><div className="section-description">{text.attemptModulesDescription}</div><ModuleProgramEditor text={text} value={editor.attemptProgram} onChange={(attemptProgram) => onUpdate({ attemptProgram })} /></div>
-      </Flex>,
+      children: <div><Label strong>{text.programModules}</Label><div className="section-description">{text.programModulesDescription}</div><ModuleProgramEditor text={text} value={editor.program} onChange={(program) => onUpdate({ program })} /></div>,
     },
     {
       key: "recovery",

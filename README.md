@@ -1,6 +1,6 @@
 # Directive Proxy
 
-Directive Proxy 是由 `Authorization: Bearer dp.20.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
+Directive Proxy 是由 `Authorization: Bearer dp.21.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
 
 项目的主要职责是 data plane：解析指令、改写请求、访问上游，并在异常发生时通过 Recovery Controller 让调用方同步修订远程指令或决定下一步动作。服务端控制面只保留 AuthMe 登录；directive 的生成、解析和校验全部在浏览器工作台本地完成。
 
@@ -22,16 +22,16 @@ TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校
 
 前端只保留 directive workbench、登录和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
 
-## Directive v20
+## Directive v21
 
-当前 token 版本是 `20`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
+当前 token 版本是 `21`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
 
 ```http
-Authorization: Bearer dp.20.inline.<base64url-json>.<hmac>
-Authorization: Bearer dp.20.remote.<base64url-json>.<hmac>
+Authorization: Bearer dp.21.inline.<base64url-json>.<hmac>
+Authorization: Bearer dp.21.remote.<base64url-json>.<hmac>
 ```
 
-`hmac` 是 `HMAC-SHA256(TokenSecret, "dp.20." + kind + "." + base64url-json)` 的 Base64URL 编码。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
+`hmac` 是 `HMAC-SHA256(TokenSecret, "dp.21." + kind + "." + base64url-json)` 的 Base64URL 编码。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
 inline token 的解码内容是：
 
@@ -96,14 +96,10 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 {
   "metadata": {"user_id": "user-1", "user_key": "key-1", "tenant_id": "tenant-a"},
   "target": {"base_url": "https://api.example.com/v2"},
-  "program": {
-    "request": [
-      {"id": "capture", "module": "builtin.capture", "config": {}}
-    ],
-    "attempt": [
-      {"id": "usage", "module": "builtin.llmusage", "config": {"protocol": "openai.responses"}}
-    ]
-  },
+  "program": [
+    {"scope": "exchange", "id": "capture", "module": "builtin.capture", "config": {}},
+    {"scope": "attempt", "id": "usage", "module": "builtin.llmusage", "config": {"protocol": "openai.responses"}}
+  ],
   "recovery": {
     "controller": {"url": "https://control.example.com/recovery"},
     "triggers": {"transport_error": true},
@@ -116,7 +112,7 @@ RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline
 
 Payload 可以声明可选 metadata：最多 15 项的 `map<string,string>`，key 使用小写 snake_case。core 不要求任何业务身份字段；`metadata` 包仅预设常用的 `user_id`、`user_key` key API。`trace_id` 是系统保留字段，directive 不得提供；Exchange 原子配置 PreparedDirective 时生成 UUIDv7 并注入，最终 metadata 在整个请求和所有 Recovery Attempt 中保持不变。
 
-Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program、Recovery 和 Metadata。HTTP Plan 只拥有 HTTP 执行字段，不拥有 metadata。Exchange 在读取正文前一次性配置 directive facts、Program 和 Metadata 并打开 request scope；RecoveryTransport 在第一个 Attempt 前从同一 PreparedDirective 安装已收紧的 Recovery budget。每次 Attempt 只打开新 scope，Module Context 自动携带同一份 metadata。
+Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program、Recovery 和 Metadata。HTTP Plan 只拥有 HTTP 执行字段，不拥有 metadata。Exchange 在读取正文前一次性配置 directive facts、Program 和 Metadata 并打开 exchange scope；RecoveryTransport 在第一个 Attempt 前从同一 PreparedDirective 安装已收紧的 Recovery budget。每次 Attempt 只打开新的 attempt scope，Module Context 自动携带同一份 metadata。
 
 `target` 是严格 one-of，必须且只能包含 `base_url` 或 `exact_url`。`base_url` 作为反向代理基址，在 Prepare 阶段拼接入站 path 并追加入站 query；`exact_url` 是完整目标地址，忽略入站 path/query。编译后的最终 URL 写入不可变 Plan，Recovery attempt 复用同一个结果。
 
@@ -229,7 +225,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 ## Module 与外部观测
 
-内置 Module 由 directive 的有序 `program.request` / `program.attempt` 启用：
+内置 Module 由 directive 的单一有序 `program` 数组启用；每项必须声明 `scope: exchange|attempt`：
 
 - [`builtin.capture`](docs/module-capture.md)：请求、响应和生命周期审计；
 - [`builtin.llmusage`](docs/module-llmusage.md)：LLM token usage 提取；
@@ -237,7 +233,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 Module 经内部有界队列向 Fluent 输出统一 `dp.event.v3` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 顶层自动包含完整 `metadata`（directive 可选字段加系统 `trace_id`），各 topic 的 `data` 不重复该公共字段；Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
-已解析 Payload 的 Program 在 Prepare 阶段编译一次为不可变 Executable；request scope 打开一次，Recovery 的每个 Attempt 仅从同一批 Binding 打开新实例，不重新编译 Module 配置。`core/exchange` 拥有生命周期，`core/lifecycle` 定义端口值，`core/module` 定义 SPI，`core/program` 负责编译与执行。
+已解析 Payload 的 Program 在 Prepare 阶段编译一次为不可变 Executable；exchange scope 打开一次，Recovery 的每个 Attempt 仅从同一批 Binding 打开新的 attempt 实例，不重新编译 Module 配置。数组顺序是所有当前活跃 Module 的全局执行顺序；`id` 在整个 Program 内唯一。`core/exchange` 拥有生命周期，`core/lifecycle` 定义端口值，`core/module` 定义 SPI，`core/program` 负责编译与执行。
 
 更多细节见 [Module architecture](docs/module-architecture.md)。
 

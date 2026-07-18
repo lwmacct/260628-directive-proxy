@@ -28,8 +28,8 @@ export function newResolverHeader(name: string, value: string): ResolverHeader {
   return { key: nextKey("header"), name, value };
 }
 
-export function newModuleSpec(id = "", module = "", config: unknown = {}): EditorModuleSpec {
-  return { key: nextKey("module"), id, module, config, configText: JSON.stringify(config, null, 2), configValid: true };
+export function newModuleSpec(id = "", module = "", config: unknown = {}, scope: EditorModuleSpec["scope"] = "exchange"): EditorModuleSpec {
+  return { key: nextKey("module"), scope, id, module, config, configText: JSON.stringify(config, null, 2), configValid: true };
 }
 
 export function newStatusRange(from = 200, to = 299): StatusRange {
@@ -71,8 +71,7 @@ export function createInitialEditor(): EditorState {
       newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
       newHeaderMutation("set", "name", "X-Api-Key", ["demo-api-key"]),
     ],
-    requestProgram: [newModuleSpec("capture", "builtin.capture")],
-    attemptProgram: [],
+    program: [newModuleSpec("capture", "builtin.capture")],
     recovery: initialRecovery(),
   };
 }

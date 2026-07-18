@@ -12,18 +12,21 @@ import (
 type ScopeKind string
 
 const (
-	ScopeRequest ScopeKind = "request"
-	ScopeAttempt ScopeKind = "attempt"
+	ScopeExchange ScopeKind = "exchange"
+	ScopeAttempt  ScopeKind = "attempt"
 )
+
+type CompileContext struct {
+	Scope ScopeKind
+}
 
 type Definition interface {
 	Name() string
-	Compile(json.RawMessage) (Binding, error)
+	Compile(CompileContext, json.RawMessage) (Binding, error)
 }
 
 // Binding is immutable and safe for concurrent Open calls after Compile returns.
 type Binding interface {
-	Scope() ScopeKind
 	Open(OpenContext) (Instance, error)
 }
 
@@ -40,6 +43,7 @@ func (NopInstance) Finish(FinishContext) error { return nil }
 type OpenContext struct {
 	TraceID   string
 	Metadata  metadata.Set
+	Scope     ScopeKind
 	Attempt   int
 	StartedAt time.Time
 }

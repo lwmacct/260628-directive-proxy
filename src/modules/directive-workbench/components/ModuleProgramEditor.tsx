@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Button, Flex, Input, Table, Typography } from "antd";
+import { Button, Flex, Input, Select, Table, Typography } from "antd";
 import type { TableColumnsType } from "antd";
 import type { ChangeEvent } from "react";
 import type { Text } from "../../../shared/i18n";
@@ -36,6 +36,16 @@ export function ModuleProgramEditor(props: {
   };
   const columns: TableColumnsType<EditorModuleSpec> = [
     {
+      title: props.text.moduleScope,
+      dataIndex: "scope",
+      width: 150,
+      render: (_, item) => <Select
+        options={[{ label: props.text.exchangeScope, value: "exchange" }, { label: props.text.attemptScope, value: "attempt" }]}
+        value={item.scope}
+        onChange={(scope: EditorModuleSpec["scope"]) => update(item.key, { scope })}
+      />,
+    },
+    {
       title: props.text.moduleID,
       dataIndex: "id",
       width: 190,
@@ -60,7 +70,7 @@ export function ModuleProgramEditor(props: {
     },
   ];
   return <Flex gap="small" vertical>
-    <Table<EditorModuleSpec> columns={columns} dataSource={props.value} pagination={false} rowKey="key" scroll={{ x: 820 }} size="small" />
+    <Table<EditorModuleSpec> columns={columns} dataSource={props.value} pagination={false} rowKey="key" scroll={{ x: 960 }} size="small" />
     <Button icon={<PlusOutlined />} onClick={() => props.onChange([...props.value, newModuleSpec()])}>{props.text.addModule}</Button>
   </Flex>;
 }

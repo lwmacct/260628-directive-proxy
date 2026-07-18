@@ -127,7 +127,7 @@ func normalizePayload(payload Payload) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
-	program, err := normalizeProgram(payload.Program, true, true)
+	program, err := normalizeProgram(payload.Program)
 	if err != nil {
 		return Payload{}, err
 	}

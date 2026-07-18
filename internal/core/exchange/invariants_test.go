@@ -146,7 +146,7 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{Request: []program.Spec{{ID: "drain", Module: "test.drain"}}})
+	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeExchange, ID: "drain", Module: "test.drain"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,13 +200,14 @@ type drainDefinition struct {
 
 func (drainDefinition) Name() string { return "test.drain" }
 
-func (definition drainDefinition) Compile(json.RawMessage) (module.Binding, error) {
+func (definition drainDefinition) Compile(ctx module.CompileContext, _ json.RawMessage) (module.Binding, error) {
+	if ctx.Scope != module.ScopeExchange {
+		return nil, errors.New("test.drain requires exchange scope")
+	}
 	return drainBinding(definition), nil
 }
 
 type drainBinding drainDefinition
-
-func (drainBinding) Scope() module.ScopeKind { return module.ScopeRequest }
 
 func (binding drainBinding) Open(module.OpenContext) (module.Instance, error) {
 	return drainInstance(binding), nil

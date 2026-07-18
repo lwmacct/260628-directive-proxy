@@ -42,7 +42,8 @@ type Exchange struct {
 	maxElapsed   time.Duration
 
 	lifecycleMu          sync.Mutex
-	requestScope         *program.Scope
+	exchangeScope        *program.Scope
+	exchangeProgram      *program.ScopeSet
 	requestStarted       lifecycle.RequestStarted
 	requestBodyEnded     bool
 	responseStatus       int
@@ -62,6 +63,7 @@ type Attempt struct {
 	cancel    context.CancelFunc
 
 	scope       *program.Scope
+	program     *program.ScopeSet
 	projection  program.StreamObserver
 	scopeOpened atomic.Bool
 	closed      atomic.Bool
@@ -271,12 +273,15 @@ func (current *Exchange) Complete() {
 		}
 		current.lifecycleMu.Lock()
 		status := current.responseStatus
-		if current.requestScope != nil {
-			_ = current.requestScope.RequestFinished(current.ctx, lifecycle.RequestFinished{
+		if current.exchangeProgram != nil {
+			_ = current.exchangeProgram.RequestFinished(current.ctx, lifecycle.RequestFinished{
 				Outcome: outcome, StatusCode: status, Duration: time.Since(current.startedAt),
 			})
-			_ = current.requestScope.Finish(context.WithoutCancel(current.ctx), finishCause)
-			current.requestScope = nil
+		}
+		if current.exchangeScope != nil {
+			_ = current.exchangeScope.Finish(context.WithoutCancel(current.ctx), finishCause)
+			current.exchangeScope = nil
+			current.exchangeProgram = nil
 		}
 		current.lifecycleMu.Unlock()
 		current.completed.Store(true)

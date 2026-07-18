@@ -27,7 +27,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
 	current := manager.Start(req)
 	current.ConfigureRecovery(&recovery.Policy{Budget: recovery.Budget{MaxAttempts: 3, MaxElapsed: time.Minute}}, 10, time.Minute)
-	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}}})
+	executable := compileProgram(t, runtime, program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}})
 	target := mustURL(t, "https://upstream.example/v1/chat?token=upstream-secret")
 	if err := current.Configure(Configuration{
 		Directive: DirectiveInfo{Mode: "remote", Backend: "redis", Resource: "routing", PayloadSHA256: "digest-1", Target: target},
@@ -129,7 +129,7 @@ func TestExchangeMetadataIsAttachedToEveryRecord(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}})
+	executable := compileProgram(t, runtime, program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{}`)}})
 	if err := current.Configure(Configuration{
 		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
 		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_user_1", "tenant_id": "tenant-a"}), Program: executable,
@@ -156,7 +156,7 @@ func TestExchangeInjectsTraceIntoEmptyDirectiveMetadata(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
 	manager := NewManager(ManagerOptions{MaxAttempts: 1}, runtime)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}})
+	executable := compileProgram(t, runtime, program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{}`)}})
 	fields, err := metadata.Compile(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -184,10 +184,10 @@ func TestExchangeInjectsTraceIntoEmptyDirectiveMetadata(t *testing.T) {
 	}
 }
 
-func TestModuleRuntimeRejectsUnknownRequestModules(t *testing.T) {
+func TestModuleRuntimeRejectsUnknownModules(t *testing.T) {
 	runtime, dispatcher, _ := newCaptureRuntime(t)
-	if _, err := runtime.Compile(program.Program{Request: []program.Spec{{ID: "missing", Module: "missing.module", Config: []byte(`{}`)}}}); err == nil {
-		t.Fatal("unknown request module was accepted")
+	if _, err := runtime.Compile(program.Program{{Scope: module.ScopeExchange, ID: "missing", Module: "missing.module", Config: []byte(`{}`)}}); err == nil {
+		t.Fatal("unknown module was accepted")
 	}
 	runtime.Close()
 	_ = dispatcher.Close(context.Background())

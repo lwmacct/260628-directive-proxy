@@ -60,15 +60,16 @@ func New() *Module { return &Module{} }
 
 func (*Module) Name() string { return Name }
 
-func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
+func (*Module) Compile(ctx module.CompileContext, raw json.RawMessage) (module.Binding, error) {
+	if ctx.Scope != module.ScopeExchange {
+		return nil, fmt.Errorf("%s requires exchange scope", Name)
+	}
 	spec, err := decodeSpec(raw)
 	if err != nil {
 		return nil, err
 	}
 	return binding{spec: spec}, nil
 }
-
-func (binding binding) Scope() module.ScopeKind { return module.ScopeRequest }
 
 func (binding binding) Open(module.OpenContext) (module.Instance, error) {
 	return &instance{spec: binding.spec, responseHash: sha256.New()}, nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,7 @@ type eventSequencer interface {
 }
 
 type mountedInstance struct {
+	order      int
 	producer   string
 	moduleName string
 	instance   module.Instance
@@ -39,6 +41,18 @@ type Scope struct {
 	closed    atomic.Bool
 	attempt   atomic.Int64
 	closeOnce sync.Once
+}
+
+type scopedInstance struct {
+	scope   *Scope
+	mounted *mountedInstance
+}
+
+// ScopeSet is the globally ordered view of all currently active module scopes.
+// It keeps directive program order across exchange- and attempt-scoped modules.
+type ScopeSet struct {
+	scopes  []*Scope
+	mounted []scopedInstance
 }
 
 type orderedLane struct {
@@ -65,7 +79,7 @@ func openScope(ctx module.OpenContext, compiled []compiled, runtime scopeRuntime
 			_ = scope.Finish(context.Background(), module.FinishFailed)
 			return nil, fmt.Errorf("open module %q (%s): nil instance", item.moduleName, item.id)
 		}
-		mounted := &mountedInstance{producer: item.id, moduleName: item.moduleName, instance: instance}
+		mounted := &mountedInstance{order: item.order, producer: item.id, moduleName: item.moduleName, instance: instance}
 		mounted.runtime = runtime
 		scope.mounted = append(scope.mounted, mounted)
 		if err := mounted.call(func() error {
@@ -82,34 +96,75 @@ func openScope(ctx module.OpenContext, compiled []compiled, runtime scopeRuntime
 	return scope, nil
 }
 
-func (s *Scope) SetAttempt(attempt int) {
-	if s != nil {
-		s.attempt.Store(int64(attempt))
+func NewScopeSet(scopes ...*Scope) *ScopeSet {
+	result := &ScopeSet{}
+	seen := make(map[*Scope]struct{}, len(scopes))
+	for _, scope := range scopes {
+		if scope == nil {
+			continue
+		}
+		if _, exists := seen[scope]; exists {
+			continue
+		}
+		seen[scope] = struct{}{}
+		result.scopes = append(result.scopes, scope)
+		for _, mounted := range scope.mounted {
+			result.mounted = append(result.mounted, scopedInstance{scope: scope, mounted: mounted})
+		}
+	}
+	if len(result.mounted) == 0 {
+		return nil
+	}
+	sort.SliceStable(result.mounted, func(left, right int) bool {
+		return result.mounted[left].mounted.order < result.mounted[right].mounted.order
+	})
+	return result
+}
+
+func (s *ScopeSet) SetAttempt(attempt int) {
+	if s == nil {
+		return
+	}
+	for _, scope := range s.scopes {
+		if scope != nil {
+			scope.attempt.Store(int64(attempt))
+		}
 	}
 }
 
-func (s *Scope) HasOutboundBodyMutators() bool {
+func (s *ScopeSet) HasOutboundBodyMutators() bool {
 	if s == nil {
 		return false
 	}
-	for _, mounted := range s.mounted {
-		if len(mounted.binder.outboundBodyChunk) > 0 {
+	for _, entry := range s.mounted {
+		if !entry.scope.closed.Load() && len(entry.mounted.binder.outboundBodyChunk) > 0 {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Scope) HasUpstreamBodyMutators() bool {
+func (s *ScopeSet) HasUpstreamBodyMutators() bool {
 	if s == nil {
 		return false
 	}
-	for _, mounted := range s.mounted {
-		if len(mounted.binder.upstreamBodyDraft) > 0 {
+	for _, entry := range s.mounted {
+		if !entry.scope.closed.Load() && len(entry.mounted.binder.upstreamBodyDraft) > 0 {
 			return true
 		}
 	}
 	return false
+}
+
+func (s *ScopeSet) Finish(ctx context.Context, cause module.FinishCause) error {
+	if s == nil {
+		return nil
+	}
+	var result error
+	for _, scope := range s.scopes {
+		result = errors.Join(result, scope.Finish(ctx, cause))
+	}
+	return result
 }
 
 func (s *Scope) Finish(ctx context.Context, cause module.FinishCause) error {
@@ -130,139 +185,143 @@ func (s *Scope) Finish(ctx context.Context, cause module.FinishCause) error {
 	return result
 }
 
-func (s *Scope) RequestStarted(ctx context.Context, value lifecycle.RequestStarted) error {
+func (s *ScopeSet) RequestStarted(ctx context.Context, value lifecycle.RequestStarted) error {
 	value.Header = value.Header.Clone()
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.RequestStarted] { return b.requestStarted }, cloneRequestStarted)
 }
 
-func (s *Scope) RequestBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
+func (s *ScopeSet) RequestBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyChunk] { return b.requestBodyChunk }, cloneBodyChunk)
 }
 
-func (s *Scope) RequestBodyEnded(ctx context.Context, value lifecycle.RequestBodyEnded) error {
+func (s *ScopeSet) RequestBodyEnded(ctx context.Context, value lifecycle.RequestBodyEnded) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.RequestBodyEnded] { return b.requestBodyEnded }, nil)
 }
 
-func (s *Scope) AttemptStarted(ctx context.Context, value lifecycle.AttemptStarted) error {
+func (s *ScopeSet) AttemptStarted(ctx context.Context, value lifecycle.AttemptStarted) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.AttemptStarted] { return b.attemptStarted }, cloneAttemptStarted)
 }
 
-func (s *Scope) DirectivePrepared(ctx context.Context, value lifecycle.DirectivePrepared) error {
+func (s *ScopeSet) DirectivePrepared(ctx context.Context, value lifecycle.DirectivePrepared) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.DirectivePrepared] { return b.directivePrepared }, cloneDirectivePrepared)
 }
 
-func (s *Scope) UpstreamStarted(ctx context.Context, value lifecycle.UpstreamStarted) error {
+func (s *ScopeSet) UpstreamStarted(ctx context.Context, value lifecycle.UpstreamStarted) error {
 	value.Header = value.Header.Clone()
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.UpstreamStarted] { return b.upstreamStarted }, cloneUpstreamStarted)
 }
 
-func (s *Scope) UpstreamResponseStarted(ctx context.Context, value lifecycle.ResponseStarted) error {
+func (s *ScopeSet) UpstreamResponseStarted(ctx context.Context, value lifecycle.ResponseStarted) error {
 	value.Header = value.Header.Clone()
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.ResponseStarted] { return b.upstreamResponse }, cloneResponseStarted)
 }
 
-func (s *Scope) UpstreamJSONChunk(ctx context.Context, value lifecycle.BodyChunk) error {
+func (s *ScopeSet) UpstreamJSONChunk(ctx context.Context, value lifecycle.BodyChunk) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyChunk] { return b.upstreamJSONChunk }, cloneBodyChunk)
 }
 
-func (s *Scope) UpstreamBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
+func (s *ScopeSet) UpstreamBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyChunk] { return b.upstreamBodyChunk }, cloneBodyChunk)
 }
 
-func (s *Scope) UpstreamSSEData(ctx context.Context, value lifecycle.SSEData) error {
+func (s *ScopeSet) UpstreamSSEData(ctx context.Context, value lifecycle.SSEData) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.SSEData] { return b.upstreamSSEData }, cloneSSEData)
 }
 
-func (s *Scope) UpstreamBodyEnded(ctx context.Context, value lifecycle.BodyEnded) error {
+func (s *ScopeSet) UpstreamBodyEnded(ctx context.Context, value lifecycle.BodyEnded) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyEnded] { return b.upstreamBodyEnded }, nil)
 }
 
-func (s *Scope) AttemptFinished(ctx context.Context, value lifecycle.AttemptFinished) error {
+func (s *ScopeSet) AttemptFinished(ctx context.Context, value lifecycle.AttemptFinished) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.AttemptFinished] { return b.attemptFinished }, nil)
 }
 
-func (s *Scope) RecoveryStarted(ctx context.Context, value lifecycle.RecoveryStarted) error {
+func (s *ScopeSet) RecoveryStarted(ctx context.Context, value lifecycle.RecoveryStarted) error {
 	value = cloneRecoveryStarted(value)
 	return dispatchWithID(s, ctx, value.EventID, value, func(b *binder) []subscription[lifecycle.RecoveryStarted] { return b.recoveryStarted }, cloneRecoveryStarted)
 }
 
-func (s *Scope) RecoveryDecided(ctx context.Context, value lifecycle.RecoveryDecided) error {
+func (s *ScopeSet) RecoveryDecided(ctx context.Context, value lifecycle.RecoveryDecided) error {
 	return dispatchWithID(s, ctx, value.EventID, value, func(b *binder) []subscription[lifecycle.RecoveryDecided] { return b.recoveryDecided }, nil)
 }
 
-func (s *Scope) RecoveryFinished(ctx context.Context, value lifecycle.RecoveryFinished) error {
+func (s *ScopeSet) RecoveryFinished(ctx context.Context, value lifecycle.RecoveryFinished) error {
 	return dispatchWithID(s, ctx, value.EventID, value, func(b *binder) []subscription[lifecycle.RecoveryFinished] { return b.recoveryFinished }, nil)
 }
 
-func (s *Scope) DownstreamResponseStarted(ctx context.Context, value lifecycle.ResponseStarted) error {
+func (s *ScopeSet) DownstreamResponseStarted(ctx context.Context, value lifecycle.ResponseStarted) error {
 	value.Header = value.Header.Clone()
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.ResponseStarted] { return b.downstreamResponse }, cloneResponseStarted)
 }
 
-func (s *Scope) DownstreamBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
+func (s *ScopeSet) DownstreamBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyChunk] { return b.downstreamBodyChunk }, cloneBodyChunk)
 }
 
-func (s *Scope) DownstreamSSEData(ctx context.Context, value lifecycle.SSEData) error {
+func (s *ScopeSet) DownstreamSSEData(ctx context.Context, value lifecycle.SSEData) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.SSEData] { return b.downstreamSSEData }, cloneSSEData)
 }
 
-func (s *Scope) DownstreamSSEComment(ctx context.Context, value lifecycle.SSEComment) error {
+func (s *ScopeSet) DownstreamSSEComment(ctx context.Context, value lifecycle.SSEComment) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.SSEComment] { return b.downstreamSSEComment }, nil)
 }
 
-func (s *Scope) DownstreamBodyEnded(ctx context.Context, value lifecycle.BodyEnded) error {
+func (s *ScopeSet) DownstreamBodyEnded(ctx context.Context, value lifecycle.BodyEnded) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyEnded] { return b.downstreamBodyEnded }, nil)
 }
 
-func (s *Scope) RequestFinished(ctx context.Context, value lifecycle.RequestFinished) error {
+func (s *ScopeSet) RequestFinished(ctx context.Context, value lifecycle.RequestFinished) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.RequestFinished] { return b.requestFinished }, nil)
 }
 
-func (s *Scope) MutateOutboundRequest(ctx context.Context, request *http.Request) error {
+func (s *ScopeSet) MutateOutboundRequest(ctx context.Context, request *http.Request) error {
 	if request == nil {
 		return nil
 	}
 	return mutate(s, ctx, request, func(b *binder) []mutation[http.Request] { return b.outboundRequest })
 }
 
-func (s *Scope) MutateOutboundBodyChunk(ctx context.Context, draft *lifecycle.BodyDraft) error {
+func (s *ScopeSet) MutateOutboundBodyChunk(ctx context.Context, draft *lifecycle.BodyDraft) error {
 	return mutate(s, ctx, draft, func(b *binder) []mutation[lifecycle.BodyDraft] { return b.outboundBodyChunk })
 }
 
-func (s *Scope) MutateUpstreamResponse(ctx context.Context, draft *lifecycle.ResponseDraft) error {
+func (s *ScopeSet) MutateUpstreamResponse(ctx context.Context, draft *lifecycle.ResponseDraft) error {
 	return mutate(s, ctx, draft, func(b *binder) []mutation[lifecycle.ResponseDraft] { return b.upstreamDraft })
 }
 
-func (s *Scope) MutateUpstreamBodyChunk(ctx context.Context, draft *lifecycle.BodyDraft) error {
+func (s *ScopeSet) MutateUpstreamBodyChunk(ctx context.Context, draft *lifecycle.BodyDraft) error {
 	return mutate(s, ctx, draft, func(b *binder) []mutation[lifecycle.BodyDraft] { return b.upstreamBodyDraft })
 }
 
-func dispatch[T any](s *Scope, ctx context.Context, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
+func dispatch[T any](s *ScopeSet, ctx context.Context, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
 	return dispatchAtWithID(s, ctx, time.Time{}, "", value, selectHandlers, clone)
 }
 
-func dispatchAt[T any](s *Scope, ctx context.Context, observedAt time.Time, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
+func dispatchAt[T any](s *ScopeSet, ctx context.Context, observedAt time.Time, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
 	return dispatchAtWithID(s, ctx, observedAt, "", value, selectHandlers, clone)
 }
 
-func dispatchWithID[T any](s *Scope, ctx context.Context, eventID string, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
+func dispatchWithID[T any](s *ScopeSet, ctx context.Context, eventID string, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
 	return dispatchAtWithID(s, ctx, time.Time{}, eventID, value, selectHandlers, clone)
 }
 
-func dispatchAtWithID[T any](s *Scope, ctx context.Context, observedAt time.Time, eventID string, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
-	if s == nil || s.closed.Load() {
+func dispatchAtWithID[T any](s *ScopeSet, ctx context.Context, observedAt time.Time, eventID string, value T, selectHandlers func(*binder) []subscription[T], clone func(T) T) error {
+	if s == nil {
 		return nil
 	}
 	sequence := s.nextEventSequence()
 	var result error
-	for _, mounted := range s.mounted {
+	for _, entry := range s.mounted {
+		if entry.scope.closed.Load() {
+			continue
+		}
+		mounted := entry.mounted
 		for _, item := range selectHandlers(&mounted.binder) {
 			current := value
 			if item.policy.Executor == module.ExecutorOrderedLane && clone != nil {
 				current = clone(value)
 			}
-			eventCtx := s.eventContextAt(ctx, observedAt, eventID, sequence, mounted)
+			eventCtx := entry.scope.eventContextAt(ctx, observedAt, eventID, sequence, mounted)
 			task := func() error { return mounted.call(func() error { return item.handle(eventCtx, current) }) }
 			if item.policy.Executor == module.ExecutorCaller {
 				result = errors.Join(result, task())
@@ -298,13 +357,17 @@ func dispatchAtWithID[T any](s *Scope, ctx context.Context, observedAt time.Time
 	return result
 }
 
-func mutate[T any](s *Scope, ctx context.Context, value *T, selectHandlers func(*binder) []mutation[T]) error {
-	if s == nil || value == nil || s.closed.Load() {
+func mutate[T any](s *ScopeSet, ctx context.Context, value *T, selectHandlers func(*binder) []mutation[T]) error {
+	if s == nil || value == nil {
 		return nil
 	}
-	for _, mounted := range s.mounted {
+	for _, entry := range s.mounted {
+		if entry.scope.closed.Load() {
+			continue
+		}
+		mounted := entry.mounted
 		for _, item := range selectHandlers(&mounted.binder) {
-			eventCtx := s.eventContext(ctx, mounted)
+			eventCtx := entry.scope.eventContext(ctx, mounted)
 			task := func() error { return mounted.call(func() error { return item.handle(eventCtx, value) }) }
 			if item.policy.Executor == module.ExecutorCaller {
 				if err := task(); err != nil {
@@ -359,6 +422,21 @@ func (s *Scope) nextEventSequence() uint64 {
 	}
 	for _, mounted := range s.mounted {
 		if sequencer, ok := mounted.runtime.(eventSequencer); ok {
+			return sequencer.nextEventSequence()
+		}
+	}
+	return 0
+}
+
+func (s *ScopeSet) nextEventSequence() uint64 {
+	if s == nil {
+		return 0
+	}
+	for _, entry := range s.mounted {
+		if entry.scope.closed.Load() {
+			continue
+		}
+		if sequencer, ok := entry.mounted.runtime.(eventSequencer); ok {
 			return sequencer.nextEventSequence()
 		}
 	}
