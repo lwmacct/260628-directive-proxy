@@ -1,6 +1,6 @@
 {
   "name": "directive-proxy-web",
-  "version": "0.69.260719",
+  "version": "0.70.260719",
   "private": true,
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.13.1",
