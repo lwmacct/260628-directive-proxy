@@ -117,11 +117,15 @@ export function DirectiveConsolePage() {
     <div className="directive-codec-grid">
       <WorkbenchPanel
         className="directive-codec-panel"
-        extra={<StatusTag error={documentError} text={t.authConsole} />}
+        extra={<Flex align="center" gap="small">
+          <StatusTag error={documentError} text={t.authConsole} />
+          <Button icon={<CopyOutlined />} onClick={() => copy(session.jsonInput)}>{t.authConsole.copyJSON}</Button>
+        </Flex>}
         title={content.documentTitle}
       >
         <Input.TextArea
           aria-label={content.documentTitle}
+          autoSize={{ minRows: 16 }}
           className="directive-codec-input source-input"
           placeholder={content.jsonPlaceholder}
           spellCheck={false}
@@ -129,15 +133,18 @@ export function DirectiveConsolePage() {
           onChange={(event: ChangeEvent<HTMLTextAreaElement>) => session.updateJSON(event.target.value)}
         />
         {documentError ? <Alert showIcon title={documentError} type="error" /> : null}
-        <Flex justify="end"><Button icon={<CopyOutlined />} onClick={() => copy(session.jsonInput)}>{t.authConsole.copyJSON}</Button></Flex>
       </WorkbenchPanel>
       <WorkbenchPanel
         className="directive-codec-panel"
-        extra={<StatusTag error={session.tokenError} pending={!session.directiveToken} text={t.authConsole} />}
+        extra={<Flex align="center" gap="small">
+          <StatusTag error={session.tokenError} pending={!session.directiveToken} text={t.authConsole} />
+          <Button disabled={!session.tokenInput} icon={<CopyOutlined />} onClick={() => copy(session.tokenInput)}>{t.authConsole.copyToken}</Button>
+        </Flex>}
         title="Token"
       >
         <Input.TextArea
           aria-label="Token"
+          autoSize={{ minRows: 16 }}
           className="directive-codec-input source-input"
           placeholder={`Bearer ${tokenPrefix}.<base64url-json>.<hmac>`}
           spellCheck={false}
@@ -145,7 +152,6 @@ export function DirectiveConsolePage() {
           onChange={(event: ChangeEvent<HTMLTextAreaElement>) => void session.updateToken(event.target.value)}
         />
         {session.tokenError ? <Alert showIcon title={session.tokenError} type="error" /> : null}
-        <Flex justify="end"><Button disabled={!session.tokenInput} icon={<CopyOutlined />} onClick={() => copy(session.tokenInput)}>{t.authConsole.copyToken}</Button></Flex>
       </WorkbenchPanel>
     </div>
     <Drawer

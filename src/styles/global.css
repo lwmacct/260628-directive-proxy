@@ -292,8 +292,6 @@ body {
 }
 
 .directive-codec-input {
-  min-height: 390px !important;
-  flex: 1;
   resize: none;
 }
 
@@ -357,7 +355,7 @@ body {
   }
 
   .directive-codec-input {
-    min-height: 250px !important;
+    width: 100%;
   }
 
   .request-debugger-drawer .ant-drawer-content-wrapper {
