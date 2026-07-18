@@ -42,7 +42,7 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace"))
+	run, err := runtime.StartRun("trace", executable, runtimeMetadata(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestExecutableCompilesOnceAndOpensEachRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace"))
+	run, err := runtime.StartRun("trace", executable, runtimeMetadata(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRuntimeFailsClosedAfterClose(t *testing.T) {
 	if _, err := runtime.Compile(module.Specs{}); !errors.Is(err, ErrRuntimeClosed) {
 		t.Fatalf("closed runtime compiled a program: %v", err)
 	}
-	if _, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace")); !errors.Is(err, ErrRuntimeClosed) {
+	if _, err := runtime.StartRun("trace", executable, runtimeMetadata(t)); !errors.Is(err, ErrRuntimeClosed) {
 		t.Fatalf("closed runtime started a run: %v", err)
 	}
 }
@@ -144,13 +144,9 @@ func TestRuntimeRejectsDuplicateModulesAndInvalidDefinitionLifetime(t *testing.T
 	}
 }
 
-func runtimeMetadata(t *testing.T, traceID string) metadata.Set {
+func runtimeMetadata(t *testing.T) metadata.Set {
 	t.Helper()
 	fields, err := metadata.Compile(map[string]string{metadata.KeyUserKey: "uk_test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fields, err = fields.WithTraceID(traceID)
 	if err != nil {
 		t.Fatal(err)
 	}

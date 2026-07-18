@@ -94,7 +94,7 @@ upstream raw
 
 `core/program.Runtime` 负责 Program 编译、Run、Scope 和 Program Module 健康；Definition 的注册和全局名称唯一性属于 `core/module.Catalog`。Module 通过 `module.Context.Emitter` 产生可选外部 Record；Runtime 只依赖 `core/event.Provider`。
 
-`core/event.Dispatcher` 实现该 provider，负责 `dp.event.v4` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`metadata`、`round_trip`、`sequence`、`occurred_at` 和 `data`；Dispatcher 在顶层统一附加 metadata，因此 producer 不在 topic data 中重复它。Fluent 默认 tag 前缀为 `dp`。
+`core/event.Dispatcher` 实现该 provider，负责 `dp.event.v5` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`metadata`、`round_trip`、`sequence`、`occurred_at` 和 `data`；Dispatcher 在顶层分别附加 trace ID 和 directive metadata，metadata 不重复 trace，因此 producer 不在 topic data 中重复二者。Fluent 默认 tag 前缀为 `dp`。
 
 `server.fluent.enabled=false` 时不创建 Dispatcher、Sink、Queue 或连接；Program runtime 使用 discard emitter，Module 仍注册、编译和执行，因此修改型 Module 不依赖事件输出。
 

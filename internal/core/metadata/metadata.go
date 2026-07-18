@@ -8,66 +8,38 @@ import (
 const (
 	KeyUserID  = "user_id"
 	KeyUserKey = "user_key"
-	KeyTraceID = "trace_id"
 
 	MaxFields     = 16
 	MaxNameBytes  = 64
 	MaxValueBytes = 512
 	MaxTotalBytes = 8 << 10
 
-	// Directive input reserves capacity for the Exchange-owned trace ID.
-	MaxDirectiveFields     = MaxFields - 1
-	MaxDirectiveTotalBytes = MaxTotalBytes - len(KeyTraceID) - MaxValueBytes
+	reservedTraceID = "trace_id"
 )
 
 var ErrInvalid = errors.New("invalid directive metadata")
 
-// Set is an immutable collection of correlation fields. Directive input cannot
-// provide trace_id; Exchange adds that system-owned field later.
+// Set is an immutable collection of directive-defined correlation fields.
+// trace_id is carried separately by the Exchange and protocol contexts.
 type Set struct {
 	fields map[string]string
 }
 
 func Compile(input map[string]string) (Set, error) {
-	if len(input) > MaxDirectiveFields {
+	if len(input) > MaxFields {
 		return Set{}, ErrInvalid
 	}
 	fields := make(map[string]string, len(input))
 	total := 0
 	for key, value := range input {
-		if !validKey(key) || key == KeyTraceID || !validValue(value) {
+		if !validKey(key) || key == reservedTraceID || !validValue(value) {
 			return Set{}, ErrInvalid
 		}
 		total += len(key) + len(value)
-		if total > MaxDirectiveTotalBytes {
+		if total > MaxTotalBytes {
 			return Set{}, ErrInvalid
 		}
 		fields[key] = value
-	}
-	return Set{fields: fields}, nil
-}
-
-func (set Set) WithTraceID(traceID string) (Set, error) {
-	if !validValue(traceID) {
-		return Set{}, ErrInvalid
-	}
-	if existing := set.fields[KeyTraceID]; existing != "" && existing != traceID {
-		return Set{}, ErrInvalid
-	}
-	fields := set.Map()
-	if fields == nil {
-		fields = make(map[string]string, 1)
-	}
-	if len(fields) >= MaxFields && fields[KeyTraceID] == "" {
-		return Set{}, ErrInvalid
-	}
-	fields[KeyTraceID] = traceID
-	total := 0
-	for key, value := range fields {
-		total += len(key) + len(value)
-	}
-	if total > MaxTotalBytes {
-		return Set{}, ErrInvalid
 	}
 	return Set{fields: fields}, nil
 }
@@ -80,18 +52,11 @@ func (set Set) UserKey() string {
 	return set.fields[KeyUserKey]
 }
 
-func (set Set) TraceID() string {
-	return set.fields[KeyTraceID]
-}
-
 func (set Set) Get(key string) string {
 	return set.fields[key]
 }
 
 func (set Set) Map() map[string]string {
-	if len(set.fields) == 0 {
-		return nil
-	}
 	out := make(map[string]string, len(set.fields))
 	for key, value := range set.fields {
 		out[key] = value

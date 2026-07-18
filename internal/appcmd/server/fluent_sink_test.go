@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"testing"
 	"time"
@@ -14,6 +15,21 @@ import (
 )
 
 func TestFluentSinkWritesDPEventOnWire(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		metadata map[string]string
+	}{
+		{name: "business metadata", metadata: map[string]string{"user_key": "uk_user_1", "tenant_id": "tenant-a"}},
+		{name: "empty metadata", metadata: map[string]string{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assertFluentMetadataOnWire(t, tt.metadata)
+		})
+	}
+}
+
+func assertFluentMetadataOnWire(t *testing.T, fields map[string]string) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +81,7 @@ func TestFluentSinkWritesDPEventOnWire(t *testing.T) {
 		SchemaVersion: event.SchemaVersion, Producer: "usage", Topic: "llm.usage.observed",
 		RecordID: "trace-1:00000001", TraceID: "trace-1", Sequence: 1,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Time: time.Now().UTC(),
-		Metadata: map[string]string{"user_key": "uk_user_1", "trace_id": "trace-1", "tenant_id": "tenant-a"},
+		Metadata: fields,
 		Data:     map[string]any{"total_tokens": int64(13)},
 	}
 	if err := sink.Write(t.Context(), 0, record); err != nil {
@@ -79,7 +95,7 @@ func TestFluentSinkWritesDPEventOnWire(t *testing.T) {
 	if result.err != nil {
 		t.Fatal(result.err)
 	}
-	if result.tag != "dp."+record.Topic || result.schemaVersion != event.SchemaVersion || result.metadata["user_key"] != "uk_user_1" || result.metadata["trace_id"] != "trace-1" || result.metadata["tenant_id"] != "tenant-a" {
+	if result.tag != "dp."+record.Topic || result.schemaVersion != event.SchemaVersion || !maps.Equal(result.metadata, fields) {
 		t.Fatalf("unexpected Fluent record: tag=%q schema_version=%q metadata=%#v", result.tag, result.schemaVersion, result.metadata)
 	}
 }

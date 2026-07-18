@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const SchemaVersion = "dp.event.v4"
+const SchemaVersion = "dp.event.v5"
 
 type Record struct {
 	SchemaVersion string            `msg:"schema_version"`

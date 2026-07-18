@@ -16,10 +16,6 @@ func (current *Exchange) Configure(configuration Configuration) error {
 	if current == nil || configuration.Directive.Target == nil {
 		return ErrDirectiveInvalid
 	}
-	fields, err := configuration.Metadata.WithTraceID(current.traceID)
-	if err != nil {
-		return ErrDirectiveInvalid
-	}
 	info := configuration.Directive
 	value := lifecycle.DirectivePrepared{
 		Mode: info.Mode, Backend: info.Backend, Endpoint: info.Endpoint, Resource: info.Resource,
@@ -35,7 +31,7 @@ func (current *Exchange) Configure(configuration Configuration) error {
 		return context.Canceled
 	}
 	current.directive = value
-	current.metadata = fields
+	current.metadata = configuration.Metadata
 	current.configured = true
 	current.stateMu.Unlock()
 
@@ -47,7 +43,7 @@ func (current *Exchange) Configure(configuration Configuration) error {
 	if current.programRuntime == nil {
 		return ErrProgramRuntimeUnavailable
 	}
-	run, err := current.programRuntime.StartRun(current.traceID, configuration.Program, fields)
+	run, err := current.programRuntime.StartRun(current.traceID, configuration.Program, configuration.Metadata)
 	if err != nil {
 		return err
 	}

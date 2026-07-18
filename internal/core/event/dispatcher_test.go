@@ -35,7 +35,7 @@ func TestDispatcherReleasesOwnedRecordAfterSinkReturns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trace := dispatcher.Open("trace", eventMetadata(t, "trace"))
+	trace := dispatcher.Open("trace", eventMetadata(t))
 	emitter := trace.Emitter("binding", 1)
 	emitter.EmitOwned("owned.record", map[string]any{"data": []byte("owned")}, func() { released.Store(true) })
 	<-sink.started
@@ -59,13 +59,13 @@ func TestDispatcherCopiesBorrowedDataOnlyForAcceptedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := dispatcher.Open("first", eventMetadata(t, "first"))
+	first := dispatcher.Open("first", eventMetadata(t))
 	if !first.Emitter("binding", 1).EmitBorrowed("borrowed.record", map[string]any{"data": source}) {
 		t.Fatal("first borrowed record was rejected")
 	}
 	<-sink.started
 	copy(source, "modified")
-	second := dispatcher.Open("second", eventMetadata(t, "second"))
+	second := dispatcher.Open("second", eventMetadata(t))
 	if second.Emitter("binding", 1).EmitBorrowed("borrowed.record", map[string]any{"data": source}) {
 		t.Fatal("record exceeding the global queue limit was accepted")
 	}
@@ -87,7 +87,7 @@ func TestTraceAssignsRecordIdentityAndSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trace := dispatcher.Open("trace", eventMetadata(t, "trace"))
+	trace := dispatcher.Open("trace", eventMetadata(t))
 	emitter := trace.Emitter("binding", 2)
 	emitter.Emit("test.record", map[string]any{"value": "one"})
 	emitter.Emit("test.record", map[string]any{"value": "two"})
@@ -99,18 +99,17 @@ func TestTraceAssignsRecordIdentityAndSequence(t *testing.T) {
 	if len(records) != 2 || records[0].Sequence != 1 || records[1].Sequence != 2 || records[0].RecordID != "trace:00000001" || records[0].Producer != "binding" || records[0].RoundTrip != 2 {
 		t.Fatalf("unexpected records: %#v", records)
 	}
-	if records[0].SchemaVersion != "dp.event.v4" || records[0].Metadata[metadata.KeyUserKey] != "uk_test" || records[0].Metadata[metadata.KeyTraceID] != "trace" {
+	if records[0].SchemaVersion != "dp.event.v5" || records[0].TraceID != "trace" || records[0].Metadata[metadata.KeyUserKey] != "uk_test" {
 		t.Fatalf("record metadata was not attached: %#v", records[0])
+	}
+	if _, exists := records[0].Metadata["trace_id"]; exists {
+		t.Fatalf("record metadata duplicated trace_id: %#v", records[0])
 	}
 }
 
-func eventMetadata(t *testing.T, traceID string) metadata.Set {
+func eventMetadata(t *testing.T) metadata.Set {
 	t.Helper()
 	fields, err := metadata.Compile(map[string]string{metadata.KeyUserKey: "uk_test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fields, err = fields.WithTraceID(traceID)
 	if err != nil {
 		t.Fatal(err)
 	}

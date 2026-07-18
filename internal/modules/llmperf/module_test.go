@@ -125,9 +125,5 @@ func perfTestMetadata(t *testing.T) metadata.Set {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields, err = fields.WithTraceID("trace")
-	if err != nil {
-		t.Fatal(err)
-	}
 	return fields
 }

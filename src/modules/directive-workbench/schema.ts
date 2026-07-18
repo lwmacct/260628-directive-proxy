@@ -223,7 +223,7 @@ function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string
   if (value === undefined) return undefined;
   const input = record(value, "payload.metadata", text);
   const entries = Object.entries(input);
-  if (entries.length > 15) throw new Error(text.mustBe("payload.metadata", "object with at most 15 fields"));
+  if (entries.length > 16) throw new Error(text.mustBe("payload.metadata", "object with at most 16 fields"));
   const metadata: Record<string, string> = {};
   let totalBytes = 0;
   for (const [key, rawValue] of entries) {
@@ -239,7 +239,7 @@ function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string
     totalBytes += keyBytes + valueBytes;
     metadata[key] = rawValue;
   }
-  if (totalBytes > 8192 - "trace_id".length - 512) {
+  if (totalBytes > 8192) {
     throw new Error(text.mustBe("payload.metadata", "object within the directive metadata byte limit"));
   }
   return entries.length ? metadata : undefined;

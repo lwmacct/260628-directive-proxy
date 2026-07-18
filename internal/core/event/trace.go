@@ -26,7 +26,7 @@ type traceEmitter struct {
 }
 
 func (dispatcher *Dispatcher) Open(traceID string, fields metadata.Set) Session {
-	if dispatcher == nil || dispatcher.closed.Load() || strings.TrimSpace(traceID) == "" || fields.TraceID() != traceID {
+	if dispatcher == nil || dispatcher.closed.Load() || strings.TrimSpace(traceID) == "" {
 		return nil
 	}
 	return &Trace{dispatcher: dispatcher, traceID: traceID, metadata: fields}

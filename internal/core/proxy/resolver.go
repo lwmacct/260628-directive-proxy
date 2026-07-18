@@ -35,8 +35,7 @@ type PreparedDirective struct {
 }
 
 func NewPreparedDirective(source DirectiveSource, plan *Plan, executable *program.Executable, policy *recovery.Policy, fields metadata.Set) (*PreparedDirective, error) {
-	if plan == nil || plan.Target == nil || fields.TraceID() != "" ||
-		policy != nil && policy.Controller == nil {
+	if plan == nil || plan.Target == nil || policy != nil && policy.Controller == nil {
 		return nil, ErrInvalidDirective
 	}
 	cloned := ClonePlan(plan)

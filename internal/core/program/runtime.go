@@ -95,9 +95,6 @@ func (runtime *Runtime) StartRun(traceID string, executable *Executable, fields 
 	if executable == nil {
 		return nil, errors.New("compiled program is unavailable")
 	}
-	if fields.TraceID() != traceID {
-		return nil, errors.New("program metadata is incomplete")
-	}
 	emission := event.Session(discardSession{})
 	if runtime.emission != nil {
 		if opened := runtime.emission.Open(traceID, fields); opened != nil {
