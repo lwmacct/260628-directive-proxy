@@ -121,8 +121,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 			if event.Topic == "capture.response.sse.event" {
 				values = append(values, event.Data["data"].(string))
 			}
-			_, duplicatedTrace := event.Metadata["trace_id"]
-			metadataCaptured = event.TraceID != "" && !duplicatedTrace && event.Metadata["user_key"] == "uk_capture" && event.Metadata["request_id"] == "capture-request"
+			metadataCaptured = event.TraceID != "" && event.Metadata["user_key"] == "uk_capture" && event.Metadata["request_id"] == "capture-request"
 			if event.Topic == "capture.response.headers" {
 				headers := event.Data["headers"].(map[string][]string)
 				responseHeadersCaptured = len(headers["X-Downstream"]) == 1 && headers["X-Downstream"][0] == "rewritten" && len(headers["X-Upstream"]) == 0
@@ -257,9 +256,6 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 			}
 			if record.TraceID == "" || record.Metadata["user_key"] != "uk_usage" || record.Metadata["tenant_id"] != "tenant-a" {
 				t.Fatalf("usage record missing metadata: %#v", record)
-			}
-			if _, exists := record.Metadata["trace_id"]; exists {
-				t.Fatalf("usage record metadata duplicated trace_id: %#v", record)
 			}
 			return
 		}

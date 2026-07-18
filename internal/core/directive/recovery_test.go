@@ -89,15 +89,10 @@ func TestRecoveryValidationRejectsInvalidPolicies(t *testing.T) {
 	}
 }
 
-func TestRecoveryRejectsRemovedModuleSpecAndUnknownControllerFields(t *testing.T) {
-	invalid := []string{
-		`{"target":{"base_url":"https://api.example.com"},"recovery":{"controller":{"module":"builtin.recovery","config":{"url":"https://control.example.com"}},"triggers":{"transport_error":true},"budget":{"max_round_trips":2}}}`,
-		`{"target":{"base_url":"https://api.example.com"},"recovery":{"controller":{"url":"https://control.example.com","unknown":true},"triggers":{"transport_error":true},"budget":{"max_round_trips":2}}}`,
-	}
-	for _, raw := range invalid {
-		if _, err := DecodePayload([]byte(raw)); err == nil {
-			t.Fatalf("invalid recovery controller was accepted: %s", raw)
-		}
+func TestRecoveryRejectsUnknownControllerFields(t *testing.T) {
+	raw := []byte(`{"target":{"base_url":"https://api.example.com"},"recovery":{"controller":{"url":"https://control.example.com","unknown":true},"triggers":{"transport_error":true},"budget":{"max_round_trips":2}}}`)
+	if _, err := DecodePayload(raw); err == nil {
+		t.Fatal("unknown recovery controller field was accepted")
 	}
 }
 

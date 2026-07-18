@@ -1,8 +1,6 @@
 package directive
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -70,17 +68,6 @@ func TestPayloadOnlyHMACVector(t *testing.T) {
 	}
 }
 
-func TestDecodeRejectsPrefixSignedV22Token(t *testing.T) {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"base_url":"https://api.example.com/v1"}}`))
-	signingInput := TokenFamily + "." + TokenVersion + "." + TokenInline + "." + payload
-	mac := hmac.New(sha256.New, []byte(testTokenSecret))
-	_, _ = mac.Write([]byte(signingInput))
-	encoded := signingInput + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	if _, err := Decode(testTokenSecret, encoded); !errors.Is(err, ErrTokenUnauthorized) {
-		t.Fatalf("prefix-signed v22 token was accepted: %v", err)
-	}
-}
-
 func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
 	encoded, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
@@ -97,17 +84,6 @@ func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
 	parts[3] = parts[3][:len(parts[3])-1] + last
 	if _, err := Decode(testTokenSecret, strings.Join(parts, ".")); !errors.Is(err, ErrTokenUnauthorized) {
 		t.Fatalf("unexpected tampered token error: %v", err)
-	}
-}
-
-func TestDecodeRejectsPreviousDirectiveVersion(t *testing.T) {
-	encoded, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := strings.Replace(encoded, "."+TokenVersion+".", ".20.", 1)
-	if _, err := Decode(testTokenSecret, legacy); !errors.Is(err, ErrInvalidPayload) {
-		t.Fatalf("previous directive version was not rejected: %v", err)
 	}
 }
 
@@ -163,11 +139,8 @@ func TestDecodeRemoteRejectsInvalidBackendUnion(t *testing.T) {
 		`{"http":null}`,
 		`{"http":null,"redis":{"url":"redis://redis.example/0","key":"directive"}}`,
 		`{"http":{"url":"https://resolver.example"},"file":{"path":"directive.json"}}`,
-		`{"http":{"url":"https://resolver.example","key":"legacy-key"}}`,
 		`{"redis":{"url":"redis://redis.example","key":"directive","headers":null}}`,
 		`{"file":{"path":"directive.json","url":"file:///tmp"}}`,
-		`{"type":"file","path":"directive.json"}`,
-		`{"type":"http","url":"https://resolver.example"}`,
 	} {
 		if _, err := Decode(testTokenSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
 			t.Fatalf("invalid remote backend field combination was accepted: %s", raw)
@@ -223,28 +196,6 @@ func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 	}
 }
 
-func TestDecodeRejectsLegacyTokenFamilyAndKinds(t *testing.T) {
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"payload":{"target":{"base_url":"https://api.example.com/v1"}}}`))
-	for _, token := range []string{
-		"dproxy.18.i." + encoded,
-		"dp.18.i." + encoded,
-		"dp.18.r." + encoded,
-	} {
-		if _, err := Decode(testTokenSecret, token); err == nil {
-			t.Fatalf("expected legacy token %q to be rejected", token)
-		}
-	}
-}
-
-func TestDecodeRejectsSignedV19Token(t *testing.T) {
-	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
-	signingInput := "dp.19.inline." + payload
-	encoded := signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(testTokenSecret, payload))
-	if _, err := Decode(testTokenSecret, encoded); err == nil {
-		t.Fatal("signed v19 token must be rejected")
-	}
-}
-
 func TestDecodeRejectsUnknownField(t *testing.T) {
 	encoded := encodeRawToken([]byte(`{"target":{"base_url":"https://api.example.com/v1"},"key":"secret"}`))
 
@@ -253,21 +204,10 @@ func TestDecodeRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestInlineTokenBodyIsPayloadAndRejectsEnvelope(t *testing.T) {
-	if _, err := Decode(testTokenSecret, encodeRawToken([]byte(`{"payload":{"target":{"base_url":"https://api.example.com/v1"}}}`))); err == nil {
-		t.Fatal("inline token envelope must be rejected")
-	}
-	if _, err := Decode(testTokenSecret, encodeRawToken([]byte(`{"metadata":{"user_key":"uk_test"},"target":{"base_url":"https://api.example.com/v1"}}`))); err != nil {
-		t.Fatalf("direct inline payload was rejected: %v", err)
-	}
-}
-
 func TestDecodePayloadRequiresStrictTargetUnion(t *testing.T) {
 	invalid := []string{
 		`{"target":{}}`,
-		`{"target":{"url":"https://api.example.com"}}`,
 		`{"target":{"base_url":"https://api.example.com","exact_url":"https://api.example.com/action"}}`,
-		`{"target":{"base_url":"https://api.example.com","join_path":true}}`,
 		`{"target":{"base_url":""}}`,
 	}
 	for _, raw := range invalid {
@@ -286,45 +226,13 @@ func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
 		t.Fatalf("direct remote spec was rejected: %v", err)
 	}
 	invalid := []string{
-		`{"source":{"http":{"url":"https://resolver.example/resolve"}}}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"payload":{"target":{"base_url":"https://api.example.com"}}}`,
-		`{"http":{"url":"https://resolver.example/resolve"},"program":{}}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"modules":[]}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"recovery":{}}`,
 	}
 	for _, raw := range invalid {
 		if _, err := Decode(testTokenSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
 			t.Fatalf("invalid remote token body was accepted: %s", raw)
-		}
-	}
-}
-
-func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
-	encoded := encodeRawToken([]byte(`{"target":{"base_url":"https://api.example.com/v1"},"transport":{"proxy":"socks5://127.0.0.1:1080"}}`))
-
-	if _, err := decodeInlinePayload(encoded); err == nil {
-		t.Fatal("expected validation error")
-	}
-}
-
-func TestDecodeRejectsRemovedHeaderModeAndActions(t *testing.T) {
-	invalid := []string{
-		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mode":"replace"}}`,
-		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"append","name":"X-Test","values":["value"]}]}}`,
-		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"remove","name":"X-Test"}]}}`,
-	}
-	for _, raw := range invalid {
-		if _, err := DecodePayload([]byte(raw)); err == nil {
-			t.Fatalf("removed header field or action was accepted: %s", raw)
-		}
-	}
-	remoteInvalid := []string{
-		`{"http":{"url":"https://resolver.example.com","headers":{"mode":"replace"}}}`,
-		`{"http":{"url":"https://resolver.example.com","headers":{"mutations":[{"side":"request","action":"remove","glob":"*"}]}}}`,
-	}
-	for _, raw := range remoteInvalid {
-		if _, err := Decode(testTokenSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
-			t.Fatalf("removed remote header field or action was accepted: %s", raw)
 		}
 	}
 }

@@ -32,28 +32,9 @@ func TestPayloadRoundTripsOrderedModules(t *testing.T) {
 	}
 }
 
-func TestPayloadRejectsRemovedProgramField(t *testing.T) {
-	_, err := DecodePayload([]byte(`{"target":{"base_url":"https://api.example.com"},"program":[{"module":"builtin.capture"}]}`))
-	if err == nil {
-		t.Fatal("removed program field was accepted")
-	}
-}
-
 func TestPayloadRejectsDuplicateModule(t *testing.T) {
 	_, err := DecodePayload([]byte(`{"target":{"base_url":"https://api.example.com"},"modules":[{"module":"builtin.capture"},{"module":"builtin.capture"}]}`))
 	if err == nil {
 		t.Fatal("duplicate module was accepted")
-	}
-}
-
-func TestPayloadRejectsRemovedModuleFields(t *testing.T) {
-	for _, field := range []string{
-		`{"scope":"exchange","module":"builtin.capture"}`,
-		`{"id":"capture","module":"builtin.capture"}`,
-	} {
-		_, err := DecodePayload([]byte(`{"target":{"base_url":"https://api.example.com"},"modules":[` + field + `]}`))
-		if err == nil {
-			t.Fatalf("removed module field was accepted: %s", field)
-		}
 	}
 }

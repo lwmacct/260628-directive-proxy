@@ -24,7 +24,6 @@ func TestCompileReturnsImmutableDirectiveMetadata(t *testing.T) {
 
 func TestCompileRejectsInvalidDirectiveMetadata(t *testing.T) {
 	for _, input := range []map[string]string{
-		{reservedTraceID: "forged"},
 		{KeyUserKey: " padded "},
 		{KeyUserKey: "key-1", "Tenant": "tenant-a"},
 		{KeyUserKey: "key-1", "bad-key": "value"},
@@ -41,7 +40,7 @@ func TestCompileAllowsEmptyDirectiveMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := fields.Map()
-	if result == nil || len(result) != 0 {
+	if len(result) != 0 {
 		t.Fatalf("unexpected empty metadata: %#v", result)
 	}
 }

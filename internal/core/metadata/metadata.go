@@ -13,14 +13,11 @@ const (
 	MaxNameBytes  = 64
 	MaxValueBytes = 512
 	MaxTotalBytes = 8 << 10
-
-	reservedTraceID = "trace_id"
 )
 
 var ErrInvalid = errors.New("invalid directive metadata")
 
 // Set is an immutable collection of directive-defined correlation fields.
-// trace_id is carried separately by the Exchange and protocol contexts.
 type Set struct {
 	fields map[string]string
 }
@@ -32,7 +29,7 @@ func Compile(input map[string]string) (Set, error) {
 	fields := make(map[string]string, len(input))
 	total := 0
 	for key, value := range input {
-		if !validKey(key) || key == reservedTraceID || !validValue(value) {
+		if !validKey(key) || !validValue(value) {
 			return Set{}, ErrInvalid
 		}
 		total += len(key) + len(value)

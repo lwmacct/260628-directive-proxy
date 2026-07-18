@@ -228,8 +228,8 @@ function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string
   let totalBytes = 0;
   for (const [key, rawValue] of entries) {
     const keyBytes = new TextEncoder().encode(key).length;
-    if (!/^[a-z][a-z0-9_]*$/.test(key) || keyBytes > 64 || key === "trace_id") {
-      throw new Error(text.mustBe(`payload.metadata.${key}`, "lowercase snake_case key other than trace_id, up to 64 bytes"));
+    if (!/^[a-z][a-z0-9_]*$/.test(key) || keyBytes > 64) {
+      throw new Error(text.mustBe(`payload.metadata.${key}`, "lowercase snake_case key up to 64 bytes"));
     }
     if (typeof rawValue !== "string" || !rawValue || rawValue !== rawValue.trim() || /[\r\n]/.test(rawValue)) {
       throw new Error(text.nonEmptyString(`payload.metadata.${key}`));

@@ -36,13 +36,12 @@ func TestControllerSendsRecoveryEventAndReadsDecision(t *testing.T) {
 	decision, err := controller.Decide(context.Background(), recovery.Event{
 		Protocol: recovery.Protocol, EventID: "event-1", TraceID: "trace-1",
 		RoundTrip: recovery.RoundTripInfo{Number: 1, MaxRoundTrips: 3},
-		Metadata:  map[string]string{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decision.Action != recovery.ActionRetry || decision.AfterMS != 25 || received.TraceID != "trace-1" ||
-		received.Protocol != "dproxy.recovery.v3" || received.RoundTrip.Number != 1 || received.Metadata == nil || len(received.Metadata) != 0 {
+		received.Protocol != recovery.Protocol || received.RoundTrip.Number != 1 {
 		t.Fatalf("unexpected callback result: decision=%#v event=%#v", decision, received)
 	}
 }

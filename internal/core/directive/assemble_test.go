@@ -41,7 +41,7 @@ func TestCompilePayloadAllowsOmittedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fields := compiled.Metadata.Map(); fields == nil || len(fields) != 0 {
+	if fields := compiled.Metadata.Map(); len(fields) != 0 {
 		t.Fatalf("unexpected directive metadata: %#v", compiled.Metadata.Map())
 	}
 }

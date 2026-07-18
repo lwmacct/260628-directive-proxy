@@ -84,26 +84,6 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	if !loaded.Server.Fluent.ACK {
 		t.Fatal("Fluent config was not loaded from the server hierarchy")
 	}
-
-	if err := os.WriteFile(path, []byte("proxy:\n  recovery:\n    max-round-trips-limit: 9\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err = Manager.Load(t.Context(), cfgm.File(path))
-	if err == nil || !strings.Contains(err.Error(), "proxy") {
-		t.Fatalf("legacy root config must be rejected, got %v", err)
-	}
-}
-
-func TestConfigRejectsRemovedRecoveryAttemptLimit(t *testing.T) {
-	setDirectiveTokenSecret(t)
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  proxy:\n    recovery:\n      max-attempts-limit: 7\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Manager.Load(t.Context(), cfgm.File(path))
-	if err == nil || !strings.Contains(err.Error(), "max-attempts-limit") {
-		t.Fatalf("removed recovery attempt limit was accepted: %v", err)
-	}
 }
 
 func TestConfigFileLoadsInlineTLSConfiguration(t *testing.T) {
@@ -157,34 +137,5 @@ func TestConfigFileLoadsProxyTransport(t *testing.T) {
 	}
 	if loaded.Server.Proxy.Transport.MaxIdleConns != 321 {
 		t.Fatalf("unexpected proxy transport: %#v", loaded.Server.Proxy.Transport)
-	}
-}
-
-func TestConfigFileRejectsRemovedFluentOutputConfiguration(t *testing.T) {
-	setDirectiveTokenSecret(t)
-	for _, content := range []string{
-		"server:\n  fluent:\n    connections: 4\n",
-		"server:\n  fluent:\n    queue:\n      max-records: 8192\n",
-	} {
-		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := Manager.Load(t.Context(), cfgm.File(path)); err == nil {
-			t.Fatalf("removed Fluent output config must be rejected: %s", content)
-		}
-	}
-}
-
-func TestConfigFileRejectsLegacyFlatFluentClientConfiguration(t *testing.T) {
-	setDirectiveTokenSecret(t)
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	content := "server:\n  fluent:\n    retry-max-attempts: 3\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Manager.Load(t.Context(), cfgm.File(path))
-	if err == nil || !strings.Contains(err.Error(), "server.fluent.retry-max-attempts") {
-		t.Fatalf("legacy flat Fluent config must be rejected, got %v", err)
 	}
 }

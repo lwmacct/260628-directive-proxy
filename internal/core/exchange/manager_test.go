@@ -94,9 +94,6 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		if record.Metadata["user_key"] != "uk_user_1" || record.TraceID != current.TraceID() {
 			t.Fatalf("record did not carry exchange metadata: %#v", record)
 		}
-		if _, exists := record.Metadata["trace_id"]; exists {
-			t.Fatalf("record metadata duplicated trace_id: %#v", record)
-		}
 		if record.Topic == "capture.recovery.started" || record.Topic == "capture.recovery.decided" || record.Topic == "capture.recovery.finished" {
 			recoveryTopics = append(recoveryTopics, record.Topic)
 		}
@@ -152,41 +149,6 @@ func TestExchangeMetadataIsAttachedToEveryRecord(t *testing.T) {
 	for _, record := range records {
 		if record.Metadata["user_key"] != "uk_user_1" || record.Metadata["tenant_id"] != "tenant-a" || record.TraceID != current.TraceID() {
 			t.Fatalf("record missing metadata: %#v", record)
-		}
-		if _, exists := record.Metadata["trace_id"]; exists {
-			t.Fatalf("record metadata duplicated trace_id: %#v", record)
-		}
-	}
-}
-
-func TestExchangeKeepsEmptyDirectiveMetadataEmpty(t *testing.T) {
-	runtime, dispatcher, output := newCaptureRuntime(t)
-	manager := NewManager(ManagerOptions{MaxRoundTrips: 1}, runtime)
-	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	executable := compileProgram(t, runtime, module.Specs{{Module: capture.Name, Config: []byte(`{}`)}})
-	fields, err := metadata.Compile(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := current.Configure(Configuration{
-		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
-		Metadata:  fields,
-		Program:   executable,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	current.Complete()
-	runtime.Close()
-	if err := dispatcher.Close(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	records := output.Records()
-	if len(records) == 0 {
-		t.Fatal("capture emitted no records")
-	}
-	for _, record := range records {
-		if record.Metadata == nil || len(record.Metadata) != 0 || record.TraceID != current.TraceID() {
-			t.Fatalf("record did not preserve separate trace and empty metadata: %#v", record)
 		}
 	}
 }

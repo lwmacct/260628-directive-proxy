@@ -27,7 +27,7 @@
 - payload schema 是破坏式严格协议，不做旧字段兼容。
 - `dp.22.<kind>.<base64url-json>.<hmac>` 明确区分 inline directive 与自包含 RemoteSpec；实际版本只由 `TokenVersion` 定义。HMAC 仅覆盖第四段 `base64url-json` 原文。
 - target 必须且只能包含 `base_url` 或 `exact_url`；Plan 只保存编译后的最终 URL 和 HTTP 执行字段，不携带 metadata、合成策略或 Recovery。
-- metadata 是可选 string map；`user_id`、`user_key` 只是 core 预设 key。`trace_id` 由 Exchange 独立持有，directive metadata 不得提供，运行时也不注入 metadata。
+- metadata 是不设系统保留 key 的可选 string map；`user_id`、`user_key` 只是 core 预设 key。Exchange 独立持有的系统 trace ID 不会在运行时注入 metadata。
 - inline JSON 本身就是 Payload；remote JSON 本身就是 RemoteSpec。
 - RemoteSpec 只包含读取信息，声明 payload、program、recovery 或其他执行字段必须拒绝。
 - RemoteSpec 顶层必须且只能包含 `http`、`redis`、`file` 之一，不使用共享 `type` 和跨 backend 可选字段。

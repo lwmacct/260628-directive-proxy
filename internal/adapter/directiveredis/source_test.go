@@ -84,7 +84,7 @@ func TestSourceClassifiesWrongTypeAsInvalid(t *testing.T) {
 	}
 	source := newTestSource()
 	t.Cleanup(func() { _ = source.Close() })
-	_, err := source.Read(context.Background(), testRedisReference(t, "redis://"+server.Addr()+"/0", "legacy-string"))
+	_, err := source.Read(context.Background(), testRedisReference(t, "redis://"+server.Addr()+"/0", "wrong-type"))
 	if !errors.Is(err, directive.ErrRemoteInvalid) {
 		t.Fatalf("unexpected wrong type error: %v", err)
 	}

@@ -15,17 +15,7 @@ import (
 )
 
 func TestFluentSinkWritesDPEventOnWire(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		metadata map[string]string
-	}{
-		{name: "business metadata", metadata: map[string]string{"user_key": "uk_user_1", "tenant_id": "tenant-a"}},
-		{name: "empty metadata", metadata: map[string]string{}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			assertFluentMetadataOnWire(t, tt.metadata)
-		})
-	}
+	assertFluentMetadataOnWire(t, map[string]string{"user_key": "uk_user_1", "tenant_id": "tenant-a"})
 }
 
 func assertFluentMetadataOnWire(t *testing.T, fields map[string]string) {

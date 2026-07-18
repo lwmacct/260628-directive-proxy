@@ -176,9 +176,6 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	if callbackEvent.Metadata["user_key"] != "uk_test" {
 		t.Fatalf("callback metadata was not attached: %#v", callbackEvent.Metadata)
 	}
-	if _, exists := callbackEvent.Metadata["trace_id"]; exists {
-		t.Fatalf("callback metadata duplicated trace_id: %#v", callbackEvent.Metadata)
-	}
 	if callbackEvent.Directive.Endpoint != "redis://redis.example/1" || callbackEvent.Directive.Resource != "routing" {
 		t.Fatalf("unexpected directive source: %#v", callbackEvent.Directive)
 	}

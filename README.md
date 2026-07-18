@@ -108,7 +108,7 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 RoundTrip 重读。Recovery retry 使用同一份已解析 Payload。
 
-Payload 可以声明可选 metadata：最多 16 项、总计最多 8 KiB 的 `map<string,string>`，key 使用小写 snake_case。core 不要求任何业务身份字段；`metadata` 包仅预设常用的 `user_id`、`user_key` key API。`trace_id` 是独立的系统关联字段，directive metadata 不得提供，也不会在运行时注入 metadata；Exchange 生成的 UUIDv7 trace ID 与固定 metadata 分别在整个请求和所有 Recovery RoundTrip 中保持不变。
+Payload 可以声明可选 metadata：最多 16 项、总计最多 8 KiB 的 `map<string,string>`，key 使用小写 snake_case。core 不要求任何业务身份字段，也不设置系统保留 key；`metadata` 包仅预设常用的 `user_id`、`user_key` key API。Exchange 生成的 UUIDv7 trace ID 是独立系统字段，不会在运行时注入 metadata；若 directive 自行声明 `trace_id`，它只是普通 metadata，与系统 trace 没有绑定关系。
 
 Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program、Recovery 和 Metadata。HTTP Plan 只拥有 HTTP 执行字段，不拥有 metadata。Exchange 在读取正文前一次性配置 directive facts、Program 和 Metadata，并打开 exchange-lifetime Module；RecoveryTransport 在第一个 RoundTrip 前从同一 PreparedDirective 安装已收紧的 Recovery budget。每次 RoundTrip 只打开新的 round-trip-lifetime Module，Module Context 自动携带同一份 metadata。
 
@@ -230,7 +230,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 - [`builtin.llmusage`](docs/module-llmusage.md)：LLM token usage 提取；
 - [`builtin.llmperf`](docs/module-llmperf.md)：LLM 响应性能测量。
 
-Module 经内部有界队列向 Fluent 输出统一 `dp.event.v5` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 顶层分别包含系统 `trace_id` 和完整 directive `metadata`，metadata 不重复 trace，各 topic 的 `data` 也不重复这两个公共字段；Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
+Module 经内部有界队列向 Fluent 输出统一 `dp.event.v5` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 顶层分别包含系统 `trace_id` 和完整 directive `metadata`，各 topic 的 `data` 不重复这两个公共字段；Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
 已解析的 `Payload.modules` 在 Prepare 阶段编译一次为不可变 Program Executable；exchange-lifetime 实例打开一次，Recovery 的每个 RoundTrip 仅从同一批 Binding 打开新的 round-trip-lifetime 实例，不重新编译 Module 配置。数组顺序是所有当前活跃 Module 的全局执行顺序；Module 名在 Program Module Catalog 内唯一，并直接作为外部 Record 的 `producer`。Recovery Controller 使用独立的类型化 HTTP 参数和 Binding，不属于 Module Catalog。
 

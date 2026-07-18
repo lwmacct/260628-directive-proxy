@@ -46,7 +46,7 @@ func testServerDirectiveMetadata() map[string]string {
 	return map[string]string{"user_key": "uk_server_test"}
 }
 
-func TestHTTPServerRoutesAdminAndProxyRequestsOnOneListener(t *testing.T) {
+func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	cfg := newTestServerConfig()
 	var proxyPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,11 +186,10 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 	defer upstream.Close()
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Protocol  string          `json:"protocol"`
-			LegacyKey json.RawMessage `json:"key"`
+			Protocol string `json:"protocol"`
 		}
 		if r.Header.Get("Authorization") != "Bearer policy-token" || json.NewDecoder(r.Body).Decode(&body) != nil ||
-			body.Protocol != "dproxy.resolve.v1" || len(body.LegacyKey) != 0 || r.URL.Path != "/team-a/service-a" {
+			body.Protocol != "dproxy.resolve.v1" || r.URL.Path != "/team-a/service-a" {
 			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
 		}
 		_, _ = io.WriteString(w, `{"metadata":{"user_key":"uk_http"},"target":{"base_url":"`+upstream.URL+`"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Directive-Source","values":["http"]}]}}`)
@@ -309,18 +308,6 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 	srv.Handler.ServeHTTP(healthRecorder, healthReq)
 	if healthRecorder.Code != http.StatusOK {
 		t.Fatalf("health must remain public, got %d", healthRecorder.Code)
-	}
-}
-
-func TestRemovedAdminAPIRemainsReserved(t *testing.T) {
-	cfg := config.DefaultConfig().Server
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "http://control.local/api/admin/directives/encode", strings.NewReader(
-		`{"kind":"inline","payload":{"target":{"base_url":"https://example.com"}}}`,
-	))
-	newHTTPServer(&cfg, &runtime{}).Handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("removed admin API is still routed: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -490,7 +477,7 @@ func TestNoStoreDisablesCaching(t *testing.T) {
 	}
 }
 
-func TestTokenAuthSessionAndRemovedAdminAPI(t *testing.T) {
+func TestTokenAuthSession(t *testing.T) {
 	token := "admin-token/with.punctuation"
 	cfg := config.DefaultConfig().Server
 	cfg.HTTP.AuthMe.Origins = []string{"http://localhost"}
@@ -510,15 +497,6 @@ func TestTokenAuthSessionAndRemovedAdminAPI(t *testing.T) {
 		t.Fatalf("unexpected auth session: status=%d body=%s", authSession.Code, authSession.Body.String())
 	}
 
-	directiveDocument := `{"payload":{"target":{"base_url":"https://example.com"}}}`
-	unauthenticated := httptest.NewRecorder()
-	unauthenticatedRequest := httptest.NewRequest(http.MethodPost, "http://localhost/api/admin/directives/encode", strings.NewReader(directiveDocument))
-	unauthenticatedRequest.Header.Set("Content-Type", "application/json")
-	handler.ServeHTTP(unauthenticated, unauthenticatedRequest)
-	if unauthenticated.Code != http.StatusNotFound {
-		t.Fatalf("unexpected unauthenticated status: %d", unauthenticated.Code)
-	}
-
 	loginRequest := httptest.NewRequest(http.MethodPost, "http://localhost/authme/login/token", strings.NewReader(`{"token":"`+token+`"}`))
 	loginRequest.Header.Set("Origin", "http://localhost")
 	login := httptest.NewRecorder()
@@ -527,30 +505,11 @@ func TestTokenAuthSessionAndRemovedAdminAPI(t *testing.T) {
 		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
 	}
 
-	protectedRequest := httptest.NewRequest(http.MethodPost, "http://localhost/api/admin/directives/encode", strings.NewReader(directiveDocument))
-	protectedRequest.Header.Set("Content-Type", "application/json")
-	protectedRequest.Header.Set("Origin", "http://localhost")
-	protectedRequest.AddCookie(login.Result().Cookies()[0])
-	protected := httptest.NewRecorder()
-	handler.ServeHTTP(protected, protectedRequest)
-	if protected.Code != http.StatusNotFound {
-		t.Fatalf("unexpected authenticated status: %d body=%s", protected.Code, protected.Body.String())
-	}
-
-	removedEndpointRequest := httptest.NewRequest(http.MethodGet, "http://localhost/api/admin/proxy-requests", nil)
-	removedEndpointRequest.AddCookie(login.Result().Cookies()[0])
-	removedEndpoint := httptest.NewRecorder()
-	handler.ServeHTTP(removedEndpoint, removedEndpointRequest)
-	if removedEndpoint.Code != http.StatusNotFound {
-		t.Fatalf("removed control endpoint is still routed: status=%d body=%s", removedEndpoint.Code, removedEndpoint.Body.String())
-	}
-
-	bearerRequest := httptest.NewRequest(http.MethodPost, "http://localhost/api/admin/directives/encode", strings.NewReader(directiveDocument))
-	bearerRequest.Header.Set("Content-Type", "application/json")
-	bearerRequest.Header.Set("Authorization", "Bearer "+token)
-	bearer := httptest.NewRecorder()
-	handler.ServeHTTP(bearer, bearerRequest)
-	if bearer.Code != http.StatusNotFound {
-		t.Fatalf("unexpected bearer status: %d body=%s", bearer.Code, bearer.Body.String())
+	authenticatedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/authme/session", nil)
+	authenticatedRequest.AddCookie(login.Result().Cookies()[0])
+	authenticated := httptest.NewRecorder()
+	handler.ServeHTTP(authenticated, authenticatedRequest)
+	if authenticated.Code != http.StatusOK || !strings.Contains(authenticated.Body.String(), `"status":"authenticated"`) {
+		t.Fatalf("unexpected authenticated session: status=%d body=%s", authenticated.Code, authenticated.Body.String())
 	}
 }

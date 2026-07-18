@@ -99,11 +99,8 @@ func TestTraceAssignsRecordIdentityAndSequence(t *testing.T) {
 	if len(records) != 2 || records[0].Sequence != 1 || records[1].Sequence != 2 || records[0].RecordID != "trace:00000001" || records[0].Producer != "binding" || records[0].RoundTrip != 2 {
 		t.Fatalf("unexpected records: %#v", records)
 	}
-	if records[0].SchemaVersion != "dp.event.v5" || records[0].TraceID != "trace" || records[0].Metadata[metadata.KeyUserKey] != "uk_test" {
+	if records[0].SchemaVersion != event.SchemaVersion || records[0].TraceID != "trace" || records[0].Metadata[metadata.KeyUserKey] != "uk_test" {
 		t.Fatalf("record metadata was not attached: %#v", records[0])
-	}
-	if _, exists := records[0].Metadata["trace_id"]; exists {
-		t.Fatalf("record metadata duplicated trace_id: %#v", records[0])
 	}
 }
 

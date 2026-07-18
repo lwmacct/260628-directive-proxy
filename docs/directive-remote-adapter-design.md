@@ -77,7 +77,7 @@ RemoteSpec 不使用 `source` 包裹，也不能声明以下字段：
 
 inline token 内容、HTTP response body、Redis JSON 根文档和 File 文件内容使用完全相同的 `Payload` schema。Payload 可以包含：
 
-- 可选的 string metadata；core 预设 `user_id`、`user_key` 常用 key，但不要求业务身份字段；`trace_id` 是 Exchange 独立持有的系统字段，directive metadata 不得提供，运行时也不注入 metadata；
+- 可选的 string metadata；core 预设 `user_id`、`user_key` 常用 key，但不要求业务身份字段，也不设置系统保留 key；Exchange 独立持有的系统 trace ID 不会在运行时注入 metadata；
 - 严格 one-of target：`base_url` 或 `exact_url`；
 - SOCKS5 proxy；
 - request/response header policy；
