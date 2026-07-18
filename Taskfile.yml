@@ -24,3 +24,8 @@ includes:
   ci:
     taskfile: .task/ci.yml
     optional: true
+
+  fluentbit:
+    taskfile: internal/testutil/fluentbit/Taskfile.yml
+    dir: internal/testutil/fluentbit
+    optional: true

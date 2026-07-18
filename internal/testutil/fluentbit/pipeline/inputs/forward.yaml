@@ -1,0 +1,5 @@
+pipeline:
+  inputs:
+    - name: forward
+      listen: 0.0.0.0
+      port: 23194

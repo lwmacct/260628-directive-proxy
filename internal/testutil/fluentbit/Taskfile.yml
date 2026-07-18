@@ -1,0 +1,105 @@
+version: "3"
+
+vars:
+  TMUX_SESSION: directive-proxy-fluentbit
+
+tasks:
+  internal:init:
+    internal: true
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - command -v tmux >/dev/null 2>&1 || { echo "tmux is required" >&2; exit 1; }
+      - mkdir -p output
+
+  start:
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - internal:init
+    cmds:
+      - |
+        if tmux has-session -t "{{.TMUX_SESSION}}" 2>/dev/null; then
+          echo "Fluent Bit is already running in tmux session {{.TMUX_SESSION}}"
+          exit 0
+        fi
+        if [ -f fluent-bit.pid ]; then
+          _old_pid="$(cat fluent-bit.pid)"
+          if kill -0 "$_old_pid" 2>/dev/null; then
+            kill -KILL "$_old_pid" 2>/dev/null || true
+          fi
+          rm -f fluent-bit.pid
+        fi
+        tmux new-session -d -s "{{.TMUX_SESSION}}" -c "$PWD" fluent-bit -c config.yaml
+        _pid="$(tmux list-panes -t "{{.TMUX_SESSION}}" -F '#{pane_pid}' | head -n 1)"
+        sleep 0.2
+        _dead="$(tmux list-panes -t "{{.TMUX_SESSION}}" -F '#{pane_dead}' 2>/dev/null || echo 1)"
+        if [ "$_dead" = "1" ]; then
+          echo "Fluent Bit exited during startup" >&2
+          tmux capture-pane -p -t "{{.TMUX_SESSION}}:0.0" -S -40 2>/dev/null || true
+          tmux kill-session -t "{{.TMUX_SESSION}}" 2>/dev/null || true
+          exit 1
+        fi
+        printf '%s\n' "$_pid" > fluent-bit.pid
+        echo "Started Fluent Bit in tmux session {{.TMUX_SESSION}}"
+
+  restart:
+    cmds:
+      - task: stop
+      - task: start
+
+  stop:
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - internal:init
+    cmds:
+      - |
+        _pid="$(cat fluent-bit.pid 2>/dev/null || true)"
+        if [ -z "$_pid" ] && tmux has-session -t "{{.TMUX_SESSION}}" 2>/dev/null; then
+          _pid="$(tmux list-panes -t "{{.TMUX_SESSION}}" -F '#{pane_pid}' | head -n 1)"
+        fi
+        if [ -z "$_pid" ]; then
+          for _candidate in $(pgrep -f '^fluent-bit -c config.yaml$' || true); do
+            _cwd="$(readlink -f "/proc/$_candidate/cwd" 2>/dev/null || true)"
+            if [ "$_cwd" = "$PWD" ]; then
+              _pid="$_candidate"
+              break
+            fi
+          done
+        fi
+        tmux kill-session -t "{{.TMUX_SESSION}}" 2>/dev/null || true
+        if [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null; then
+          /bin/kill -KILL "$_pid" 2>/dev/null || true
+        fi
+        for _candidate in $(pgrep -f '^fluent-bit -c config.yaml$' || true); do
+          _cwd="$(readlink -f "/proc/$_candidate/cwd" 2>/dev/null || true)"
+          if [ "$_cwd" = "$PWD" ]; then
+            /bin/kill -KILL "$_candidate" 2>/dev/null || true
+          fi
+        done
+        if [ -n "$_pid" ]; then
+          echo "Stopped Fluent Bit tmux session {{.TMUX_SESSION}}"
+        else
+          echo "Fluent Bit tmux session {{.TMUX_SESSION}} is not running"
+        fi
+        rm -f fluent-bit.pid
+
+  status:
+    dir: "{{.TASKFILE_DIR}}"
+    deps:
+      - internal:init
+    cmds:
+      - |
+        if tmux has-session -t "{{.TMUX_SESSION}}" 2>/dev/null; then
+          tmux list-windows -t "{{.TMUX_SESSION}}" -F 'session=#{session_name} window=#{window_index} command=#{pane_current_command}'
+        else
+          echo "Fluent Bit tmux session {{.TMUX_SESSION}} is not running"
+        fi
+
+  check:
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - fluent-bit -c config.yaml -D
+
+  reload:
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - curl --fail-with-body -X POST -d '' http://127.0.0.1:23193/api/v2/reload

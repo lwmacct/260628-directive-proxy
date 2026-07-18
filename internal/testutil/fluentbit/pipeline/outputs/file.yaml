@@ -1,0 +1,7 @@
+pipeline:
+  outputs:
+    - name: file
+      match: '*'
+      path: output
+      file: events.log
+      format: plain
