@@ -1,6 +1,8 @@
 package directive
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -51,6 +53,31 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		len(decoded.Headers.Mutations[0].Values) != 1 || decoded.Headers.Mutations[0].Values[0] != "Bearer secret" ||
 		decoded.Headers.Mutations[2].Side != HeaderSideResponse {
 		t.Fatalf("unexpected headers: %#v", decoded.Headers)
+	}
+}
+
+func TestPayloadOnlyHMACVector(t *testing.T) {
+	const payload = "eyJ0YXJnZXQiOnsiYmFzZV91cmwiOiJodHRwczovL2FwaS5leGFtcGxlLmNvbS92MSJ9fQ"
+	const signature = "6F9DAB7BdyojoAKEZSW8SMTBPZ5s_TaD2JnB_-kW8Xc"
+	encoded := TokenFamily + "." + TokenVersion + "." + TokenInline + "." + payload + "." + signature
+
+	decoded, err := Decode(testTokenSecret, encoded)
+	if err != nil {
+		t.Fatalf("payload-only HMAC vector was rejected: %v", err)
+	}
+	if decoded.Kind != KindInline || decoded.Payload == nil || decoded.Payload.Target.BaseURL != "https://api.example.com/v1" {
+		t.Fatalf("unexpected decoded payload: %#v", decoded)
+	}
+}
+
+func TestDecodeRejectsPrefixSignedV22Token(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"base_url":"https://api.example.com/v1"}}`))
+	signingInput := TokenFamily + "." + TokenVersion + "." + TokenInline + "." + payload
+	mac := hmac.New(sha256.New, []byte(testTokenSecret))
+	_, _ = mac.Write([]byte(signingInput))
+	encoded := signingInput + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if _, err := Decode(testTokenSecret, encoded); !errors.Is(err, ErrTokenUnauthorized) {
+		t.Fatalf("prefix-signed v22 token was accepted: %v", err)
 	}
 }
 
@@ -212,7 +239,7 @@ func TestDecodeRejectsLegacyTokenFamilyAndKinds(t *testing.T) {
 func TestDecodeRejectsSignedV19Token(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"url":"https://api.example.com/v1"}}`))
 	signingInput := "dp.19.inline." + payload
-	encoded := signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(testTokenSecret, signingInput))
+	encoded := signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(testTokenSecret, payload))
 	if _, err := Decode(testTokenSecret, encoded); err == nil {
 		t.Fatal("signed v19 token must be rejected")
 	}

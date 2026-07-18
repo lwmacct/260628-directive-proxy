@@ -65,7 +65,7 @@ func Decode(secret, encoded string) (Document, error) {
 	if err != nil || len(signature) != sha256.Size {
 		return Document{}, ErrTokenUnauthorized
 	}
-	expected := tokenMAC(secret, strings.Join(parts[:4], "."))
+	expected := tokenMAC(secret, parts[3])
 	if !hmac.Equal(signature, expected) {
 		return Document{}, ErrTokenUnauthorized
 	}
@@ -200,12 +200,12 @@ func encodeToken(secret, kind string, raw []byte) (string, error) {
 	if strings.TrimSpace(secret) == "" {
 		return "", ErrInvalidTokenSecret
 	}
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(secret, signingInput)), nil
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(secret, payload)), nil
 }
 
-func tokenMAC(secret, signingInput string) []byte {
+func tokenMAC(secret, payload string) []byte {
 	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(signingInput))
+	_, _ = mac.Write([]byte(payload))
 	return mac.Sum(nil)
 }
 

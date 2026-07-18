@@ -3,7 +3,7 @@ import { parseTokenDocument } from "./schema";
 import type { DirectiveEnvelope, TokenKind } from "./types";
 
 export const TOKEN_FAMILY = "dp";
-export const TOKEN_VERSION = "21";
+export const TOKEN_VERSION = "22";
 
 export function normalizeDirectiveToken(value: string) {
 	return value.trim().replace(/^Bearer[ \t]+/i, "");
@@ -37,9 +37,9 @@ async function importHMACKey(secret: string, text: Text["authConsole"]) {
 	return crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
 }
 
-async function signToken(secret: string, signingInput: string, text: Text["authConsole"]) {
+async function signToken(secret: string, value: string, text: Text["authConsole"]) {
 	const key = await importHMACKey(secret, text);
-	const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signingInput));
+	const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
 	return encodeBase64URLBytes(new Uint8Array(signature));
 }
 
@@ -55,7 +55,7 @@ function decodeBase64URL(value: string, text: Text["authConsole"]) {
 export async function encodeDirective(envelope: DirectiveEnvelope, secret: string, text: Text["authConsole"]) {
 	const payload = encodeBase64URL(JSON.stringify(envelope.document));
 	const signingInput = `${TOKEN_FAMILY}.${TOKEN_VERSION}.${envelope.kind}.${payload}`;
-	return `${signingInput}.${await signToken(secret, signingInput, text)}`;
+	return `${signingInput}.${await signToken(secret, payload, text)}`;
 }
 
 export async function decodeDirective(value: string, secret: string, text: Text["authConsole"]): Promise<DirectiveEnvelope> {
@@ -64,9 +64,8 @@ export async function decodeDirective(value: string, secret: string, text: Text[
 		throw new Error(text.tokenPrefix);
 	}
 	const key = await importHMACKey(secret, text);
-	const signingInput = parts.slice(0, 4).join(".");
 	const signature = decodeBase64URLBytes(parts[4], text);
-	if (!await crypto.subtle.verify("HMAC", key, signature, new TextEncoder().encode(signingInput))) {
+	if (!await crypto.subtle.verify("HMAC", key, signature, new TextEncoder().encode(parts[3]))) {
 		throw new Error(text.tokenAuthenticationFailed);
 	}
 	let parsed: unknown;

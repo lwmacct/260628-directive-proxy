@@ -1,6 +1,6 @@
 # Directive Proxy
 
-Directive Proxy 是由 `Authorization: Bearer dp.21.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
+Directive Proxy 是由 `Authorization: Bearer dp.22.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
 
 项目的主要职责是 data plane：解析指令、改写请求、访问上游，并在异常发生时通过 Recovery Controller 让调用方同步修订远程指令或决定下一步动作。服务端控制面只保留 AuthMe 登录；directive 的生成、解析和校验全部在浏览器工作台本地完成。
 
@@ -22,16 +22,16 @@ TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校
 
 前端只保留 directive workbench、登录和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
 
-## Directive v21
+## Directive v22
 
-当前 token 版本是 `21`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
+当前 token 版本是 `22`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
 
 ```http
-Authorization: Bearer dp.21.inline.<base64url-json>.<hmac>
-Authorization: Bearer dp.21.remote.<base64url-json>.<hmac>
+Authorization: Bearer dp.22.inline.<base64url-json>.<hmac>
+Authorization: Bearer dp.22.remote.<base64url-json>.<hmac>
 ```
 
-`hmac` 是 `HMAC-SHA256(TokenSecret, "dp.21." + kind + "." + base64url-json)` 的 Base64URL 编码。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
+`hmac` 是 `HMAC-SHA256(TokenSecret, base64url-json)` 的 Base64URL 编码，其中 `base64url-json` 是 token 第四段的原始字符串。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
 inline token 的解码内容是：
 

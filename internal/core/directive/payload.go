@@ -7,7 +7,7 @@ import (
 
 const (
 	TokenFamily  = "dp"
-	TokenVersion = "21"
+	TokenVersion = "22"
 	TokenInline  = "inline"
 	TokenRemote  = "remote"
 )
