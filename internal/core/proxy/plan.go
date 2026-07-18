@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -15,7 +14,6 @@ type Plan struct {
 	Proxy    *url.URL
 	Headers  httpheader.Plan
 	Metadata requestmeta.Metadata
-	Modules  []module.Spec
 	Recovery *recovery.Policy
 }
 
@@ -42,16 +40,6 @@ func ClonePlan(in *Plan) *Plan {
 	out.Proxy = cloneURL(in.Proxy)
 	out.Headers = httpheader.ClonePlan(in.Headers)
 	out.Metadata = requestmeta.Clone(in.Metadata)
-	out.Modules = cloneModuleSpecs(in.Modules)
 	out.Recovery = recovery.ClonePolicy(in.Recovery)
 	return &out
-}
-
-func cloneModuleSpecs(in []module.Spec) []module.Spec {
-	out := make([]module.Spec, len(in))
-	for index, spec := range in {
-		out[index] = spec
-		out[index].Config = append([]byte(nil), spec.Config...)
-	}
-	return out
 }

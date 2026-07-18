@@ -1,6 +1,6 @@
 package directive
 
-import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
+import "github.com/lwmacct/260628-directive-proxy/internal/core/program"
 
 const (
 	TokenFamily  = "dp"
@@ -95,11 +95,11 @@ type FileRemoteSpec struct {
 }
 
 type Payload struct {
-	Target   TargetSection  `json:"target"`
-	Proxy    string         `json:"proxy,omitempty"`
-	Headers  *HeaderPolicy  `json:"headers,omitempty"`
-	Program  module.Program `json:"program,omitempty"`
-	Recovery *RecoverySpec  `json:"recovery,omitempty"`
+	Target   TargetSection   `json:"target"`
+	Proxy    string          `json:"proxy,omitempty"`
+	Headers  *HeaderPolicy   `json:"headers,omitempty"`
+	Program  program.Program `json:"program,omitempty"`
+	Recovery *RecoverySpec   `json:"recovery,omitempty"`
 }
 
 type TargetSection struct {

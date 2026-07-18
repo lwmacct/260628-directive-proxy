@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
@@ -28,18 +30,27 @@ func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
 	current.Complete()
 }
 
-func TestAttemptModuleProgramCanOnlyBeConfiguredOnce(t *testing.T) {
+func TestAttemptScopeCanOnlyBeOpenedOnce(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	attempt, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := attempt.ConfigureModules(nil); err != nil {
+	if err := attempt.OpenScope(); err != nil {
 		t.Fatal(err)
 	}
-	if err := attempt.ConfigureModules(nil); !errors.Is(err, ErrAttemptConfigured) {
+	if err := attempt.OpenScope(); !errors.Is(err, ErrAttemptScopeOpened) {
 		t.Fatalf("duplicate module program was accepted: %v", err)
+	}
+	current.Complete()
+}
+
+func TestExchangeFailsClosedWhenProgramRuntimeIsUnavailable(t *testing.T) {
+	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	if err := current.ConfigureProgram(&program.Executable{}); err == nil {
+		t.Fatal("compiled directive program was silently skipped")
 	}
 	current.Complete()
 }
@@ -88,7 +99,7 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	handled := make(chan struct{})
-	runtime, err := module.NewRuntime([]module.Definition{drainDefinition{
+	runtime, err := program.NewRuntime([]module.Definition{drainDefinition{
 		started: started,
 		release: release,
 		handled: handled,
@@ -96,11 +107,15 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	executable, err := runtime.Compile(program.Program{Request: []program.Spec{{ID: "drain", Module: "test.drain"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
 	requestContext, cancel := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil).WithContext(requestContext)
 	current := manager.Start(request)
-	if err := current.ConfigureRequest([]module.Spec{{ID: "drain", Module: "test.drain"}}); err != nil {
+	if err := current.ConfigureProgram(executable); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -149,7 +164,7 @@ func (definition drainDefinition) Compile(json.RawMessage) (module.Binding, erro
 
 type drainBinding drainDefinition
 
-func (drainBinding) Lifetime() module.Lifetime { return module.LifetimeRequest }
+func (drainBinding) Scope() module.ScopeKind { return module.ScopeRequest }
 
 func (binding drainBinding) Open(module.OpenContext) (module.Instance, error) {
 	return drainInstance(binding), nil
@@ -157,8 +172,8 @@ func (binding drainBinding) Open(module.OpenContext) (module.Instance, error) {
 
 type drainInstance drainBinding
 
-func (instance drainInstance) Mount(binder *module.Binder) {
-	binder.OnRequestStarted(module.AsyncPolicy(module.OverflowBlock), func(module.EventContext, module.RequestStarted) error {
+func (instance drainInstance) Bind(binder module.Registrar) {
+	binder.OnRequestStarted(module.AsyncPolicy(module.OverflowBlock), func(module.Context, lifecycle.RequestStarted) error {
 		close(instance.started)
 		<-instance.release
 		close(instance.handled)

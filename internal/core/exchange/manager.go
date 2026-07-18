@@ -4,19 +4,19 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 type Manager struct {
-	maxAttempts   int
-	moduleRuntime *module.Runtime
+	maxAttempts    int
+	programRuntime *program.Runtime
 }
 
-func NewManager(options ManagerOptions, moduleRuntime *module.Runtime) *Manager {
+func NewManager(options ManagerOptions, programRuntime *program.Runtime) *Manager {
 	if options.MaxAttempts < 1 {
 		options.MaxAttempts = 1
 	}
-	return &Manager{maxAttempts: options.MaxAttempts, moduleRuntime: moduleRuntime}
+	return &Manager{maxAttempts: options.MaxAttempts, programRuntime: programRuntime}
 }
 
 func (manager *Manager) Start(req *http.Request) *Exchange {

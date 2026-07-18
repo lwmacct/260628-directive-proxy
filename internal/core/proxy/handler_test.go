@@ -15,7 +15,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 type resolverFunc func(*http.Request) (Resolution, error)
@@ -48,7 +48,7 @@ func (p staticPrepared) Kind() string { return p.resolution.Source.Mode }
 
 func (p staticPrepared) Source() SourceMetadata { return p.resolution.Source }
 
-func (p staticPrepared) RequestProgram() []module.Spec { return nil }
+func (p staticPrepared) Program() *program.Executable { return nil }
 
 func (p staticPrepared) ResolveAttempt(context.Context, int) (Resolution, error) {
 	return Resolution{Plan: ClonePlan(p.resolution.Plan), Source: p.resolution.Source}, p.err

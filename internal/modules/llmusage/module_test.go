@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 type emittedRecord struct {
@@ -21,10 +24,11 @@ type recordingOutput struct {
 	attempt int
 }
 
-func (factory *recordingFactory) Emitter(_ string, attempt int) module.Emitter {
+func (factory *recordingFactory) Open(string) event.Session { return factory }
+func (factory *recordingFactory) Emitter(_ string, attempt int) event.Emitter {
 	return recordingOutput{factory: factory, attempt: attempt}
 }
-func (*recordingFactory) ModuleFailed(string) {}
+func (*recordingFactory) Close() {}
 
 func (output recordingOutput) Emit(topic string, data map[string]any) bool {
 	output.factory.records = append(output.factory.records, emittedRecord{topic: topic, attempt: output.attempt, data: data})
@@ -45,12 +49,12 @@ func TestModuleExtractsOpenAIResponsesFromSSEDataPort(t *testing.T) {
 	scope, records := configuredScope(t, `{"protocol":"openai.responses","labels":{"provider":"openai"}}`, 2)
 	header := make(http.Header)
 	header.Set("Content-Type", "text/event-stream")
-	_ = scope.UpstreamResponseStarted(t.Context(), module.ResponseStarted{StatusCode: http.StatusOK, Header: header})
-	_ = scope.UpstreamSSEData(t.Context(), module.SSEData{
+	_ = scope.UpstreamResponseStarted(t.Context(), lifecycle.ResponseStarted{StatusCode: http.StatusOK, Header: header})
+	_ = scope.UpstreamSSEData(t.Context(), lifecycle.SSEData{
 		Event: "response.completed",
 		Data:  []byte(`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-test","usage":{"input_tokens":8,"output_tokens":5,"total_tokens":13}}}`),
 	})
-	_ = scope.UpstreamBodyEnded(t.Context(), module.BodyEnded{Cause: io.EOF})
+	_ = scope.UpstreamBodyEnded(t.Context(), lifecycle.BodyEnded{Cause: io.EOF})
 	if err := scope.Finish(context.Background(), module.FinishCompleted); err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +71,9 @@ func TestModuleEmitsNotObservedForChatStreamWithoutUsage(t *testing.T) {
 	scope, records := configuredScope(t, `{"protocol":"openai.chat-completions"}`, 1)
 	header := make(http.Header)
 	header.Set("Content-Type", "text/event-stream")
-	_ = scope.UpstreamResponseStarted(t.Context(), module.ResponseStarted{StatusCode: http.StatusOK, Header: header})
-	_ = scope.UpstreamSSEData(t.Context(), module.SSEData{Data: []byte("[DONE]")})
-	_ = scope.UpstreamBodyEnded(t.Context(), module.BodyEnded{Cause: io.EOF})
+	_ = scope.UpstreamResponseStarted(t.Context(), lifecycle.ResponseStarted{StatusCode: http.StatusOK, Header: header})
+	_ = scope.UpstreamSSEData(t.Context(), lifecycle.SSEData{Data: []byte("[DONE]")})
+	_ = scope.UpstreamBodyEnded(t.Context(), lifecycle.BodyEnded{Cause: io.EOF})
 	if err := scope.Finish(context.Background(), module.FinishCompleted); err != nil {
 		t.Fatal(err)
 	}
@@ -96,18 +100,28 @@ func TestModuleAcceptsResourceLimits(t *testing.T) {
 	}
 }
 
-func configuredScope(t *testing.T, raw string, attempt int) (*module.Scope, *recordingFactory) {
+func configuredScope(t *testing.T, raw string, attempt int) (*program.Scope, *recordingFactory) {
 	t.Helper()
-	compiled, err := New().Compile([]byte(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
 	records := &recordingFactory{}
-	scope, err := module.OpenScope(module.OpenContext{TraceID: "trace", Attempt: attempt}, []module.Compiled{{
-		Spec: module.Spec{ID: "usage", Module: Name, Config: []byte(raw)}, Binding: compiled,
-	}}, records)
+	runtime, err := program.NewRuntime([]module.Definition{New()}, records)
 	if err != nil {
 		t.Fatal(err)
 	}
+	executable, err := runtime.Compile(program.Program{Attempt: []program.Spec{{ID: "usage", Module: Name, Config: []byte(raw)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runtime.StartRun("trace", executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := run.OpenAttempt(module.OpenContext{Attempt: attempt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		run.Close()
+		runtime.Close()
+	})
 	return scope, records
 }

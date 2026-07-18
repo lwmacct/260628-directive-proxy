@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -43,11 +44,11 @@ func (attempt *Attempt) ObserveUpstreamResponse(response *http.Response) {
 	metadata := requestmeta.Clone(attempt.metadata)
 	current.stateMu.Unlock()
 	current.lifecycleMu.Lock()
-	attempt.projection = module.NewProjection(
-		module.ProjectionUpstream, response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attempt.scope,
+	attempt.projection = program.NewUpstreamObserver(
+		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attempt.scope,
 	)
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.UpstreamResponseStarted(current.ctx, module.ResponseStarted{
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+		return scope.UpstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{
 			StatusCode: response.StatusCode, Header: response.Header.Clone(), Metadata: metadata,
 		})
 	})
@@ -62,14 +63,14 @@ func (attempt *Attempt) processUpstreamBodyChunk(data []byte) ([]byte, error) {
 		return nil, context.Canceled
 	}
 	current := attempt.exchange
-	draft := module.BodyDraft{Data: append([]byte(nil), data...)}
+	draft := lifecycle.BodyDraft{Data: append([]byte(nil), data...)}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if attempt.closed.Load() {
 		return nil, context.Canceled
 	}
-	if err := current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.UpstreamBodyChunk(current.ctx, module.BodyChunk{Data: data})
+	if err := current.dispatchLocked(attempt, func(scope *program.Scope) error {
+		return scope.UpstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	}); err != nil {
 		return nil, err
 	}
@@ -84,7 +85,7 @@ func (attempt *Attempt) processUpstreamBodyChunk(data []byte) ([]byte, error) {
 		}
 	}
 	if attempt.projection != nil {
-		if err := attempt.projection.Feed(current.ctx, time.Now().UTC(), draft.Data); err != nil {
+		if err := attempt.projection.Observe(current.ctx, time.Now().UTC(), draft.Data); err != nil {
 			return nil, err
 		}
 	}
@@ -115,15 +116,15 @@ func (current *Exchange) responseHeaders(status int, headers http.Header) {
 	current.lifecycleMu.Lock()
 	current.responseStatus = status
 	current.downstreamAttempt = attempt
-	var attemptScope *module.Scope
+	var attemptScope *program.Scope
 	if attempt != nil {
 		attemptScope = attempt.scope
 	}
-	current.downstreamProjection = module.NewProjection(
-		module.ProjectionDownstream, headers.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attemptScope,
+	current.downstreamProjection = program.NewDownstreamObserver(
+		headers.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attemptScope,
 	)
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.DownstreamResponseStarted(current.ctx, module.ResponseStarted{StatusCode: status, Header: headers.Clone()})
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+		return scope.DownstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{StatusCode: status, Header: headers.Clone()})
 	})
 	current.lifecycleMu.Unlock()
 }
@@ -134,11 +135,11 @@ func (current *Exchange) responseBodyChunk(data []byte) {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(current.downstreamAttempt, func(scope *module.Scope) error {
-		return scope.DownstreamBodyChunk(current.ctx, module.BodyChunk{Data: data})
+	_ = current.dispatchLocked(current.downstreamAttempt, func(scope *program.Scope) error {
+		return scope.DownstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	})
 	if current.downstreamProjection != nil {
-		_ = current.downstreamProjection.Feed(current.ctx, time.Now().UTC(), data)
+		_ = current.downstreamProjection.Observe(current.ctx, time.Now().UTC(), data)
 	}
 }
 
@@ -153,11 +154,11 @@ func (current *Exchange) finishDownstream() {
 	}
 	current.downstreamEnded = true
 	if current.downstreamProjection != nil {
-		_ = current.downstreamProjection.Close(current.ctx, time.Now().UTC())
+		_ = current.downstreamProjection.Finish(current.ctx, time.Now().UTC())
 		current.downstreamProjection = nil
 	}
-	_ = current.dispatchLocked(current.downstreamAttempt, func(scope *module.Scope) error {
-		return scope.DownstreamBodyEnded(current.ctx, module.BodyEnded{})
+	_ = current.dispatchLocked(current.downstreamAttempt, func(scope *program.Scope) error {
+		return scope.DownstreamBodyEnded(current.ctx, lifecycle.BodyEnded{})
 	})
 }
 

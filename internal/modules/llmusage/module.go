@@ -11,6 +11,8 @@ import (
 
 	"github.com/lwmacct/260714-go-pkg-llmusage/pkg/llmusage"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
@@ -49,13 +51,13 @@ func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
 	return binding{spec: spec}, nil
 }
 
-func (binding binding) Lifetime() module.Lifetime { return module.LifetimeAttempt }
+func (binding binding) Scope() module.ScopeKind { return module.ScopeAttempt }
 
 func (binding binding) Open(module.OpenContext) (module.Instance, error) {
 	return &instance{spec: binding.spec}, nil
 }
 
-func (usage *instance) Mount(binder *module.Binder) {
+func (usage *instance) Bind(binder module.Registrar) {
 	async := module.AsyncPolicy(module.OverflowBlock)
 	binder.OnUpstreamResponseStarted(async, usage.onResponseStarted)
 	binder.OnUpstreamSSEData(async, usage.onSSEData)
@@ -68,27 +70,27 @@ func (usage *instance) Finish(ctx module.FinishContext) error {
 	return nil
 }
 
-func (usage *instance) onResponseStarted(ctx module.EventContext, response module.ResponseStarted) error {
+func (usage *instance) onResponseStarted(ctx module.Context, response lifecycle.ResponseStarted) error {
 	usage.start(response, ctx.Emitter)
 	return nil
 }
 
-func (usage *instance) onSSEData(ctx module.EventContext, event module.SSEData) error {
+func (usage *instance) onSSEData(ctx module.Context, event lifecycle.SSEData) error {
 	usage.feed(encodeSSEData(event), ctx.Emitter)
 	return nil
 }
 
-func (usage *instance) onJSONChunk(ctx module.EventContext, chunk module.BodyChunk) error {
+func (usage *instance) onJSONChunk(ctx module.Context, chunk lifecycle.BodyChunk) error {
 	usage.feed(chunk.Data, ctx.Emitter)
 	return nil
 }
 
-func (usage *instance) onBodyEnded(ctx module.EventContext, ended module.BodyEnded) error {
+func (usage *instance) onBodyEnded(ctx module.Context, ended lifecycle.BodyEnded) error {
 	usage.finish(ended.Cause, ctx.Emitter)
 	return nil
 }
 
-func (usage *instance) start(response module.ResponseStarted, output module.Emitter) {
+func (usage *instance) start(response lifecycle.ResponseStarted, output event.Emitter) {
 	if usage.decoder != nil || usage.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
@@ -117,7 +119,7 @@ func (usage *instance) start(response module.ResponseStarted, output module.Emit
 	usage.format = format
 }
 
-func (usage *instance) feed(data []byte, output module.Emitter) {
+func (usage *instance) feed(data []byte, output event.Emitter) {
 	if usage.decoder == nil || usage.failed || usage.finished || len(data) == 0 {
 		return
 	}
@@ -129,7 +131,7 @@ func (usage *instance) feed(data []byte, output module.Emitter) {
 	usage.emitResults(results, output)
 }
 
-func (usage *instance) finish(cause error, output module.Emitter) {
+func (usage *instance) finish(cause error, output event.Emitter) {
 	if usage.decoder == nil || usage.failed || usage.finished {
 		return
 	}
@@ -152,7 +154,7 @@ func (usage *instance) finish(cause error, output module.Emitter) {
 	}
 }
 
-func (usage *instance) emitResults(results []llmusage.Result, output module.Emitter) {
+func (usage *instance) emitResults(results []llmusage.Result, output event.Emitter) {
 	if output == nil {
 		return
 	}
@@ -180,7 +182,7 @@ func (usage *instance) emitResults(results []llmusage.Result, output module.Emit
 	}
 }
 
-func (usage *instance) emitFailure(stage string, err error, output module.Emitter) {
+func (usage *instance) emitFailure(stage string, err error, output event.Emitter) {
 	if usage.failed {
 		return
 	}
@@ -199,7 +201,7 @@ func (usage *instance) emitFailure(stage string, err error, output module.Emitte
 	output.Emit("llm.usage.failed", data)
 }
 
-func encodeSSEData(event module.SSEData) []byte {
+func encodeSSEData(event lifecycle.SSEData) []byte {
 	var encoded bytes.Buffer
 	if event.Event != "" {
 		fmt.Fprintf(&encoded, "event: %s\n", event.Event)

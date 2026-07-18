@@ -226,6 +226,8 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 Module 经内部有界队列输出统一 `dproxy.event.v2` Record。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
+已解析 Payload 的 Program 在 Prepare 阶段编译一次为不可变 Executable；request scope 打开一次，Recovery 的每个 Attempt 仅从同一批 Binding 打开新实例，不重新编译 Module 配置。`core/exchange` 拥有生命周期，`core/lifecycle` 定义端口值，`core/module` 定义 SPI，`core/program` 负责编译与执行。
+
 更多细节见 [Module architecture](docs/module-architecture.md)。
 
 ## AuthMe 与指令工作台

@@ -1,22 +1,33 @@
-package module
+package program
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+)
+
+var (
+	ErrRuntimeClosed = errors.New("program runtime is closed")
+	ErrRunClosed     = errors.New("program run is closed")
 )
 
 type Runtime struct {
-	registry *Registry
-	emission EmissionProvider
+	registry *registry
+	emission event.Provider
 	health   map[string]*healthState
 	closed   atomic.Bool
 }
 
 type Run struct {
 	runtime       *Runtime
+	executable    *Executable
 	traceID       string
-	emission      EmissionSession
+	emission      event.Session
 	eventSequence atomic.Uint64
 	closed        atomic.Bool
 }
@@ -40,39 +51,59 @@ type healthState struct {
 	lastFailNano atomic.Int64
 }
 
-type discardEmissionSession struct{}
+type discardSession struct{}
 type discardEmitter struct{}
 
-func NewRuntime(definitions []Definition, emission EmissionProvider) (*Runtime, error) {
-	registry, err := NewRegistry(definitions...)
+func NewRuntime(definitions []module.Definition, emission event.Provider) (*Runtime, error) {
+	registry, err := newRegistry(definitions...)
 	if err != nil {
 		return nil, err
 	}
 	runtime := &Runtime{registry: registry, emission: emission, health: make(map[string]*healthState)}
-	for _, name := range registry.Names() {
+	for _, name := range registry.names() {
 		runtime.health[name] = &healthState{}
 	}
 	return runtime, nil
 }
 
-func (runtime *Runtime) Compile(lifetime Lifetime, specs []Spec) ([]Compiled, error) {
-	if runtime == nil || runtime.closed.Load() {
-		return nil, nil
+func (runtime *Runtime) Compile(source Program) (*Executable, error) {
+	if runtime == nil {
+		return nil, errors.New("program runtime is unavailable")
 	}
-	return runtime.registry.Compile(lifetime, specs)
+	if runtime.closed.Load() {
+		return nil, ErrRuntimeClosed
+	}
+	request, err := runtime.registry.compile(module.ScopeRequest, source.Request)
+	if err != nil {
+		return nil, fmt.Errorf("compile request program: %w", err)
+	}
+	attempt, err := runtime.registry.compile(module.ScopeAttempt, source.Attempt)
+	if err != nil {
+		return nil, fmt.Errorf("compile attempt program: %w", err)
+	}
+	return &Executable{request: request, attempt: attempt}, nil
 }
 
-func (runtime *Runtime) StartRun(traceID string) *Run {
-	if runtime == nil || runtime.closed.Load() || strings.TrimSpace(traceID) == "" {
-		return nil
+func (runtime *Runtime) StartRun(traceID string, executable *Executable) (*Run, error) {
+	if runtime == nil {
+		return nil, errors.New("program runtime is unavailable")
 	}
-	emission := EmissionSession(discardEmissionSession{})
+	if runtime.closed.Load() {
+		return nil, ErrRuntimeClosed
+	}
+	if strings.TrimSpace(traceID) == "" {
+		return nil, errors.New("program trace id is empty")
+	}
+	if executable == nil {
+		return nil, errors.New("compiled program is unavailable")
+	}
+	emission := event.Session(discardSession{})
 	if runtime.emission != nil {
 		if opened := runtime.emission.Open(traceID); opened != nil {
 			emission = opened
 		}
 	}
-	return &Run{runtime: runtime, traceID: traceID, emission: emission}
+	return &Run{runtime: runtime, executable: executable, traceID: traceID, emission: emission}, nil
 }
 
 func (runtime *Runtime) ModuleHealth() HealthSnapshot {
@@ -100,29 +131,37 @@ func (runtime *Runtime) Close() {
 	}
 }
 
-func (run *Run) OpenScope(ctx OpenContext, compiled []Compiled) (*Scope, error) {
+func (run *Run) OpenRequest(ctx module.OpenContext) (*Scope, error) {
 	if run == nil || run.closed.Load() {
-		return nil, nil
+		return nil, ErrRunClosed
 	}
 	ctx.TraceID = run.traceID
-	return OpenScope(ctx, compiled, run)
+	return openScope(ctx, run.executable.request, run)
 }
 
-func (run *Run) Emitter(producer string, attempt int) Emitter {
+func (run *Run) OpenAttempt(ctx module.OpenContext) (*Scope, error) {
+	if run == nil || run.closed.Load() {
+		return nil, ErrRunClosed
+	}
+	ctx.TraceID = run.traceID
+	return openScope(ctx, run.executable.attempt, run)
+}
+
+func (run *Run) emitter(producer string, attempt int) event.Emitter {
 	if run == nil || run.closed.Load() || run.emission == nil {
 		return discardEmitter{}
 	}
 	return run.emission.Emitter(producer, attempt)
 }
 
-func (run *Run) NextEventSequence() uint64 {
+func (run *Run) nextEventSequence() uint64 {
 	if run == nil || run.closed.Load() {
 		return 0
 	}
 	return run.eventSequence.Add(1)
 }
 
-func (run *Run) ModuleFailed(name string) {
+func (run *Run) moduleFailed(name string) {
 	if run == nil || run.runtime == nil {
 		return
 	}
@@ -143,8 +182,8 @@ func (run *Run) Close() {
 	}
 }
 
-func (discardEmissionSession) Emitter(string, int) Emitter { return discardEmitter{} }
-func (discardEmissionSession) Close()                      {}
+func (discardSession) Emitter(string, int) event.Emitter { return discardEmitter{} }
+func (discardSession) Close()                            {}
 
 func (discardEmitter) Emit(string, map[string]any) bool { return false }
 func (discardEmitter) EmitBorrowed(string, map[string]any) bool {

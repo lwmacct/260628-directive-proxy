@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
 
@@ -32,7 +33,14 @@ func (f fileReaderFunc) Read(ctx context.Context, reference FileReference) ([]by
 
 func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *testing.T) {
 	var calls int
-	resolver := newTestResolver(ResolverOptions{HTTPReader: httpReaderFunc(func(_ context.Context, _ HTTPReference, req RequestSnapshot) ([]byte, error) {
+	var compileCalls int
+	resolver := newTestResolver(ResolverOptions{Compiler: compilerFunc(func(source program.Program) (*program.Executable, error) {
+		compileCalls++
+		if len(source.Request) != 1 || len(source.Attempt) != 1 {
+			t.Fatalf("compiler received incomplete program: %#v", source)
+		}
+		return &program.Executable{}, nil
+	}), HTTPReader: httpReaderFunc(func(_ context.Context, _ HTTPReference, req RequestSnapshot) ([]byte, error) {
 		calls++
 		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL != "http://proxy.local/v1/chat" || req.Headers.Get("X-Tenant") != "original" {
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Headers)
@@ -63,11 +71,11 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "one.example" {
-		t.Fatalf("remote payload was not dereferenced once: calls=%d first=%#v second=%#v", calls, first.Plan, second.Plan)
+	if calls != 1 || compileCalls != 1 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "one.example" {
+		t.Fatalf("remote payload was not prepared once: reads=%d compiles=%d first=%#v second=%#v", calls, compileCalls, first.Plan, second.Plan)
 	}
-	if len(prepared.RequestProgram()) != 1 || len(first.Plan.Modules) != 1 || first.Plan.Recovery == nil {
-		t.Fatalf("remote payload did not preserve inline program/recovery semantics: prepared=%#v plan=%#v", prepared.RequestProgram(), first.Plan)
+	if prepared.Program() == nil || first.Plan.Recovery == nil {
+		t.Fatalf("remote payload did not preserve program/recovery semantics: executable=%#v plan=%#v", prepared.Program(), first.Plan)
 	}
 	if first.Source.PayloadSHA256 == "" || first.Source.PayloadSHA256 != second.Source.PayloadSHA256 {
 		t.Fatalf("unexpected remote payload digests: first=%q second=%q", first.Source.PayloadSHA256, second.Source.PayloadSHA256)

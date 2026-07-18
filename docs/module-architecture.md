@@ -1,15 +1,16 @@
 # Directive Module architecture
 
-Module 是 directive 驱动的请求生命周期执行单元，不局限于可观测性。Module 可以观察类型化事件，也可以在数据提交前修改请求、响应或流切片。
+Module 是 directive 驱动的请求生命周期扩展单元，不局限于可观测性。Module 可以观察类型化事件，也可以在数据提交前修改请求、响应或流切片。生命周期由 Exchange 拥有，Program runtime 只执行已经编译的扩展程序。
 
 ```text
-Module Definition（进程级注册）
-  -> Compile(config)
-Module Binding（directive 中的不可变、有序计划）
-  -> Open(scope)
-Module Instance（request 或 attempt 作用域）
-  -> Mount(Binder)
-类型化 lifecycle ports
+program.Program（Payload 中的有序 Spec）
+  -> program.Runtime.Compile（每个已解析 Payload 一次）
+program.Executable（不可变 Binding 列表）
+  -> program.Run（每个 Exchange）
+  -> request / attempt Scope
+module.Binding.Open
+  -> module.Instance.Bind(module.Registrar)
+core/lifecycle 类型化 ports
 ```
 
 directive 使用有序数组声明程序：
@@ -31,12 +32,16 @@ directive 使用有序数组声明程序：
 
 ## 与 Exchange 生命周期的关系
 
-`core/exchange` 是生命周期拥有者，`core/module` 是被生命周期调用的通用执行机制，两者不互相替代：
+四个 core package 的职责单向依赖，不互相替代：
 
-- `Manager` 是轻量 Exchange factory，只携带 Module runtime 和服务端 Attempt 上限，不维护活动索引或外部 command；
+- `core/lifecycle` 只定义 Fact、Stream、Draft 和 Outcome，不拥有状态或调度；
+- `core/module` 只定义 Definition、Binding、Instance、Registrar、Policy 和执行 Context 等 Module SPI；
+- `core/program` 注册 Definition、编译 Program、创建 Run/Scope、执行 handler、投影流并汇总健康；
+- `core/exchange` 是生命周期唯一拥有者，驱动 request、attempt、recovery 和 downstream 状态转换；
+- `Manager` 是轻量 Exchange factory，只携带 Program runtime 和服务端 Attempt 上限，不维护活动索引或外部 command；
 - `Exchange` 拥有入站请求生命周期、request scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RecoveryTransport；
 - `Attempt` 是 Exchange 创建的强类型子对象，拥有一次 directive 解析、上游访问和 attempt scope；
-- `Runtime` 只注册 Definition、编译 directive program、创建 Run/Scope 和汇总 Module 健康。
+- `program.Executable` 在 Prepare 阶段生成一次；Recovery Attempt 复用同一批不可变 Binding，只重新调用 `Binding.Open` 创建实例。
 
 生命周期方法直接接收 `*Attempt`，不传递裸 attempt 整数，也没有每请求 coordinator goroutine/channel。状态转换与 Module 事件提交分别由明确的 mutex 串行化。
 
@@ -55,9 +60,9 @@ directive 使用有序数组声明程序：
 - Fact：不可变生命周期事实，例如 request started、directive resolved、Recovery transaction、body ended；
 - Command：预留给异步影响未来状态的控制消息，不允许异步任务反向修改已经提交的数据。
 
-Module 通过 `Binder` 明确声明端口。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。
+Module 通过 `module.Registrar` 明确声明端口，端口值来自 `core/lifecycle`。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。
 
-Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarted` 在调用 Controller 前投递，`OnRecoveryDecided` 在收到合法决策后投递，`OnRecoveryFinished` 在决策实际应用或失败后且在 `AttemptFinished` 前投递。三个事件共享同一 `EventID`。`EventContext.Sequence` 是同一 Exchange Run 内单调递增的生命周期序号；Recovery 事件的 `EventContext.EventID` 与 payload 的 `EventID` 相同。Module 可以完整观察 trigger、Controller 请求上下文、决策和最终 outcome，但不能覆盖 directive 或 Controller 决策。
+Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarted` 在调用 Controller 前投递，`OnRecoveryDecided` 在收到合法决策后投递，`OnRecoveryFinished` 在决策实际应用或失败后且在 `AttemptFinished` 前投递。三个事件共享同一 `EventID`。`module.Context.Sequence` 是同一 Exchange Run 内单调递增的生命周期序号；Recovery 事件的 `module.Context.EventID` 与 payload 的 `EventID` 相同。Module 可以完整观察 trigger、Controller 请求上下文、决策和最终 outcome，但不能覆盖 directive 或 Controller 决策。
 
 ## 执行策略
 
@@ -84,10 +89,10 @@ upstream raw
 └─ downstream committed bytes
 ```
 
-`core/module.Runtime` 只负责 Definition registry、编译、Run、Scope 和 Module 健康。Module 通过 `EventContext.Emitter` 产生可选外部 Record；Runtime 只依赖抽象 `EmissionProvider`。
+`core/program.Runtime` 负责 Definition registry、Program 编译、Run、Scope 和 Module 健康。Module 通过 `module.Context.Emitter` 产生可选外部 Record；Runtime 只依赖 `core/event.Provider`。
 
 `core/event.Dispatcher` 实现该 provider，负责 `dproxy.event.v2` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`attempt`、`sequence`、`occurred_at` 和 `data`。
 
-`server.fluent.enabled=false` 时不创建 Dispatcher、Sink、Queue 或连接；Runtime 使用 discard emitter，Module 仍注册、编译和执行，因此修改型 Module 不依赖事件输出。
+`server.fluent.enabled=false` 时不创建 Dispatcher、Sink、Queue 或连接；Program runtime 使用 discard emitter，Module 仍注册、编译和执行，因此修改型 Module 不依赖事件输出。
 
 Module panic 或回调错误会隔离该 Instance、使 barrier 失败，并将对应 Definition 的健康状态标为 degraded。`/health.modules` 与 `/health.event_output` 分别反映两个独立子系统。

@@ -15,6 +15,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmusage"
@@ -44,25 +45,25 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	moduleRuntime, err := module.NewRuntime([]module.Definition{capture.New()}, dispatcher)
+	programRuntime, err := program.NewRuntime([]module.Definition{capture.New()}, dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
+	t.Cleanup(func() { programRuntime.Close(); _ = dispatcher.Close(context.Background()) })
 	manager := exchange.NewManager(exchange.ManagerOptions{
 		MaxAttempts: 3,
-	}, moduleRuntime)
+	}, programRuntime)
 	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := newTestServerConfig()
-	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Target: directive.TargetSection{BaseURL: upstream.URL},
-		Program: module.Program{Request: []module.Spec{{
+		Program: program.Program{Request: []program.Spec{{
 			ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}}},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
@@ -146,20 +147,20 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	}))
 	defer upstream.Close()
 
-	moduleRuntime, err := module.NewRuntime([]module.Definition{capture.New()}, nil)
+	programRuntime, err := program.NewRuntime([]module.Definition{capture.New()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 3}, moduleRuntime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 3}, programRuntime)
 	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := newTestServerConfig()
-	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime}
+	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime}
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Target:  directive.TargetSection{BaseURL: upstream.URL},
-		Program: module.Program{Request: []module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
+		Program: program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{}`)}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,9 +174,9 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("disabled event output affected proxying: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	health := moduleRuntime.ModuleHealth()
+	health := programRuntime.ModuleHealth()
 	if health.Status != "ok" || health.Modules[capture.Name].Status != "ok" {
-		t.Fatalf("unexpected module runtime health: %#v", health)
+		t.Fatalf("unexpected program runtime health: %#v", health)
 	}
 	if outputHealth := (*event.Dispatcher)(nil).EventOutputHealth(); outputHealth.Status != "disabled" {
 		t.Fatalf("unexpected disabled event output health: %#v", outputHealth)
@@ -189,12 +190,12 @@ func TestDisabledFluentKeepsModuleRuntimeWithoutCreatingDispatcher(t *testing.T)
 	if err != nil {
 		t.Fatalf("disabled Fluent attempted startup: %v", err)
 	}
-	moduleRuntime, err := newModuleRuntime(dispatcher)
+	programRuntime, err := newProgramRuntime(dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatcher != nil || moduleRuntime.ModuleHealth().Status != "ok" {
-		t.Fatal("disabled Fluent affected the module runtime")
+	if dispatcher != nil || programRuntime.ModuleHealth().Status != "ok" {
+		t.Fatal("disabled Fluent affected the program runtime")
 	}
 }
 
@@ -210,23 +211,23 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	moduleRuntime, err := module.NewRuntime([]module.Definition{llmusage.New()}, dispatcher)
+	programRuntime, err := program.NewRuntime([]module.Definition{llmusage.New()}, dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { moduleRuntime.Close(); _ = dispatcher.Close(context.Background()) })
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 2}, moduleRuntime)
+	t.Cleanup(func() { programRuntime.Close(); _ = dispatcher.Close(context.Background()) })
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 2}, programRuntime)
 	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := newTestServerConfig()
-	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, moduleRuntime: moduleRuntime, eventOutput: dispatcher}
+	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Target: directive.TargetSection{BaseURL: upstream.URL},
-		Program: module.Program{Attempt: []module.Spec{{
+		Program: program.Program{Attempt: []program.Spec{{
 			ID: "usage", Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
 		}}},
 	})

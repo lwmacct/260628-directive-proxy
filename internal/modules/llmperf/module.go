@@ -12,6 +12,8 @@ import (
 
 	"github.com/lwmacct/260714-go-pkg-llmperf/pkg/llmperf"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
@@ -50,13 +52,13 @@ func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
 	return binding{spec: spec}, nil
 }
 
-func (binding binding) Lifetime() module.Lifetime { return module.LifetimeAttempt }
+func (binding binding) Scope() module.ScopeKind { return module.ScopeAttempt }
 
 func (binding binding) Open(module.OpenContext) (module.Instance, error) {
 	return &instance{spec: binding.spec}, nil
 }
 
-func (perf *instance) Mount(binder *module.Binder) {
+func (perf *instance) Bind(binder module.Registrar) {
 	async := module.AsyncPolicy(module.OverflowBlock)
 	binder.OnUpstreamStarted(async, perf.onUpstreamStarted)
 	binder.OnUpstreamResponseStarted(async, perf.onResponseStarted)
@@ -71,31 +73,31 @@ func (perf *instance) Finish(ctx module.FinishContext) error {
 	return nil
 }
 
-func (perf *instance) onUpstreamStarted(ctx module.EventContext, _ module.UpstreamStarted) error {
+func (perf *instance) onUpstreamStarted(ctx module.Context, _ lifecycle.UpstreamStarted) error {
 	perf.lastAt = ctx.ObservedAt
 	perf.requestAt = ctx.ObservedAt
 	return nil
 }
 
-func (perf *instance) onResponseStarted(ctx module.EventContext, response module.ResponseStarted) error {
+func (perf *instance) onResponseStarted(ctx module.Context, response lifecycle.ResponseStarted) error {
 	perf.lastAt = ctx.ObservedAt
 	perf.start(ctx.ObservedAt, response, ctx.Emitter)
 	return nil
 }
 
-func (perf *instance) onBodyChunk(ctx module.EventContext, chunk module.BodyChunk) error {
+func (perf *instance) onBodyChunk(ctx module.Context, chunk lifecycle.BodyChunk) error {
 	perf.lastAt = ctx.ObservedAt
 	perf.feed(ctx.ObservedAt, chunk.Data, ctx.Emitter)
 	return nil
 }
 
-func (perf *instance) onBodyEnded(ctx module.EventContext, ended module.BodyEnded) error {
+func (perf *instance) onBodyEnded(ctx module.Context, ended lifecycle.BodyEnded) error {
 	perf.lastAt = ctx.ObservedAt
 	perf.finish(ctx.ObservedAt, ended.Cause, ctx.Emitter)
 	return nil
 }
 
-func (perf *instance) start(at time.Time, response module.ResponseStarted, output module.Emitter) {
+func (perf *instance) start(at time.Time, response lifecycle.ResponseStarted, output event.Emitter) {
 	if perf.started || perf.finished || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return
 	}
@@ -126,7 +128,7 @@ func (perf *instance) start(at time.Time, response module.ResponseStarted, outpu
 	perf.decoder, perf.started = decoder, true
 }
 
-func (perf *instance) feed(at time.Time, data []byte, output module.Emitter) {
+func (perf *instance) feed(at time.Time, data []byte, output event.Emitter) {
 	if perf.decoder == nil || perf.finished {
 		return
 	}
@@ -146,7 +148,7 @@ func (perf *instance) feed(at time.Time, data []byte, output module.Emitter) {
 	}
 }
 
-func (perf *instance) finish(at time.Time, cause error, output module.Emitter) {
+func (perf *instance) finish(at time.Time, cause error, output event.Emitter) {
 	if perf.decoder == nil || perf.finished {
 		return
 	}
@@ -171,7 +173,7 @@ func (perf *instance) finish(at time.Time, cause error, output module.Emitter) {
 	output.Emit("llm.perf.observed", data)
 }
 
-func (perf *instance) emitFailure(stage string, err error, output module.Emitter) {
+func (perf *instance) emitFailure(stage string, err error, output event.Emitter) {
 	if output != nil {
 		data := map[string]any{"stage": stage, "error": err.Error()}
 		addLabels(data, perf.spec.Labels)

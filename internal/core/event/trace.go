@@ -6,8 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 type Trace struct {
@@ -24,14 +22,14 @@ type traceEmitter struct {
 	attempt  int
 }
 
-func (dispatcher *Dispatcher) Open(traceID string) module.EmissionSession {
+func (dispatcher *Dispatcher) Open(traceID string) Session {
 	if dispatcher == nil || dispatcher.closed.Load() || strings.TrimSpace(traceID) == "" {
 		return nil
 	}
 	return &Trace{dispatcher: dispatcher, traceID: traceID}
 }
 
-func (trace *Trace) Emitter(producer string, attempt int) module.Emitter {
+func (trace *Trace) Emitter(producer string, attempt int) Emitter {
 	return traceEmitter{trace: trace, producer: producer, attempt: attempt}
 }
 

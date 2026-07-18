@@ -12,7 +12,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -22,8 +24,8 @@ const maxProjectedSSEEventBytes = 16 << 20
 type Exchange struct {
 	manager        *Manager
 	ctx            context.Context
-	moduleRuntime  *module.Runtime
-	run            *module.Run
+	programRuntime *program.Runtime
+	run            *program.Run
 	traceID        string
 	startedAt      time.Time
 	method         string
@@ -40,14 +42,14 @@ type Exchange struct {
 	maxElapsed    time.Duration
 
 	lifecycleMu          sync.Mutex
-	requestScope         *module.Scope
-	requestStarted       module.RequestStarted
-	requestConfigured    bool
+	requestScope         *program.Scope
+	requestStarted       lifecycle.RequestStarted
+	programConfigured    bool
 	requestBodyEnded     bool
 	responseStatus       int
 	downstreamEnded      bool
 	downstreamAttempt    *Attempt
-	downstreamProjection *module.Projection
+	downstreamProjection program.StreamObserver
 
 	completeOnce sync.Once
 	completed    atomic.Bool
@@ -57,14 +59,14 @@ type Attempt struct {
 	exchange  *Exchange
 	number    int
 	startedAt time.Time
-	source    module.AttemptStarted
+	source    lifecycle.AttemptStarted
 	cancel    context.CancelFunc
 	metadata  requestmeta.Metadata
 
-	scope      *module.Scope
-	projection *module.Projection
-	configured atomic.Bool
-	closed     atomic.Bool
+	scope       *program.Scope
+	projection  program.StreamObserver
+	scopeOpened atomic.Bool
+	closed      atomic.Bool
 }
 
 func newExchange(manager *Manager, req *http.Request, startedAt time.Time) *Exchange {
@@ -77,11 +79,10 @@ func newExchange(manager *Manager, req *http.Request, startedAt time.Time) *Exch
 		idempotencyKey: strings.TrimSpace(req.Header.Get("Idempotency-Key")),
 		phase:          PhaseStartingBody,
 		maxAttempts:    manager.maxAttempts,
-		requestStarted: module.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
+		requestStarted: lifecycle.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
-	if manager != nil && manager.moduleRuntime != nil {
-		current.moduleRuntime = manager.moduleRuntime
-		current.run = manager.moduleRuntime.StartRun(current.traceID)
+	if manager != nil && manager.programRuntime != nil {
+		current.programRuntime = manager.programRuntime
 	}
 	return current
 }
@@ -131,7 +132,7 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc, source AttemptS
 		number:    current.attemptCount,
 		startedAt: startedAt,
 		cancel:    cancel,
-		source: module.AttemptStarted{
+		source: lifecycle.AttemptStarted{
 			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
 		},
 	}
@@ -254,10 +255,10 @@ func (current *Exchange) Complete() {
 	current.completeOnce.Do(func() {
 		current.RequestBodyEnd(0, "", false)
 		current.finishDownstream()
-		outcome := module.OutcomeCompleted
+		outcome := lifecycle.OutcomeCompleted
 		finishCause := module.FinishCompleted
 		if current.ctx.Err() != nil {
-			outcome = module.OutcomeClientCanceled
+			outcome = lifecycle.OutcomeClientCanceled
 			finishCause = module.FinishCanceled
 		}
 		current.stateMu.Lock()
@@ -271,7 +272,7 @@ func (current *Exchange) Complete() {
 		current.lifecycleMu.Lock()
 		status := current.responseStatus
 		if current.requestScope != nil {
-			_ = current.requestScope.RequestFinished(current.ctx, module.RequestFinished{
+			_ = current.requestScope.RequestFinished(current.ctx, lifecycle.RequestFinished{
 				Outcome: outcome, StatusCode: status, Duration: time.Since(current.startedAt),
 			})
 			_ = current.requestScope.Finish(context.WithoutCancel(current.ctx), finishCause)
@@ -319,19 +320,6 @@ func requestURL(req *http.Request) string {
 		value.Host = req.Host
 	}
 	return value.String()
-}
-
-func redactURL(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	query := parsed.Query()
-	for name := range query {
-		query[name] = []string{"<redacted>"}
-	}
-	parsed.RawQuery = query.Encode()
-	return parsed.Redacted()
 }
 
 func cloneURL(in *url.URL) *url.URL {

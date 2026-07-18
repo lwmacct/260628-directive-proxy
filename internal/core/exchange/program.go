@@ -8,32 +8,42 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
-func (current *Exchange) ConfigureRequest(specs []module.Spec) error {
+func (current *Exchange) ConfigureProgram(executable *program.Executable) error {
 	if current == nil {
 		return nil
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if current.requestConfigured {
-		return errors.New("request module program is already configured")
+	if current.programConfigured {
+		return errors.New("directive program is already configured")
 	}
-	current.requestConfigured = true
-	if current.moduleRuntime == nil || current.run == nil {
+	current.programConfigured = true
+	if executable == nil {
 		return nil
 	}
-	compiled, err := current.moduleRuntime.Compile(module.LifetimeRequest, specs)
+	if current.programRuntime == nil {
+		return errors.New("program runtime is unavailable")
+	}
+	run, err := current.programRuntime.StartRun(current.traceID, executable)
 	if err != nil {
 		return err
 	}
-	scope, err := current.run.OpenScope(module.OpenContext{StartedAt: current.startedAt}, compiled)
+	scope, err := run.OpenRequest(module.OpenContext{StartedAt: current.startedAt})
 	if err != nil {
+		run.Close()
 		return err
 	}
+	current.run = run
 	current.requestScope = scope
+	if scope == nil {
+		return nil
+	}
 	return scope.RequestStarted(current.ctx, current.requestStarted)
 }
 
@@ -44,7 +54,7 @@ func (current *Exchange) RequestBodyChunk(data []byte) error {
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if current.requestScope != nil {
-		return current.requestScope.RequestBodyChunk(current.ctx, module.BodyChunk{Data: data})
+		return current.requestScope.RequestBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	}
 	return nil
 }
@@ -60,7 +70,7 @@ func (current *Exchange) RequestBodyEnd(total int64, digest string, complete boo
 	}
 	current.requestBodyEnded = true
 	if current.requestScope != nil {
-		_ = current.requestScope.RequestBodyEnded(current.ctx, module.RequestBodyEnded{Total: total, SHA256: digest, Complete: complete})
+		_ = current.requestScope.RequestBodyEnded(current.ctx, lifecycle.RequestBodyEnded{Total: total, SHA256: digest, Complete: complete})
 	}
 }
 
@@ -71,22 +81,18 @@ func (attempt *Attempt) Number() int {
 	return attempt.number
 }
 
-func (attempt *Attempt) ConfigureModules(specs []module.Spec) error {
+func (attempt *Attempt) OpenScope() error {
 	if attempt == nil || attempt.exchange == nil || !attempt.exchange.isCurrent(attempt) {
 		return context.Canceled
 	}
-	if !attempt.configured.CompareAndSwap(false, true) {
-		return ErrAttemptConfigured
+	if !attempt.scopeOpened.CompareAndSwap(false, true) {
+		return ErrAttemptScopeOpened
 	}
 	current := attempt.exchange
-	if current.moduleRuntime == nil || current.run == nil {
+	if current.run == nil {
 		return nil
 	}
-	compiled, err := current.moduleRuntime.Compile(module.LifetimeAttempt, specs)
-	if err != nil {
-		return err
-	}
-	scope, err := current.run.OpenScope(module.OpenContext{Attempt: attempt.number, StartedAt: attempt.startedAt}, compiled)
+	scope, err := current.run.OpenAttempt(module.OpenContext{Attempt: attempt.number, StartedAt: attempt.startedAt})
 	if err != nil {
 		return err
 	}
@@ -102,6 +108,9 @@ func (attempt *Attempt) ConfigureModules(specs []module.Spec) error {
 		if err := current.requestScope.AttemptStarted(current.ctx, attempt.source); err != nil {
 			return err
 		}
+	}
+	if scope == nil {
+		return nil
 	}
 	return scope.AttemptStarted(current.ctx, attempt.source)
 }
@@ -134,15 +143,15 @@ func (attempt *Attempt) BindMetadata(observed requestmeta.Metadata) bool {
 	defer current.lifecycleMu.Unlock()
 	if first {
 		if len(bound) > 0 {
-			_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-				return scope.MetadataBound(current.ctx, module.MetadataBound{Metadata: bound})
+			_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+				return scope.MetadataBound(current.ctx, lifecycle.MetadataBound{Metadata: bound})
 			})
 		}
 		return false
 	}
 	if changed {
-		_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-			return scope.MetadataChanged(current.ctx, module.MetadataChanged{Bound: bound, Observed: normalized})
+		_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+			return scope.MetadataChanged(current.ctx, lifecycle.MetadataChanged{Bound: bound, Observed: normalized})
 		})
 	}
 	return changed
@@ -155,14 +164,14 @@ func (attempt *Attempt) DirectiveResolved(target *url.URL, duration time.Duratio
 	current := attempt.exchange
 	current.stateMu.Lock()
 	if current.current == attempt {
-		current.targetURL = redactURL(target.String())
+		current.targetURL = target.String()
 	}
 	metadata := requestmeta.Clone(attempt.metadata)
 	current.stateMu.Unlock()
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.DirectiveResolved(current.ctx, module.DirectiveResolved{
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+		return scope.DirectiveResolved(current.ctx, lifecycle.DirectiveResolved{
 			Duration: duration, PayloadSHA256: payloadSHA256, Target: cloneURL(target), TargetChanged: targetChanged,
 			PlanChanged: planChanged, Metadata: metadata,
 		})
@@ -176,8 +185,8 @@ func (attempt *Attempt) DirectiveFailed(duration time.Duration, code string) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.DirectiveFailed(current.ctx, module.DirectiveFailed{Duration: duration, Code: code})
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+		return scope.DirectiveFailed(current.ctx, lifecycle.DirectiveFailed{Duration: duration, Code: code})
 	})
 }
 
@@ -204,7 +213,7 @@ func (attempt *Attempt) MutateOutboundBodyChunk(data []byte) ([]byte, error) {
 		return nil, context.Canceled
 	}
 	current := attempt.exchange
-	draft := module.BodyDraft{Data: append([]byte(nil), data...)}
+	draft := lifecycle.BodyDraft{Data: append([]byte(nil), data...)}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if current.requestScope != nil {
@@ -236,7 +245,7 @@ func (attempt *Attempt) MutateUpstreamResponse(response *http.Response) error {
 		return context.Canceled
 	}
 	current := attempt.exchange
-	draft := module.ResponseDraft{Response: response}
+	draft := lifecycle.ResponseDraft{Response: response}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if current.requestScope != nil {
@@ -269,8 +278,8 @@ func (attempt *Attempt) BeginUpstream(req *http.Request) bool {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.UpstreamStarted(current.ctx, module.UpstreamStarted{TargetURL: targetURL, Header: headers})
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+		return scope.UpstreamStarted(current.ctx, lifecycle.UpstreamStarted{TargetURL: targetURL, Header: headers})
 	})
 	return true
 }
@@ -302,13 +311,13 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	if !closeLifecycle {
 		return decision
 	}
-	outcome := module.OutcomeEndedWithoutResponse
+	outcome := lifecycle.OutcomeEndedWithoutResponse
 	cause := module.FinishFailed
 	if decision == DecisionRetry {
-		outcome = module.OutcomeCanceledForRetry
+		outcome = lifecycle.OutcomeCanceledForRetry
 		cause = module.FinishReplaced
 	} else if attemptErr != nil {
-		outcome = module.OutcomeTransportError
+		outcome = lifecycle.OutcomeTransportError
 		if errorsIsCancellation(attemptErr) {
 			cause = module.FinishCanceled
 		}
@@ -317,43 +326,43 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	return decision
 }
 
-func (attempt *Attempt) RecoveryStarted(value module.RecoveryStarted) {
+func (attempt *Attempt) RecoveryStarted(value lifecycle.RecoveryStarted) {
 	if attempt == nil || attempt.exchange == nil {
 		return
 	}
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
 		return scope.RecoveryStarted(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) RecoveryDecided(value module.RecoveryDecided) {
+func (attempt *Attempt) RecoveryDecided(value lifecycle.RecoveryDecided) {
 	if attempt == nil || attempt.exchange == nil {
 		return
 	}
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
 		return scope.RecoveryDecided(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) RecoveryFinished(value module.RecoveryFinished) {
+func (attempt *Attempt) RecoveryFinished(value lifecycle.RecoveryFinished) {
 	if attempt == nil || attempt.exchange == nil {
 		return
 	}
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
+	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
 		return scope.RecoveryFinished(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) finishLifecycle(outcome module.LifecycleOutcome, cause module.FinishCause, bodyCause error, emitBodyEnd bool) {
+func (attempt *Attempt) finishLifecycle(outcome lifecycle.Outcome, cause module.FinishCause, bodyCause error, emitBodyEnd bool) {
 	if attempt == nil || attempt.exchange == nil || !attempt.closed.CompareAndSwap(false, true) {
 		return
 	}
@@ -361,26 +370,26 @@ func (attempt *Attempt) finishLifecycle(outcome module.LifecycleOutcome, cause m
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if attempt.projection != nil {
-		_ = attempt.projection.Close(current.ctx, time.Now().UTC())
+		_ = attempt.projection.Finish(current.ctx, time.Now().UTC())
 		attempt.projection = nil
 	}
 	if emitBodyEnd {
-		_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-			return scope.UpstreamBodyEnded(current.ctx, module.BodyEnded{Cause: bodyCause})
+		_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
+			return scope.UpstreamBodyEnded(current.ctx, lifecycle.BodyEnded{Cause: bodyCause})
 		})
 	}
 	if current.requestScope != nil {
 		current.requestScope.SetAttempt(attempt.number)
-		_ = current.requestScope.AttemptFinished(current.ctx, module.AttemptFinished{Outcome: outcome})
+		_ = current.requestScope.AttemptFinished(current.ctx, lifecycle.AttemptFinished{Outcome: outcome})
 	}
 	if attempt.scope != nil {
-		_ = attempt.scope.AttemptFinished(current.ctx, module.AttemptFinished{Outcome: outcome})
+		_ = attempt.scope.AttemptFinished(current.ctx, lifecycle.AttemptFinished{Outcome: outcome})
 		_ = attempt.scope.Finish(context.WithoutCancel(current.ctx), cause)
 		attempt.scope = nil
 	}
 }
 
-func (current *Exchange) dispatchLocked(attempt *Attempt, run func(*module.Scope) error) error {
+func (current *Exchange) dispatchLocked(attempt *Attempt, run func(*program.Scope) error) error {
 	if run == nil {
 		return nil
 	}
@@ -402,12 +411,12 @@ func errorsIsCancellation(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func finishCauseForBody(cause error) (module.LifecycleOutcome, module.FinishCause) {
+func finishCauseForBody(cause error) (lifecycle.Outcome, module.FinishCause) {
 	if cause == nil || errors.Is(cause, io.EOF) {
-		return module.OutcomeCompleted, module.FinishCompleted
+		return lifecycle.OutcomeCompleted, module.FinishCompleted
 	}
 	if errorsIsCancellation(cause) {
-		return module.OutcomeInterrupted, module.FinishCanceled
+		return lifecycle.OutcomeInterrupted, module.FinishCanceled
 	}
-	return module.OutcomeInterrupted, module.FinishFailed
+	return lifecycle.OutcomeInterrupted, module.FinishFailed
 }

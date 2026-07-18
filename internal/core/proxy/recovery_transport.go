@@ -18,7 +18,6 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -119,7 +118,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			return nil, ErrResolverFailed
 		}
 		resolution.Plan.Metadata = normalizedMetadata
-		if configureErr := attempt.ConfigureModules(resolution.Plan.Modules); configureErr != nil {
+		if configureErr := attempt.OpenScope(); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if source.Mode == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
@@ -505,14 +504,12 @@ func planFingerprint(plan *Plan) string {
 		Proxy    string
 		Headers  httpheader.Plan
 		Metadata map[string][]string
-		Modules  []module.Spec
 		Recovery any
 	}{
 		Target:   urlString(plan.Target),
 		Proxy:    urlString(plan.Proxy),
 		Headers:  plan.Headers,
 		Metadata: plan.Metadata,
-		Modules:  plan.Modules,
 		Recovery: plan.Recovery,
 	})
 	if err != nil {

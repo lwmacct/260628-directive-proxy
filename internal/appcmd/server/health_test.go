@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
-type moduleHealthStub struct{ snapshot module.HealthSnapshot }
+type moduleHealthStub struct{ snapshot program.HealthSnapshot }
 
-func (stub moduleHealthStub) ModuleHealth() module.HealthSnapshot { return stub.snapshot }
+func (stub moduleHealthStub) ModuleHealth() program.HealthSnapshot { return stub.snapshot }
 
 type eventHealthStub struct{ snapshot event.HealthSnapshot }
 
@@ -22,8 +22,8 @@ func (stub eventHealthStub) EventOutputHealth() event.HealthSnapshot { return st
 func TestHealthReportsModuleAndEventOutputDegradation(t *testing.T) {
 	failureAt := time.Now().UTC().Add(-time.Second)
 	handler := &healthHandler{
-		modules: moduleHealthStub{snapshot: module.HealthSnapshot{
-			Status: "ok", Modules: map[string]module.HealthStatus{"builtin.llmusage": {Status: "ok"}},
+		modules: moduleHealthStub{snapshot: program.HealthSnapshot{
+			Status: "ok", Modules: map[string]program.HealthStatus{"builtin.llmusage": {Status: "ok"}},
 		}},
 		eventOutput: eventHealthStub{snapshot: event.HealthSnapshot{
 			Enabled: true,
@@ -50,7 +50,7 @@ func TestHealthReportsModuleAndEventOutputDegradation(t *testing.T) {
 
 func TestHealthReportsDisabledEventOutputWithoutDegradingService(t *testing.T) {
 	handler := &healthHandler{
-		modules: moduleHealthStub{snapshot: module.HealthSnapshot{Status: "ok", Modules: map[string]module.HealthStatus{}}},
+		modules: moduleHealthStub{snapshot: program.HealthSnapshot{Status: "ok", Modules: map[string]program.HealthStatus{}}},
 		eventOutput: eventHealthStub{snapshot: event.HealthSnapshot{
 			Status: "disabled", Sink: event.Status{Status: "disabled"},
 		}},

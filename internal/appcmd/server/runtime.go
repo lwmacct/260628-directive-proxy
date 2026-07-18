@@ -21,6 +21,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmperf"
@@ -33,7 +34,7 @@ type runtime struct {
 	exchangeFactory  *exchange.Manager
 	bodyStore        *bodystore.Controller
 	proxyTransport   http.RoundTripper
-	moduleRuntime    *module.Runtime
+	programRuntime   *program.Runtime
 	eventOutput      *event.Dispatcher
 	adminAuth        *authme.Auth
 	sourceAccess     *directiveSourceAccess
@@ -71,7 +72,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure event output: %w", err)
 	}
-	moduleRuntime, err := newModuleRuntime(eventOutput)
+	programRuntime, err := newProgramRuntime(eventOutput)
 	if err != nil {
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
@@ -80,9 +81,9 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 			sourceAccess.Close()
 		}
 		_ = tlsRuntime.Close()
-		return nil, fmt.Errorf("configure module runtime: %w", err)
+		return nil, fmt.Errorf("configure program runtime: %w", err)
 	}
-	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: cfg.Proxy.Recovery.MaxAttemptsLimit}, moduleRuntime)
+	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: cfg.Proxy.Recovery.MaxAttemptsLimit}, programRuntime)
 	bodyStore := bodystore.New(bodystore.Config{
 		MemoryMaxBytes:     cfg.Proxy.BodyStore.MemoryMaxBytes,
 		MemoryPerBodyBytes: cfg.Proxy.BodyStore.MemoryPerBodyBytes,
@@ -107,7 +108,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	})
 	if err != nil {
 		_ = recoveryController.Close()
-		moduleRuntime.Close()
+		programRuntime.Close()
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
 		}
@@ -123,7 +124,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		exchangeFactory:  exchangeFactory,
 		bodyStore:        bodyStore,
 		proxyTransport:   recoveryTransport,
-		moduleRuntime:    moduleRuntime,
+		programRuntime:   programRuntime,
 		eventOutput:      eventOutput,
 		adminAuth:        adminAuth,
 		sourceAccess:     sourceAccess,
@@ -133,9 +134,9 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}, nil
 }
 
-func newModuleRuntime(emission module.EmissionProvider) (*module.Runtime, error) {
+func newProgramRuntime(emission event.Provider) (*program.Runtime, error) {
 	definitions := []module.Definition{capture.New(), llmusage.New(), llmperf.New()}
-	return module.NewRuntime(definitions, emission)
+	return program.NewRuntime(definitions, emission)
 }
 
 func newEventDispatcher(ctx context.Context, fluentConfig fluent.Config) (*event.Dispatcher, error) {
@@ -175,7 +176,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, err
 	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
-func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler program.Compiler, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
 		BodyStore:       bodyStore,
@@ -189,6 +190,7 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFact
 		LookupTimeout: remoteConfig.Timeout,
 		MaxTokenBytes: cfg.Proxy.Directive.MaxTokenBytes,
 		TokenSecret:   cfg.Proxy.Directive.TokenSecret,
+		Compiler:      compiler,
 	}
 	if remotes != nil {
 		resolverOptions.HTTPReader = remotes.http
@@ -225,9 +227,9 @@ func (rt *runtime) Close(ctx context.Context) error {
 		}
 		rt.recovery = nil
 	}
-	if rt.moduleRuntime != nil {
-		rt.moduleRuntime.Close()
-		rt.moduleRuntime = nil
+	if rt.programRuntime != nil {
+		rt.programRuntime.Close()
+		rt.programRuntime = nil
 	}
 	if rt.eventOutput != nil {
 		if err := rt.eventOutput.Close(ctx); err != nil {

@@ -6,15 +6,15 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 type healthHandler struct {
-	modules     module.HealthProvider
+	modules     program.HealthProvider
 	eventOutput event.HealthProvider
 }
 
-func newHealthHandler(modules module.HealthProvider, eventOutput event.HealthProvider) http.Handler {
+func newHealthHandler(modules program.HealthProvider, eventOutput event.HealthProvider) http.Handler {
 	return &healthHandler{modules: modules, eventOutput: eventOutput}
 }
 

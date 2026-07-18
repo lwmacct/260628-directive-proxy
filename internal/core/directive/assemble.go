@@ -49,8 +49,7 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	program, err := normalizeProgram(payload.Program, true, true)
-	if err != nil {
+	if _, err := normalizeProgram(payload.Program, true, true); err != nil {
 		return nil, err
 	}
 	recoveryPolicy, err := CompileRecovery(payload.Recovery)
@@ -79,7 +78,6 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 			Response: httpheader.ResponsePlan{Ops: responseOps},
 		},
 		Metadata: metadata,
-		Modules:  program.Attempt,
 		Recovery: recoveryPolicy,
 	}, nil
 }

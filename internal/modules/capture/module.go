@@ -14,6 +14,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
@@ -23,11 +25,6 @@ const Name = "builtin.capture"
 const (
 	defaultBodyChunkBytes = 32 << 10
 	maxBodyChunkBytes     = 1 << 20
-)
-
-var (
-	defaultRedactHeaders = []string{"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"}
-	defaultRedactQuery   = []string{"access_token", "api_key", "apikey", "key", "token"}
 )
 
 type Spec struct {
@@ -72,13 +69,13 @@ func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
 	return binding{spec: spec}, nil
 }
 
-func (binding binding) Lifetime() module.Lifetime { return module.LifetimeRequest }
+func (binding binding) Scope() module.ScopeKind { return module.ScopeRequest }
 
 func (binding binding) Open(module.OpenContext) (module.Instance, error) {
 	return &instance{spec: binding.spec, responseHash: sha256.New()}, nil
 }
 
-func (capture *instance) Mount(binder *module.Binder) {
+func (capture *instance) Bind(binder module.Registrar) {
 	async := module.AsyncPolicy(module.OverflowDrop)
 	binder.OnRequestStarted(async, capture.onRequestStarted)
 	binder.OnRequestBodyChunk(module.AsyncBarrierPolicy(module.OverflowBlock), capture.onRequestBodyChunk)
@@ -106,7 +103,7 @@ func (capture *instance) Finish(ctx module.FinishContext) error {
 	return nil
 }
 
-func (capture *instance) onRequestStarted(ctx module.EventContext, value module.RequestStarted) error {
+func (capture *instance) onRequestStarted(ctx module.Context, value lifecycle.RequestStarted) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
@@ -119,7 +116,7 @@ func (capture *instance) onRequestStarted(ctx module.EventContext, value module.
 	return nil
 }
 
-func (capture *instance) onRequestBodyChunk(ctx module.EventContext, value module.BodyChunk) error {
+func (capture *instance) onRequestBodyChunk(ctx module.Context, value lifecycle.BodyChunk) error {
 	if len(value.Data) == 0 || ctx.Emitter == nil {
 		return nil
 	}
@@ -131,7 +128,7 @@ func (capture *instance) onRequestBodyChunk(ctx module.EventContext, value modul
 	return nil
 }
 
-func (capture *instance) onRequestBodyEnded(ctx module.EventContext, value module.RequestBodyEnded) error {
+func (capture *instance) onRequestBodyEnded(ctx module.Context, value lifecycle.RequestBodyEnded) error {
 	if capture.requestBodyEnded || ctx.Emitter == nil {
 		return nil
 	}
@@ -146,7 +143,7 @@ func (capture *instance) onRequestBodyEnded(ctx module.EventContext, value modul
 	return nil
 }
 
-func (capture *instance) emitRequestChunk(emitter module.Emitter, data []byte) {
+func (capture *instance) emitRequestChunk(emitter event.Emitter, data []byte) {
 	if emitter == nil || len(data) == 0 {
 		return
 	}
@@ -158,7 +155,7 @@ func (capture *instance) emitRequestChunk(emitter module.Emitter, data []byte) {
 	capture.requestOffset += int64(len(data))
 }
 
-func (*instance) onAttemptStarted(ctx module.EventContext, value module.AttemptStarted) error {
+func (*instance) onAttemptStarted(ctx module.Context, value lifecycle.AttemptStarted) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.attempt.started", map[string]any{"attempt": ctx.Attempt})
 		ctx.Emitter.Emit("capture.directive.resolve.started", map[string]any{
@@ -168,7 +165,7 @@ func (*instance) onAttemptStarted(ctx module.EventContext, value module.AttemptS
 	return nil
 }
 
-func (capture *instance) onDirectiveResolved(ctx module.EventContext, value module.DirectiveResolved) error {
+func (capture *instance) onDirectiveResolved(ctx module.Context, value lifecycle.DirectiveResolved) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
@@ -183,7 +180,7 @@ func (capture *instance) onDirectiveResolved(ctx module.EventContext, value modu
 	return nil
 }
 
-func (*instance) onDirectiveFailed(ctx module.EventContext, value module.DirectiveFailed) error {
+func (*instance) onDirectiveFailed(ctx module.Context, value lifecycle.DirectiveFailed) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.directive.resolve.failed", map[string]any{
 			"duration_millis": value.Duration.Milliseconds(), "error_code": value.Code,
@@ -192,7 +189,7 @@ func (*instance) onDirectiveFailed(ctx module.EventContext, value module.Directi
 	return nil
 }
 
-func (capture *instance) onMetadataBound(ctx module.EventContext, value module.MetadataBound) error {
+func (capture *instance) onMetadataBound(ctx module.Context, value lifecycle.MetadataBound) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.request.metadata.bound", map[string]any{
 			"metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
@@ -201,7 +198,7 @@ func (capture *instance) onMetadataBound(ctx module.EventContext, value module.M
 	return nil
 }
 
-func (capture *instance) onMetadataChanged(ctx module.EventContext, value module.MetadataChanged) error {
+func (capture *instance) onMetadataChanged(ctx module.Context, value lifecycle.MetadataChanged) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.request.metadata.changed", map[string]any{
 			"bound_metadata":    redactMetadata(value.Bound, capture.spec.RedactHeaders),
@@ -211,7 +208,7 @@ func (capture *instance) onMetadataChanged(ctx module.EventContext, value module
 	return nil
 }
 
-func (capture *instance) onUpstreamStarted(ctx module.EventContext, value module.UpstreamStarted) error {
+func (capture *instance) onUpstreamStarted(ctx module.Context, value lifecycle.UpstreamStarted) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.attempt.upstream.started", map[string]any{
 			"target_url": redactURL(value.TargetURL, capture.spec.RedactQuery),
@@ -221,14 +218,14 @@ func (capture *instance) onUpstreamStarted(ctx module.EventContext, value module
 	return nil
 }
 
-func (*instance) onAttemptFinished(ctx module.EventContext, value module.AttemptFinished) error {
+func (*instance) onAttemptFinished(ctx module.Context, value lifecycle.AttemptFinished) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.attempt.finished", map[string]any{"attempt": ctx.Attempt, "outcome": string(value.Outcome)})
 	}
 	return nil
 }
 
-func (capture *instance) onRecoveryStarted(ctx module.EventContext, value module.RecoveryStarted) error {
+func (capture *instance) onRecoveryStarted(ctx module.Context, value lifecycle.RecoveryStarted) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
@@ -266,7 +263,7 @@ func (capture *instance) onRecoveryStarted(ctx module.EventContext, value module
 	return nil
 }
 
-func (*instance) onRecoveryDecided(ctx module.EventContext, value module.RecoveryDecided) error {
+func (*instance) onRecoveryDecided(ctx module.Context, value lifecycle.RecoveryDecided) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.recovery.decided", map[string]any{
 			"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
@@ -276,7 +273,7 @@ func (*instance) onRecoveryDecided(ctx module.EventContext, value module.Recover
 	return nil
 }
 
-func (*instance) onRecoveryFinished(ctx module.EventContext, value module.RecoveryFinished) error {
+func (*instance) onRecoveryFinished(ctx module.Context, value lifecycle.RecoveryFinished) error {
 	if ctx.Emitter != nil {
 		data := map[string]any{
 			"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
@@ -292,7 +289,7 @@ func (*instance) onRecoveryFinished(ctx module.EventContext, value module.Recove
 	return nil
 }
 
-func (capture *instance) onDownstreamResponseStarted(ctx module.EventContext, value module.ResponseStarted) error {
+func (capture *instance) onDownstreamResponseStarted(ctx module.Context, value lifecycle.ResponseStarted) error {
 	mediaType, _, _ := mime.ParseMediaType(value.Header.Get("Content-Type"))
 	capture.responseIsSSE = strings.EqualFold(mediaType, "text/event-stream")
 	capture.responseStarted = true
@@ -306,7 +303,7 @@ func (capture *instance) onDownstreamResponseStarted(ctx module.EventContext, va
 	return nil
 }
 
-func (capture *instance) onDownstreamBodyChunk(ctx module.EventContext, value module.BodyChunk) error {
+func (capture *instance) onDownstreamBodyChunk(ctx module.Context, value lifecycle.BodyChunk) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
@@ -334,7 +331,7 @@ func (capture *instance) onDownstreamBodyChunk(ctx module.EventContext, value mo
 	return nil
 }
 
-func (capture *instance) onDownstreamSSEData(ctx module.EventContext, value module.SSEData) error {
+func (capture *instance) onDownstreamSSEData(ctx module.Context, value lifecycle.SSEData) error {
 	capture.sseEvents++
 	if ctx.Emitter == nil {
 		return nil
@@ -350,7 +347,7 @@ func (capture *instance) onDownstreamSSEData(ctx module.EventContext, value modu
 	return nil
 }
 
-func (capture *instance) onDownstreamSSEComment(ctx module.EventContext, value module.SSEComment) error {
+func (capture *instance) onDownstreamSSEComment(ctx module.Context, value lifecycle.SSEComment) error {
 	capture.sseComments++
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.response.sse.comment", map[string]any{
@@ -360,12 +357,12 @@ func (capture *instance) onDownstreamSSEComment(ctx module.EventContext, value m
 	return nil
 }
 
-func (capture *instance) onDownstreamBodyEnded(ctx module.EventContext, _ module.BodyEnded) error {
+func (capture *instance) onDownstreamBodyEnded(ctx module.Context, _ lifecycle.BodyEnded) error {
 	capture.finishResponse(ctx.Emitter)
 	return nil
 }
 
-func (capture *instance) onRequestFinished(ctx module.EventContext, value module.RequestFinished) error {
+func (capture *instance) onRequestFinished(ctx module.Context, value lifecycle.RequestFinished) error {
 	capture.finishResponse(ctx.Emitter)
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.request.completed", map[string]any{
@@ -375,7 +372,7 @@ func (capture *instance) onRequestFinished(ctx module.EventContext, value module
 	return nil
 }
 
-func (capture *instance) finishResponse(output module.Emitter) {
+func (capture *instance) finishResponse(output event.Emitter) {
 	if !capture.responseStarted || capture.responseEnded || output == nil {
 		return
 	}
@@ -388,11 +385,7 @@ func (capture *instance) finishResponse(output module.Emitter) {
 }
 
 func defaultSpec() Spec {
-	return Spec{
-		BodyChunkBytes: defaultBodyChunkBytes,
-		RedactHeaders:  append([]string(nil), defaultRedactHeaders...),
-		RedactQuery:    append([]string(nil), defaultRedactQuery...),
-	}
+	return Spec{BodyChunkBytes: defaultBodyChunkBytes}
 }
 
 func decodeSpec(raw []byte) (Spec, error) {
@@ -419,7 +412,7 @@ func decodeSpec(raw []byte) (Spec, error) {
 		spec.RedactQuery = defaults.RedactQuery
 	}
 	var err error
-	if spec.RedactHeaders, err = validatePatterns(spec.RedactHeaders, false); err != nil {
+	if spec.RedactHeaders, err = validatePatterns(spec.RedactHeaders, true); err != nil {
 		return Spec{}, fmt.Errorf("redact-headers: %w", err)
 	}
 	if spec.RedactQuery, err = validatePatterns(spec.RedactQuery, true); err != nil {
@@ -465,7 +458,7 @@ func redactURL(value string, patterns []string) string {
 		}
 		parsed.RawQuery = query.Encode()
 	}
-	return parsed.Redacted()
+	return parsed.String()
 }
 
 func redactHTTPHeaders(headers http.Header, patterns []string) map[string][]string {

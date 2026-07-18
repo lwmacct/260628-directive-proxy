@@ -16,19 +16,22 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
 type recoveryPrepared struct {
-	mu     sync.Mutex
-	plans  []*Plan
-	policy *recovery.Policy
-	calls  int
+	mu      sync.Mutex
+	plans   []*Plan
+	policy  *recovery.Policy
+	program *program.Executable
+	calls   int
 }
 
-func (*recoveryPrepared) Kind() string                  { return "remote" }
-func (*recoveryPrepared) RequestProgram() []module.Spec { return nil }
+func (*recoveryPrepared) Kind() string                          { return "remote" }
+func (prepared *recoveryPrepared) Program() *program.Executable { return prepared.program }
 func (*recoveryPrepared) Source() SourceMetadata {
 	return SourceMetadata{Mode: "remote", Backend: "redis", Endpoint: "redis://redis.example/1", Resource: "routing"}
 }
@@ -61,9 +64,9 @@ type recoveryEventRecorder struct {
 	phases    []string
 	sequences []uint64
 	eventIDs  []string
-	started   module.RecoveryStarted
-	decided   module.RecoveryDecided
-	finished  module.RecoveryFinished
+	started   lifecycle.RecoveryStarted
+	decided   lifecycle.RecoveryDecided
+	finished  lifecycle.RecoveryFinished
 }
 
 type recoveryEventDefinition struct{ recorder *recoveryEventRecorder }
@@ -78,14 +81,14 @@ func (definition recoveryEventDefinition) Compile(json.RawMessage) (module.Bindi
 	return recoveryEventBinding{recorder: definition.recorder}, nil
 }
 
-func (binding recoveryEventBinding) Lifetime() module.Lifetime { return module.LifetimeAttempt }
+func (binding recoveryEventBinding) Scope() module.ScopeKind { return module.ScopeAttempt }
 
 func (binding recoveryEventBinding) Open(module.OpenContext) (module.Instance, error) {
 	return &recoveryEventInstance{recorder: binding.recorder}, nil
 }
 
-func (instance *recoveryEventInstance) Mount(binder *module.Binder) {
-	binder.OnRecoveryStarted(module.SyncPolicy(), func(ctx module.EventContext, value module.RecoveryStarted) error {
+func (instance *recoveryEventInstance) Bind(binder module.Registrar) {
+	binder.OnRecoveryStarted(module.SyncPolicy(), func(ctx module.Context, value lifecycle.RecoveryStarted) error {
 		instance.recorder.mu.Lock()
 		defer instance.recorder.mu.Unlock()
 		instance.recorder.phases = append(instance.recorder.phases, "started")
@@ -94,7 +97,7 @@ func (instance *recoveryEventInstance) Mount(binder *module.Binder) {
 		instance.recorder.started = value
 		return nil
 	})
-	binder.OnRecoveryDecided(module.SyncPolicy(), func(ctx module.EventContext, value module.RecoveryDecided) error {
+	binder.OnRecoveryDecided(module.SyncPolicy(), func(ctx module.Context, value lifecycle.RecoveryDecided) error {
 		instance.recorder.mu.Lock()
 		defer instance.recorder.mu.Unlock()
 		instance.recorder.phases = append(instance.recorder.phases, "decided")
@@ -103,7 +106,7 @@ func (instance *recoveryEventInstance) Mount(binder *module.Binder) {
 		instance.recorder.decided = value
 		return nil
 	})
-	binder.OnRecoveryFinished(module.SyncPolicy(), func(ctx module.EventContext, value module.RecoveryFinished) error {
+	binder.OnRecoveryFinished(module.SyncPolicy(), func(ctx module.Context, value lifecycle.RecoveryFinished) error {
 		instance.recorder.mu.Lock()
 		defer instance.recorder.mu.Unlock()
 		instance.recorder.phases = append(instance.recorder.phases, "finished")
@@ -122,19 +125,20 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
 	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{
-		{Target: targetOne, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}},
-		{Target: targetTwo, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}},
+		{Target: targetOne},
+		{Target: targetTwo},
 	}}
 	inbound, _ := http.NewRequest(http.MethodPost, "http://proxy.local/chat", strings.NewReader("request-body"))
 	inbound.Header.Set("Idempotency-Key", "recovery-test")
-	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	if err := current.ConfigureRequest(nil); err != nil {
+	if err := current.ConfigureProgram(prepared.Program()); err != nil {
 		t.Fatal(err)
 	}
 	var calls int
@@ -202,11 +206,11 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 		started.Response.Body == nil || started.Response.Body.Data != callbackEvent.Response.Body.Data {
 		t.Fatalf("unexpected recovery started event: %#v", started)
 	}
-	if decided.EventID != started.EventID || decided.Action != module.RecoveryActionRetry {
+	if decided.EventID != started.EventID || decided.Action != lifecycle.RecoveryActionRetry {
 		t.Fatalf("unexpected recovery decided event: %#v", decided)
 	}
-	if finished.EventID != started.EventID || finished.Outcome != module.RecoveryOutcomeRetryRequested ||
-		finished.Action != module.RecoveryActionRetry || finished.NextAttempt != 2 {
+	if finished.EventID != started.EventID || finished.Outcome != lifecycle.RecoveryOutcomeRetryRequested ||
+		finished.Action != lifecycle.RecoveryActionRetry || finished.NextAttempt != 2 {
 		t.Fatalf("unexpected recovery finished event: %#v", finished)
 	}
 	if len(sequences) != 3 || sequences[0] == 0 || sequences[0] >= sequences[1] || sequences[1] >= sequences[2] ||
@@ -220,16 +224,17 @@ func TestRecoveryTransportForwardsCapturedResponseWhenControllerSaysForward(t *t
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"X-Test": {"one"}}, Body: io.NopCloser(strings.NewReader("small-error")), Request: request}, nil
 	})
@@ -251,8 +256,8 @@ func TestRecoveryTransportForwardsCapturedResponseWhenControllerSaysForward(t *t
 	phases := strings.Join(recorder.phases, ",")
 	finished := recorder.finished
 	recorder.mu.Unlock()
-	if phases != "started,decided,finished" || finished.Outcome != module.RecoveryOutcomeForwarded ||
-		finished.Action != module.RecoveryActionForward {
+	if phases != "started,decided,finished" || finished.Outcome != lifecycle.RecoveryOutcomeForwarded ||
+		finished.Action != lifecycle.RecoveryActionForward {
 		t.Fatalf("unexpected forward recovery events: phases=%s finished=%#v", phases, finished)
 	}
 }
@@ -261,16 +266,17 @@ func TestRecoveryTransportReportsControllerError(t *testing.T) {
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
@@ -289,7 +295,7 @@ func TestRecoveryTransportReportsControllerError(t *testing.T) {
 	phases := strings.Join(recorder.phases, ",")
 	finished := recorder.finished
 	recorder.mu.Unlock()
-	if phases != "started,finished" || finished.Outcome != module.RecoveryOutcomeControllerError ||
+	if phases != "started,finished" || finished.Outcome != lifecycle.RecoveryOutcomeControllerError ||
 		finished.ErrorCode != "controller_error" || !strings.Contains(finished.Error, "controller unavailable") {
 		t.Fatalf("unexpected controller error events: phases=%s finished=%#v", phases, finished)
 	}
@@ -299,16 +305,17 @@ func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
@@ -326,8 +333,8 @@ func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
 	phases := strings.Join(recorder.phases, ",")
 	finished := recorder.finished
 	recorder.mu.Unlock()
-	if phases != "started,finished" || finished.Outcome != module.RecoveryOutcomeInvalidDecision ||
-		finished.ErrorCode != module.RecoveryErrorCodeInvalidDecision {
+	if phases != "started,finished" || finished.Outcome != lifecycle.RecoveryOutcomeInvalidDecision ||
+		finished.ErrorCode != lifecycle.RecoveryErrorCodeInvalidDecision {
 		t.Fatalf("unexpected invalid decision events: phases=%s finished=%#v", phases, finished)
 	}
 }
@@ -337,16 +344,17 @@ func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
 	policy := testRecoveryPolicy()
 	policy.Budget.MaxAttempts = 1
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
@@ -364,8 +372,8 @@ func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
 	phases := strings.Join(recorder.phases, ",")
 	finished := recorder.finished
 	recorder.mu.Unlock()
-	if phases != "started,decided,finished" || finished.Outcome != module.RecoveryOutcomeBudgetRejected ||
-		finished.ErrorCode != module.RecoveryErrorCodeRetryNotAllowed {
+	if phases != "started,decided,finished" || finished.Outcome != lifecycle.RecoveryOutcomeBudgetRejected ||
+		finished.ErrorCode != lifecycle.RecoveryErrorCodeRetryNotAllowed {
 		t.Fatalf("unexpected budget rejection events: phases=%s finished=%#v", phases, finished)
 	}
 }
@@ -374,16 +382,17 @@ func TestRecoveryTransportFailsUnexpectedResponseWhenControllerSaysFail(t *testi
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	prepared.program = compileRecoveryProgram(t, runtime)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("upstream failed")), Request: request}, nil
 	})
@@ -400,8 +409,8 @@ func TestRecoveryTransportFailsUnexpectedResponseWhenControllerSaysFail(t *testi
 	phases := strings.Join(recorder.phases, ",")
 	finished := recorder.finished
 	recorder.mu.Unlock()
-	if phases != "started,decided,finished" || finished.Outcome != module.RecoveryOutcomeFailed ||
-		finished.Action != module.RecoveryActionFail || finished.ErrorCode != "controller_fail" {
+	if phases != "started,decided,finished" || finished.Outcome != lifecycle.RecoveryOutcomeFailed ||
+		finished.Action != lifecycle.RecoveryActionFail || finished.ErrorCode != "controller_fail" {
 		t.Fatalf("unexpected fail recovery events: phases=%s finished=%#v", phases, finished)
 	}
 }
@@ -415,7 +424,7 @@ func TestRecoveryTransportFailsTransportErrorWhenControllerSaysFail(t *testing.T
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("dial failed")
 	})
@@ -439,7 +448,7 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
 	current := manager.Start(inbound)
-	_ = current.ConfigureRequest(nil)
+	_ = current.ConfigureProgram(prepared.Program())
 	var calls int
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		calls++
@@ -488,6 +497,15 @@ func testRecoveryPolicy() *recovery.Policy {
 		}},
 		Budget: recovery.Budget{MaxAttempts: 3, MaxElapsed: time.Minute},
 	}
+}
+
+func compileRecoveryProgram(t *testing.T, runtime *program.Runtime) *program.Executable {
+	t.Helper()
+	executable, err := runtime.Compile(program.Program{Attempt: []program.Spec{{ID: "events", Module: "test.recovery.events"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return executable
 }
 
 func recoveryTestContext(t *testing.T, inbound *http.Request, current *exchange.Exchange, prepared PreparedDirective) context.Context {

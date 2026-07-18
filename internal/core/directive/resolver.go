@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
@@ -28,6 +28,7 @@ type ResolverOptions struct {
 	LookupTimeout time.Duration
 	MaxTokenBytes int64
 	TokenSecret   string
+	Compiler      program.Compiler
 }
 
 type Resolver struct {
@@ -37,13 +38,14 @@ type Resolver struct {
 	lookupTimeout time.Duration
 	maxTokenBytes int64
 	tokenSecret   string
+	compiler      program.Compiler
 }
 
 type preparedDirective struct {
-	kind           string
-	plan           *proxy.Plan
-	requestProgram []module.Spec
-	source         proxy.SourceMetadata
+	kind       string
+	plan       *proxy.Plan
+	executable *program.Executable
+	source     proxy.SourceMetadata
 }
 
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
@@ -58,6 +60,7 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 		lookupTimeout: configured.LookupTimeout,
 		maxTokenBytes: configured.MaxTokenBytes,
 		tokenSecret:   configured.TokenSecret,
+		compiler:      configured.Compiler,
 	}
 }
 
@@ -104,8 +107,27 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 		}
 		return nil, proxy.ErrInvalidDirective
 	}
+	var executable *program.Executable
+	if len(payload.Program.Request) > 0 || len(payload.Program.Attempt) > 0 {
+		if r == nil || r.compiler == nil {
+			err = errors.New("program compiler is unavailable")
+			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+			if document.Kind == KindRemote {
+				return nil, proxy.ErrRemoteDirectiveInvalid
+			}
+			return nil, proxy.ErrInvalidDirective
+		}
+		executable, err = r.compiler.Compile(payload.Program)
+		if err != nil {
+			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+			if document.Kind == KindRemote {
+				return nil, proxy.ErrRemoteDirectiveInvalid
+			}
+			return nil, proxy.ErrInvalidDirective
+		}
+	}
 	return &preparedDirective{
-		kind: document.Kind, plan: proxy.ClonePlan(plan), requestProgram: cloneModuleSpecs(payload.Program.Request), source: source,
+		kind: document.Kind, plan: proxy.ClonePlan(plan), executable: executable, source: source,
 	}, nil
 }
 
@@ -177,11 +199,11 @@ func (p *preparedDirective) Kind() string {
 	return p.kind
 }
 
-func (p *preparedDirective) RequestProgram() []module.Spec {
+func (p *preparedDirective) Program() *program.Executable {
 	if p == nil {
 		return nil
 	}
-	return cloneModuleSpecs(p.requestProgram)
+	return p.executable
 }
 
 func (p *preparedDirective) Source() proxy.SourceMetadata {
@@ -203,15 +225,6 @@ func (p *preparedDirective) ResolveAttempt(context.Context, int) (proxy.Resoluti
 		return proxy.Resolution{}, proxy.ErrInvalidDirective
 	}
 	return proxy.Resolution{Plan: proxy.ClonePlan(p.plan), Source: p.source}, nil
-}
-
-func cloneModuleSpecs(in []module.Spec) []module.Spec {
-	out := make([]module.Spec, len(in))
-	for index, spec := range in {
-		out[index] = spec
-		out[index].Config = append([]byte(nil), spec.Config...)
-	}
-	return out
 }
 
 // MatchesRequest reports whether the request carries a token from the reserved

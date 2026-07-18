@@ -13,7 +13,7 @@ var (
 	ErrIdempotencyKeyRequired = errors.New("exchange idempotency key is required for retry")
 	ErrRecoveryFailed         = errors.New("exchange recovery failed")
 	ErrAttemptActive          = errors.New("exchange already has an active attempt")
-	ErrAttemptConfigured      = errors.New("exchange attempt module program is already configured")
+	ErrAttemptScopeOpened     = errors.New("exchange attempt scope is already open")
 )
 
 type Phase string

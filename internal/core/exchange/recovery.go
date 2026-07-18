@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
@@ -22,7 +22,7 @@ type RecoveryInput struct {
 
 type RecoveryResult struct {
 	Decision recovery.Decision
-	Outcome  module.RecoveryOutcome
+	Outcome  lifecycle.RecoveryOutcome
 	Retry    bool
 }
 
@@ -91,17 +91,17 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 	}
 	decision, err := cycle.controller.Decide(ctx, cycle.policy.Controller, cycle.event)
 	if err != nil {
-		cycle.finish(module.RecoveryFinished{
-			Outcome:   module.RecoveryOutcomeControllerError,
-			ErrorCode: module.RecoveryErrorCodeController, Error: err.Error(),
+		cycle.finish(lifecycle.RecoveryFinished{
+			Outcome:   lifecycle.RecoveryOutcomeControllerError,
+			ErrorCode: lifecycle.RecoveryErrorCodeController, Error: err.Error(),
 		})
 		return recovery.Decision{}, err
 	}
 	if !validRecoveryDecision(decision.Action, cycle.event.Trigger, cycle.event.Response) || decision.AfterMS < 0 {
 		err := fmt.Errorf("recovery callback returned an invalid decision: action=%q trigger=%q after_ms=%d", decision.Action, cycle.event.Trigger.Type, decision.AfterMS)
-		cycle.finish(module.RecoveryFinished{
-			Outcome: module.RecoveryOutcomeInvalidDecision,
-			Action:  module.RecoveryAction(decision.Action), ErrorCode: module.RecoveryErrorCodeInvalidDecision, Error: err.Error(),
+		cycle.finish(lifecycle.RecoveryFinished{
+			Outcome: lifecycle.RecoveryOutcomeInvalidDecision,
+			Action:  lifecycle.RecoveryAction(decision.Action), ErrorCode: lifecycle.RecoveryErrorCodeInvalidDecision, Error: err.Error(),
 		})
 		return recovery.Decision{}, err
 	}
@@ -109,25 +109,25 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 	cycle.decision = decision
 	cycle.decided = true
 	cycle.mu.Unlock()
-	cycle.attempt.RecoveryDecided(module.RecoveryDecided{
-		EventID: cycle.eventID, Action: module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+	cycle.attempt.RecoveryDecided(lifecycle.RecoveryDecided{
+		EventID: cycle.eventID, Action: lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
 	})
 	info := cycle.attempt.RecoveryContext()
 	if decision.Action == recovery.ActionRetry && !info.RetryAllowed {
-		cycle.finish(module.RecoveryFinished{
-			Outcome: module.RecoveryOutcomeBudgetRejected,
-			Action:  module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
-			NextAttempt: info.NextAttempt, ErrorCode: module.RecoveryErrorCodeRetryNotAllowed,
+		cycle.finish(lifecycle.RecoveryFinished{
+			Outcome: lifecycle.RecoveryOutcomeBudgetRejected,
+			Action:  lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+			NextAttempt: info.NextAttempt, ErrorCode: lifecycle.RecoveryErrorCodeRetryNotAllowed,
 		})
 		return recovery.Decision{}, ErrMaxAttempts
 	}
 	if decision.AfterMS > 0 {
 		delay := time.Duration(decision.AfterMS) * time.Millisecond
 		if info.Remaining > 0 && delay >= info.Remaining {
-			cycle.finish(module.RecoveryFinished{
-				Outcome: module.RecoveryOutcomeBudgetRejected,
-				Action:  module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
-				NextAttempt: info.NextAttempt, ErrorCode: module.RecoveryErrorCodeBudgetExceeded,
+			cycle.finish(lifecycle.RecoveryFinished{
+				Outcome: lifecycle.RecoveryOutcomeBudgetRejected,
+				Action:  lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+				NextAttempt: info.NextAttempt, ErrorCode: lifecycle.RecoveryErrorCodeBudgetExceeded,
 			})
 			return recovery.Decision{}, ErrRecoveryBudgetExceeded
 		}
@@ -136,10 +136,10 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
-			cycle.finish(module.RecoveryFinished{
-				Outcome: module.RecoveryOutcomeCanceled,
-				Action:  module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
-				NextAttempt: info.NextAttempt, ErrorCode: module.RecoveryErrorCodeContextCanceled, Error: ctx.Err().Error(),
+			cycle.finish(lifecycle.RecoveryFinished{
+				Outcome: lifecycle.RecoveryOutcomeCanceled,
+				Action:  lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+				NextAttempt: info.NextAttempt, ErrorCode: lifecycle.RecoveryErrorCodeContextCanceled, Error: ctx.Err().Error(),
 			})
 			return recovery.Decision{}, ctx.Err()
 		}
@@ -164,31 +164,31 @@ func (cycle *RecoveryCycle) Apply() (RecoveryResult, error) {
 		retryErr := cycle.attempt.RequestRecoveryRetry()
 		if retryErr != nil {
 			result.Outcome = recoveryOutcomeForError(retryErr)
-			cycle.finish(module.RecoveryFinished{
-				Outcome: result.Outcome, Action: module.RecoveryActionRetry,
+			cycle.finish(lifecycle.RecoveryFinished{
+				Outcome: result.Outcome, Action: lifecycle.RecoveryActionRetry,
 				AfterMS: decision.AfterMS, ErrorCode: recoveryErrorCode(retryErr), Error: retryErr.Error(),
 			})
 			return result, nil
 		}
-		result.Outcome = module.RecoveryOutcomeRetryRequested
+		result.Outcome = lifecycle.RecoveryOutcomeRetryRequested
 		result.Retry = true
 		info := cycle.attempt.RecoveryContext()
-		cycle.finish(module.RecoveryFinished{
-			Outcome: result.Outcome, Action: module.RecoveryActionRetry,
+		cycle.finish(lifecycle.RecoveryFinished{
+			Outcome: result.Outcome, Action: lifecycle.RecoveryActionRetry,
 			AfterMS: decision.AfterMS, NextAttempt: info.NextAttempt,
 		})
 		return result, nil
 	case recovery.ActionForward:
-		result.Outcome = module.RecoveryOutcomeForwarded
-		cycle.finish(module.RecoveryFinished{
-			Outcome: result.Outcome, Action: module.RecoveryActionForward, AfterMS: decision.AfterMS,
+		result.Outcome = lifecycle.RecoveryOutcomeForwarded
+		cycle.finish(lifecycle.RecoveryFinished{
+			Outcome: result.Outcome, Action: lifecycle.RecoveryActionForward, AfterMS: decision.AfterMS,
 		})
 		return result, nil
 	case recovery.ActionFail:
-		result.Outcome = module.RecoveryOutcomeFailed
-		cycle.finish(module.RecoveryFinished{
-			Outcome: result.Outcome, Action: module.RecoveryActionFail,
-			AfterMS: decision.AfterMS, ErrorCode: module.RecoveryErrorCodeControllerFail,
+		result.Outcome = lifecycle.RecoveryOutcomeFailed
+		cycle.finish(lifecycle.RecoveryFinished{
+			Outcome: result.Outcome, Action: lifecycle.RecoveryActionFail,
+			AfterMS: decision.AfterMS, ErrorCode: lifecycle.RecoveryErrorCodeControllerFail,
 		})
 		return result, ErrRecoveryFailed
 	default:
@@ -196,7 +196,7 @@ func (cycle *RecoveryCycle) Apply() (RecoveryResult, error) {
 	}
 }
 
-func (cycle *RecoveryCycle) finish(value module.RecoveryFinished) {
+func (cycle *RecoveryCycle) finish(value lifecycle.RecoveryFinished) {
 	if cycle == nil {
 		return
 	}
@@ -211,20 +211,20 @@ func (cycle *RecoveryCycle) finish(value module.RecoveryFinished) {
 	cycle.attempt.RecoveryFinished(value)
 }
 
-func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) module.RecoveryStarted {
+func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) lifecycle.RecoveryStarted {
 	controllerURL := ""
 	if policy.Controller.URL != nil {
 		controllerURL = policy.Controller.URL.String()
 	}
-	return module.RecoveryStarted{
+	return lifecycle.RecoveryStarted{
 		EventID: event.EventID, Trigger: string(event.Trigger.Type), TriggerCode: event.Trigger.Code,
 		TriggerTimeoutMS: event.Trigger.TimeoutMS,
-		Attempt: module.RecoveryAttempt{
+		Attempt: lifecycle.RecoveryAttempt{
 			Number: event.Attempt.Number, MaxAttempts: event.Attempt.MaxAttempts,
 			ElapsedMS: event.Attempt.ElapsedMS, RemainingMS: event.Attempt.RemainingMS,
 			NextAttempt: event.Attempt.NextAttempt, RetryAllowed: event.Attempt.RetryAllowed,
 		},
-		Directive: module.RecoveryDirective{
+		Directive: lifecycle.RecoveryDirective{
 			Mode: event.Directive.Mode, Backend: event.Directive.Backend,
 			Endpoint: event.Directive.Endpoint, Resource: event.Directive.Resource,
 			PayloadSHA256: event.Directive.PayloadSHA256,
@@ -246,12 +246,12 @@ func validRecoveryDecision(action recovery.Action, trigger recovery.Trigger, res
 	}
 }
 
-func moduleRecoveryResponse(response *recovery.Response) *module.RecoveryResponse {
+func moduleRecoveryResponse(response *recovery.Response) *lifecycle.RecoveryResponse {
 	if response == nil {
 		return nil
 	}
-	result := &module.RecoveryResponse{StatusCode: response.StatusCode, Header: response.Headers.Clone()}
-	result.Body = &module.RecoveryBody{
+	result := &lifecycle.RecoveryResponse{StatusCode: response.StatusCode, Header: response.Headers.Clone()}
+	result.Body = &lifecycle.RecoveryBody{
 		Encoding: response.Body.Encoding, Data: response.Body.Data,
 		Size: response.Body.Size, Truncated: response.Body.Truncated,
 	}
@@ -267,29 +267,29 @@ func cloneRecoveryResponse(response *recovery.Response) *recovery.Response {
 	return &cloned
 }
 
-func recoveryOutcomeForError(err error) module.RecoveryOutcome {
+func recoveryOutcomeForError(err error) lifecycle.RecoveryOutcome {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return module.RecoveryOutcomeCanceled
+		return lifecycle.RecoveryOutcomeCanceled
 	case errors.Is(err, ErrMaxAttempts), errors.Is(err, ErrRecoveryBudgetExceeded), errors.Is(err, ErrIdempotencyKeyRequired):
-		return module.RecoveryOutcomeBudgetRejected
+		return lifecycle.RecoveryOutcomeBudgetRejected
 	default:
-		return module.RecoveryOutcomeFailed
+		return lifecycle.RecoveryOutcomeFailed
 	}
 }
 
 func recoveryErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrMaxAttempts):
-		return module.RecoveryErrorCodeMaxAttempts
+		return lifecycle.RecoveryErrorCodeMaxAttempts
 	case errors.Is(err, ErrRecoveryBudgetExceeded):
-		return module.RecoveryErrorCodeBudgetExceeded
+		return lifecycle.RecoveryErrorCodeBudgetExceeded
 	case errors.Is(err, ErrIdempotencyKeyRequired):
-		return module.RecoveryErrorCodeIdempotencyRequired
+		return lifecycle.RecoveryErrorCodeIdempotencyRequired
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return module.RecoveryErrorCodeContextCanceled
+		return lifecycle.RecoveryErrorCodeContextCanceled
 	default:
-		return module.RecoveryErrorCodeRecoveryFailed
+		return lifecycle.RecoveryErrorCodeRecoveryFailed
 	}
 }
 

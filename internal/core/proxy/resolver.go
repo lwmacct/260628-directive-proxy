@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
@@ -29,7 +29,7 @@ type Resolver interface {
 type PreparedDirective interface {
 	Kind() string
 	Source() SourceMetadata
-	RequestProgram() []module.Spec
+	Program() *program.Executable
 	ResolveAttempt(context.Context, int) (Resolution, error)
 }
 

@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
@@ -25,7 +27,8 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
 	current := manager.Start(req)
 	current.ConfigureRecovery(&recovery.Policy{Budget: recovery.Budget{MaxAttempts: 3, MaxElapsed: time.Minute}}, 10, time.Minute)
-	if err := current.ConfigureRequest([]module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}}); err != nil {
+	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}}})
+	if err := current.ConfigureProgram(executable); err != nil {
 		t.Fatal(err)
 	}
 	target := mustURL(t, "https://upstream.example/v1/chat?token=upstream-secret")
@@ -34,7 +37,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := first.ConfigureModules(nil); err != nil {
+	if err := first.OpenScope(); err != nil {
 		t.Fatal(err)
 	}
 	first.BindMetadata(requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}})
@@ -42,14 +45,14 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if !first.BeginUpstream(req) || !first.BeginRecovery() {
 		t.Fatal("first attempt did not enter recovery")
 	}
-	first.RecoveryStarted(module.RecoveryStarted{EventID: "trace:1:unexpected_status", Trigger: "unexpected_status"})
-	first.RecoveryDecided(module.RecoveryDecided{EventID: "trace:1:unexpected_status", Action: module.RecoveryActionRetry})
+	first.RecoveryStarted(lifecycle.RecoveryStarted{EventID: "trace:1:unexpected_status", Trigger: "unexpected_status"})
+	first.RecoveryDecided(lifecycle.RecoveryDecided{EventID: "trace:1:unexpected_status", Action: lifecycle.RecoveryActionRetry})
 	if err := first.RequestRecoveryRetry(); err != nil || !firstCanceled {
 		t.Fatalf("recovery retry was not accepted: canceled=%t err=%v", firstCanceled, err)
 	}
-	first.RecoveryFinished(module.RecoveryFinished{
-		EventID: "trace:1:unexpected_status", Outcome: module.RecoveryOutcomeRetryRequested,
-		Action: module.RecoveryActionRetry, NextAttempt: 2,
+	first.RecoveryFinished(lifecycle.RecoveryFinished{
+		EventID: "trace:1:unexpected_status", Outcome: lifecycle.RecoveryOutcomeRetryRequested,
+		Action: lifecycle.RecoveryActionRetry, NextAttempt: 2,
 	})
 	if decision := first.FinishRoundTrip(false, context.Canceled); decision != DecisionRetry {
 		t.Fatalf("unexpected first decision: %v", decision)
@@ -58,7 +61,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = second.ConfigureModules(nil)
+	_ = second.OpenScope()
 	second.BindMetadata(requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-2"}})
 	second.DirectiveResolved(target, time.Millisecond, "digest-2", false, true)
 	if !second.BeginUpstream(req) {
@@ -77,7 +80,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		if record.Topic == "capture.recovery.started" || record.Topic == "capture.recovery.decided" || record.Topic == "capture.recovery.finished" {
 			recoveryTopics = append(recoveryTopics, record.Topic)
 		}
-		if record.Topic == "capture.recovery.finished" && record.Data["outcome"] != string(module.RecoveryOutcomeRetryRequested) {
+		if record.Topic == "capture.recovery.finished" && record.Data["outcome"] != string(lifecycle.RecoveryOutcomeRetryRequested) {
 			t.Fatalf("unexpected recovery finish: %#v", record.Data)
 		}
 	}
@@ -107,11 +110,12 @@ func TestExchangeMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	if err := current.ConfigureRequest([]module.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}}); err != nil {
+	executable := compileProgram(t, runtime, program.Program{Request: []program.Spec{{ID: "capture", Module: capture.Name, Config: []byte(`{"redact-headers":["x-dproxy-secret-*"],"redact-query":[]}`)}}})
+	if err := current.ConfigureProgram(executable); err != nil {
 		t.Fatal(err)
 	}
 	attempt, _ := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
-	_ = attempt.ConfigureModules(nil)
+	_ = attempt.OpenScope()
 	attempt.BindMetadata(requestmeta.Metadata{
 		"X-Dproxy-Request-Id": {"request-1"}, "X-Dproxy-Secret-Key": {"secret"},
 	})
@@ -133,28 +137,34 @@ func TestExchangeMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 
 func TestModuleRuntimeRejectsUnknownRequestModules(t *testing.T) {
 	runtime, dispatcher, _ := newCaptureRuntime(t)
-	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
-	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	if err := current.ConfigureRequest([]module.Spec{{ID: "missing", Module: "missing.module", Config: []byte(`{}`)}}); err == nil {
+	if _, err := runtime.Compile(program.Program{Request: []program.Spec{{ID: "missing", Module: "missing.module", Config: []byte(`{}`)}}}); err == nil {
 		t.Fatal("unknown request module was accepted")
 	}
-	current.Complete()
 	runtime.Close()
 	_ = dispatcher.Close(context.Background())
 }
 
-func newCaptureRuntime(t *testing.T) (*module.Runtime, *event.Dispatcher, *recordoutput.Output) {
+func newCaptureRuntime(t *testing.T) (*program.Runtime, *event.Dispatcher, *recordoutput.Output) {
 	t.Helper()
 	output := recordoutput.New("memory")
 	dispatcher, err := event.NewDispatcher(context.Background(), event.Config{Sink: output, QueueMaxRecords: 1024, QueueMaxBytes: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := module.NewRuntime([]module.Definition{capture.New()}, dispatcher)
+	runtime, err := program.NewRuntime([]module.Definition{capture.New()}, dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return runtime, dispatcher, output
+}
+
+func compileProgram(t *testing.T, runtime *program.Runtime, source program.Program) *program.Executable {
+	t.Helper()
+	executable, err := runtime.Compile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return executable
 }
 
 func mustURL(t *testing.T, raw string) *url.URL {

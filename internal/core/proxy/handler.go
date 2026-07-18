@@ -158,7 +158,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if current != nil {
-		if configureErr := current.ConfigureRequest(prepared.RequestProgram()); configureErr != nil {
+		if configureErr := current.ConfigureProgram(prepared.Program()); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if prepared.Kind() == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
