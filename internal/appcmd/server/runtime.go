@@ -41,8 +41,7 @@ type runtime struct {
 	sourceAccess     *directiveSourceAccess
 	tls              *tlsRuntime
 	directiveRemotes *directiveRemotes
-	recoveryHTTP     *recoveryhttp.Definition
-	recoveryCompiler *recovery.ControllerCompiler
+	recoveryCompiler *recoveryhttp.Compiler
 }
 
 func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
@@ -74,13 +73,13 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure event output: %w", err)
 	}
-	recoveryHTTP := recoveryhttp.New(recoveryhttp.Options{
+	recoveryCompiler := recoveryhttp.New(recoveryhttp.Options{
 		MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes,
 		MaxTimeout:       cfg.Proxy.Recovery.MaxCallbackTimeout,
 	})
-	catalog, err := module.NewCatalog(capture.New(), llmusage.New(), llmperf.New(), recoveryHTTP)
+	catalog, err := module.NewCatalog(capture.New(), llmusage.New(), llmperf.New())
 	if err != nil {
-		_ = recoveryHTTP.Close()
+		_ = recoveryCompiler.Close()
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
 		}
@@ -92,7 +91,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}
 	programRuntime, err := newProgramRuntime(catalog, eventOutput)
 	if err != nil {
-		_ = recoveryHTTP.Close()
+		_ = recoveryCompiler.Close()
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
 		}
@@ -117,26 +116,13 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
 		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
 	})
-	recoveryCompiler, err := recovery.NewControllerCompiler(catalog)
-	if err != nil {
-		_ = recoveryHTTP.Close()
-		programRuntime.Close()
-		if eventOutput != nil {
-			_ = eventOutput.Close(context.Background())
-		}
-		if sourceAccess != nil {
-			sourceAccess.Close()
-		}
-		_ = tlsRuntime.Close()
-		return nil, fmt.Errorf("configure recovery controllers: %w", err)
-	}
 	recoveryTransport, err := proxy.NewRecoveryTransport(baseTransport, proxy.RecoveryTransportOptions{
 		MaxRecoveryRoundTrips: cfg.Proxy.Recovery.MaxRoundTripsLimit,
 		MaxRecoveryElapsed:    cfg.Proxy.Recovery.MaxElapsedLimit,
 		MaxRecoveryBodyBytes:  cfg.Proxy.Recovery.MaxCapturedBodyBytes,
 	})
 	if err != nil {
-		_ = recoveryHTTP.Close()
+		_ = recoveryCompiler.Close()
 		programRuntime.Close()
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
@@ -159,7 +145,6 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		sourceAccess:     sourceAccess,
 		tls:              tlsRuntime,
 		directiveRemotes: directiveRemotes,
-		recoveryHTTP:     recoveryHTTP,
 		recoveryCompiler: recoveryCompiler,
 	}, nil
 }
@@ -251,11 +236,10 @@ func (rt *runtime) Close(ctx context.Context) error {
 		}
 		rt.directiveRemotes = nil
 	}
-	if rt.recoveryHTTP != nil {
-		if err := rt.recoveryHTTP.Close(); err != nil {
+	if rt.recoveryCompiler != nil {
+		if err := rt.recoveryCompiler.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		rt.recoveryHTTP = nil
 		rt.recoveryCompiler = nil
 	}
 	if rt.programRuntime != nil {

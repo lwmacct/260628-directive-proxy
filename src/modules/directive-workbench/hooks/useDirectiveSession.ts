@@ -26,9 +26,6 @@ function createArtifacts(source: DirectiveSource, editor: EditorState, text: Tex
     if (source === "inline" && editor.modules.some((item) => !item.configValid)) {
       throw new Error(text.invalidModuleConfig);
     }
-    if (source === "inline" && editor.recovery.enabled && !editor.recovery.controllerConfigValid) {
-      throw new Error(text.invalidControllerConfig);
-    }
     const envelope = validateDirective(draft, text);
     return { envelope, formError: null, json: formatDirectiveJSON(envelope) };
   } catch (error) {

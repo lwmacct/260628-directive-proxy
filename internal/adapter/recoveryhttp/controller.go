@@ -9,18 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
-)
-
-const (
-	Name                = "builtin.recovery"
-	defaultTimeout      = 3 * time.Second
-	maxTimeout          = 10 * time.Minute
-	maxHeaderCount      = 64
-	maxHeaderValueBytes = 8 << 10
 )
 
 type Options struct {
@@ -28,13 +19,7 @@ type Options struct {
 	MaxTimeout       time.Duration
 }
 
-type Config struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Timeout string            `json:"timeout,omitempty"`
-}
-
-type Definition struct {
+type Compiler struct {
 	client           *http.Client
 	transport        *http.Transport
 	maxResponseBytes int64
@@ -49,10 +34,10 @@ type binding struct {
 	maxResponseBytes int64
 }
 
-func New(options Options) *Definition {
+func New(options Options) *Compiler {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	return &Definition{
+	return &Compiler{
 		client: &http.Client{
 			Transport:     transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -63,43 +48,32 @@ func New(options Options) *Definition {
 	}
 }
 
-func (*Definition) Name() string { return Name }
-
-func (definition *Definition) CompileController(raw json.RawMessage) (recovery.ControllerBinding, error) {
-	if definition == nil || definition.client == nil {
-		return nil, errors.New("recovery HTTP controller definition is unavailable")
+func (compiler *Compiler) Compile(spec recovery.ControllerSpec) (recovery.ControllerBinding, error) {
+	if compiler == nil || compiler.client == nil {
+		return nil, errors.New("recovery HTTP controller compiler is unavailable")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var config Config
-	if err := decoder.Decode(&config); err != nil {
-		return nil, errors.New("recovery HTTP controller config is invalid")
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nil, errors.New("recovery HTTP controller config has trailing data")
-	}
-	config.URL = strings.TrimSpace(config.URL)
-	endpoint, err := url.Parse(config.URL)
-	if err != nil || endpoint.Host == "" || !isHTTPURL(endpoint) {
-		return nil, errors.New("recovery HTTP controller URL is invalid")
-	}
-	timeout := defaultTimeout
-	if strings.TrimSpace(config.Timeout) != "" {
-		timeout, err = time.ParseDuration(config.Timeout)
-		if err != nil || timeout <= 0 || timeout > maxTimeout {
-			return nil, errors.New("recovery HTTP controller timeout is invalid")
-		}
-	}
-	if definition.maxTimeout > 0 && timeout > definition.maxTimeout {
-		timeout = definition.maxTimeout
-	}
-	headers, err := compileHeaders(config.Headers)
+	normalized, err := recovery.NormalizeControllerSpec(spec)
 	if err != nil {
 		return nil, err
 	}
+	endpoint, err := url.Parse(normalized.URL)
+	if err != nil {
+		return nil, errors.New("recovery HTTP controller URL is invalid")
+	}
+	timeout, err := time.ParseDuration(normalized.Timeout)
+	if err != nil {
+		return nil, errors.New("recovery HTTP controller timeout is invalid")
+	}
+	if compiler.maxTimeout > 0 && timeout > compiler.maxTimeout {
+		timeout = compiler.maxTimeout
+	}
+	headers := make(http.Header, len(normalized.Headers))
+	for name, value := range normalized.Headers {
+		headers.Set(name, value)
+	}
 	return &binding{
-		client: definition.client, url: endpoint, headers: headers, timeout: timeout,
-		maxResponseBytes: definition.maxResponseBytes,
+		client: compiler.client, url: endpoint, headers: headers, timeout: timeout,
+		maxResponseBytes: compiler.maxResponseBytes,
 	}, nil
 }
 
@@ -187,31 +161,9 @@ func (controller *binding) Observation() recovery.ControllerObservation {
 	}
 }
 
-func (definition *Definition) Close() error {
-	if definition != nil && definition.transport != nil {
-		definition.transport.CloseIdleConnections()
+func (compiler *Compiler) Close() error {
+	if compiler != nil && compiler.transport != nil {
+		compiler.transport.CloseIdleConnections()
 	}
 	return nil
-}
-
-func compileHeaders(source map[string]string) (http.Header, error) {
-	if len(source) > maxHeaderCount {
-		return nil, errors.New("recovery HTTP controller has too many headers")
-	}
-	result := make(http.Header, len(source))
-	for name, value := range source {
-		name = http.CanonicalHeaderKey(strings.TrimSpace(name))
-		if name == "" || strings.ContainsAny(name, " \t\r\n:") || strings.ContainsAny(value, "\r\n") || len(value) > maxHeaderValueBytes {
-			return nil, errors.New("recovery HTTP controller header is invalid")
-		}
-		if _, exists := result[name]; exists {
-			return nil, errors.New("recovery HTTP controller header is repeated")
-		}
-		result.Set(name, value)
-	}
-	return result, nil
-}
-
-func isHTTPURL(value *url.URL) bool {
-	return value != nil && (strings.EqualFold(value.Scheme, "http") || strings.EqualFold(value.Scheme, "https"))
 }

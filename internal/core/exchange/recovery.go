@@ -41,7 +41,7 @@ type RecoveryCycle struct {
 }
 
 func NewRecoveryCycle(roundTrip *RoundTrip, policy *recovery.Policy, input RecoveryInput) (*RecoveryCycle, error) {
-	if roundTrip == nil || policy == nil || policy.Controller.Binding == nil {
+	if roundTrip == nil || policy == nil || policy.Controller == nil {
 		return nil, ErrRecoveryFailed
 	}
 	if !roundTrip.BeginRecovery() {
@@ -64,7 +64,7 @@ func NewRecoveryCycle(roundTrip *RoundTrip, policy *recovery.Policy, input Recov
 		Response:  cloneRecoveryResponse(input.Response),
 	}
 	cycle := &RecoveryCycle{
-		roundTrip: roundTrip, policy: policy, controller: policy.Controller.Binding,
+		roundTrip: roundTrip, policy: policy, controller: policy.Controller,
 		event: event, eventID: eventID,
 	}
 	roundTrip.RecoveryStarted(moduleRecoveryStarted(event, policy))
@@ -214,7 +214,7 @@ func (cycle *RecoveryCycle) finish(value lifecycle.RecoveryFinished) {
 
 func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) lifecycle.RecoveryStarted {
 	var observation recovery.ControllerObservation
-	if observable, ok := policy.Controller.Binding.(recovery.ObservableControllerBinding); ok {
+	if observable, ok := policy.Controller.(recovery.ObservableControllerBinding); ok {
 		observation = observable.Observation()
 	}
 	return lifecycle.RecoveryStarted{
@@ -231,7 +231,6 @@ func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) lifecy
 			PayloadSHA256: event.Directive.PayloadSHA256,
 		},
 		Response:            moduleRecoveryResponse(event.Response),
-		ControllerModule:    policy.Controller.Spec.Module,
 		ControllerEndpoint:  observation.Endpoint,
 		ControllerTimeoutMS: observation.Timeout.Milliseconds(),
 		ControllerHeaders:   observation.Headers.Clone(),

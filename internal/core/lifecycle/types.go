@@ -135,7 +135,6 @@ type RecoveryStarted struct {
 	RoundTrip           RecoveryRoundTrip
 	Directive           RecoveryDirective
 	Response            *RecoveryResponse
-	ControllerModule    string
 	ControllerEndpoint  string
 	ControllerTimeoutMS int64
 	ControllerHeaders   http.Header

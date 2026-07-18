@@ -9,19 +9,6 @@ import type {
   TokenKind,
 } from "./types";
 
-const forbiddenHeaders = new Set([
-  "connection",
-  "content-length",
-  "content-type",
-  "host",
-  "keep-alive",
-  "proxy-connection",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-]);
-
 const protectedResponseHeaders = new Set([
   "connection",
   "content-length",
@@ -109,7 +96,7 @@ function canonicalHeaderName(value: string) {
   return value.toLowerCase().split("-").map((part) => part ? part[0].toUpperCase() + part.slice(1) : part).join("-");
 }
 
-function parseHeaderMap(
+function parseControllerHeaders(
   value: unknown,
   label: string,
   text: Text["authConsole"],
@@ -124,8 +111,8 @@ function parseHeaderMap(
   for (const [rawName, rawValue] of Object.entries(input)) {
     const name = rawName.trim();
     const lower = name.toLowerCase();
-    if (!isHeaderName(name) || forbiddenHeaders.has(lower) || typeof rawValue !== "string" || /[\r\n]/.test(rawValue) || maxValueBytes !== undefined && new TextEncoder().encode(rawValue).length > maxValueBytes || names.has(lower)) {
-      throw new Error(text.invalidResolverHeader);
+    if (!isHeaderName(name) || typeof rawValue !== "string" || !isHeaderValue(rawValue) || maxValueBytes !== undefined && new TextEncoder().encode(rawValue).length > maxValueBytes || names.has(lower)) {
+      throw new Error(text.invalidControllerHeader);
     }
     names.add(lower);
     output[canonicalHeaderName(name)] = rawValue;
@@ -285,7 +272,14 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
   if (value === undefined) return undefined;
   const input = record(value, "recovery", text);
   knownKeys(input, ["controller", "triggers", "budget"], "recovery", text);
-  const controller = parseModule(input.controller, "recovery.controller", text);
+  const controllerInput = record(input.controller, "recovery.controller", text);
+  knownKeys(controllerInput, ["url", "headers", "timeout"], "recovery.controller", text);
+  const controllerHeaders = parseControllerHeaders(controllerInput.headers, "recovery.controller.headers", text, 64, 8192);
+  const controller = {
+    url: parseURL(controllerInput.url, "recovery.controller.url", ["http", "https"], text),
+    ...(controllerHeaders ? { headers: controllerHeaders } : {}),
+    timeout: parseDuration(controllerInput.timeout, "recovery.controller.timeout", text, "3s"),
+  };
   const triggersInput = record(input.triggers, "recovery.triggers", text);
   knownKeys(triggersInput, ["response_header_timeout", "unexpected_status", "transport_error"], "recovery.triggers", text);
   const responseHeaderTimeout = parseDuration(triggersInput.response_header_timeout, "recovery.triggers.response_header_timeout", text);

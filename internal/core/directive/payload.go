@@ -2,6 +2,7 @@ package directive
 
 import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
 const (
@@ -23,9 +24,9 @@ type Document struct {
 }
 
 type RecoverySpec struct {
-	Controller module.Spec         `json:"controller"`
-	Triggers   RecoveryTriggerSpec `json:"triggers"`
-	Budget     RecoveryBudgetSpec  `json:"budget"`
+	Controller recovery.ControllerSpec `json:"controller"`
+	Triggers   RecoveryTriggerSpec     `json:"triggers"`
+	Budget     RecoveryBudgetSpec      `json:"budget"`
 }
 
 type RecoveryTriggerSpec struct {

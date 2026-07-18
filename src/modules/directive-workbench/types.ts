@@ -34,10 +34,9 @@ export type StatusRange = {
 
 export type RecoveryEditorState = {
   enabled: boolean;
-  controllerModule: string;
-  controllerConfig?: unknown;
-  controllerConfigText: string;
-  controllerConfigValid: boolean;
+  controllerURL: string;
+  controllerHeaders: ResolverHeader[];
+  controllerTimeout: string;
   responseHeaderTimeout: string;
   unexpectedStatusEnabled: boolean;
   expectedStatuses: StatusRange[];
@@ -100,7 +99,11 @@ export type RemoteSpec =
   | { file: { path: string } };
 
 export type RecoverySpec = {
-  controller: ModuleSpec;
+  controller: {
+    url: string;
+    headers?: Record<string, string>;
+    timeout?: string;
+  };
   triggers: {
     response_header_timeout?: string;
     unexpected_status?: {

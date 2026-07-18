@@ -87,7 +87,7 @@ Module 通过 `module.Registrar` 声明自己接收的事件和 mutation port；
 
 exchange-lifetime Module 在正文读取前收到一次 `DirectivePrepared`。每次 Recovery RoundTrip 开始时，exchange-lifetime Module 与新打开的 round-trip-lifetime Module 都收到 `RoundTripStarted`；两类实例按原始 Program 数组位置统一排序。其中 source、target 和 payload digest 来自同一个 prepared directive，不会在 RoundTrip 之间重绑定或报告虚假的变化。metadata 不在各 lifecycle fact 中重复，而是由每次回调的 `module.Context.Metadata` 自动提供。
 
-Recovery 由 `exchange.RecoveryCycle` 持有，使用同一个 `event_id=<trace_id>:<round_trip>:<trigger>` 关联三个只读事实：`RecoveryStarted` 包含 trigger、RoundTrip budget、directive source、Controller module/endpoint/header 和可选的异常响应；`RecoveryDecided` 记录 Controller 返回的 `action` 与 `after_ms`；`RecoveryFinished` 记录实际应用结果，包括 `retry_requested`、`forwarded`、`failed`、Controller/决策错误、预算拒绝或取消。Controller Binding 在 Prepare 阶段编译一次并由同一 Policy 跨 RoundTrip 复用。Controller 请求会携带完整 metadata；Module 回调从 Context 取得同一份 metadata。
+Recovery 由 `exchange.RecoveryCycle` 持有，使用同一个 `event_id=<trace_id>:<round_trip>:<trigger>` 关联三个只读事实：`RecoveryStarted` 包含 trigger、RoundTrip budget、directive source、Controller endpoint/header/timeout 和可选的异常响应；`RecoveryDecided` 记录 Controller 返回的 `action` 与 `after_ms`；`RecoveryFinished` 记录实际应用结果，包括 `retry_requested`、`forwarded`、`failed`、Controller/决策错误、预算拒绝或取消。Controller Binding 在 Prepare 阶段编译一次并由同一 Policy 跨 RoundTrip 复用。Controller 请求会携带完整 metadata；Module 回调从 Context 取得同一份 metadata。
 
 ## Replay Store
 

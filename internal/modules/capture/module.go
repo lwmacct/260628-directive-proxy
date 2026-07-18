@@ -216,7 +216,6 @@ func (capture *instance) onRecoveryStarted(ctx module.Context, value lifecycle.R
 			"endpoint": value.Directive.Endpoint, "resource": value.Directive.Resource,
 			"payload_sha256": value.Directive.PayloadSHA256,
 		},
-		"controller_module":     value.ControllerModule,
 		"controller_endpoint":   value.ControllerEndpoint,
 		"controller_timeout_ms": value.ControllerTimeoutMS,
 		"controller_headers":    redactHTTPHeaders(value.ControllerHeaders, capture.spec.RedactHeaders),

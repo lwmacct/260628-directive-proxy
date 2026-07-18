@@ -80,10 +80,12 @@ export function buildRemoteSpec(source: Exclude<DirectiveSource, "inline">, edit
 
 export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefined {
   if (!input.enabled) return undefined;
+  const controllerHeaders = buildHeaderMap(input.controllerHeaders);
   return {
     controller: {
-      module: input.controllerModule.trim(),
-      ...(input.controllerConfig === undefined ? {} : { config: input.controllerConfig }),
+      url: input.controllerURL.trim(),
+      ...(Object.keys(controllerHeaders).length ? { headers: controllerHeaders } : {}),
+      ...(input.controllerTimeout.trim() ? { timeout: input.controllerTimeout.trim() } : {}),
     },
     triggers: {
       ...(input.responseHeaderTimeout.trim() ? { response_header_timeout: input.responseHeaderTimeout.trim() } : {}),
@@ -127,10 +129,9 @@ function recoveryToEditor(previous: RecoveryEditorState, recovery?: RecoverySpec
   if (!recovery) return { ...previous, enabled: false };
   return {
     enabled: true,
-    controllerModule: recovery.controller.module,
-    controllerConfig: recovery.controller.config ?? {},
-    controllerConfigText: JSON.stringify(recovery.controller.config ?? {}, null, 2),
-    controllerConfigValid: true,
+    controllerURL: recovery.controller.url,
+    controllerHeaders: Object.entries(recovery.controller.headers ?? {}).map(([name, value]) => newResolverHeader(name, value)),
+    controllerTimeout: recovery.controller.timeout ?? "3s",
     responseHeaderTimeout: recovery.triggers.response_header_timeout ?? "",
     unexpectedStatusEnabled: recovery.triggers.unexpected_status !== undefined,
     expectedStatuses: (recovery.triggers.unexpected_status?.expected ?? [{ from: 200, to: 299 }]).map((range) => newStatusRange(range.from, range.to)),

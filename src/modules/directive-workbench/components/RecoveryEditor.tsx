@@ -5,6 +5,7 @@ import type { ChangeEvent } from "react";
 import type { Text } from "../../../shared/i18n";
 import { newStatusRange } from "../constants";
 import type { RecoveryEditorState } from "../types";
+import { KeyValueEditor } from "./KeyValueEditor";
 
 const { Text: Label } = Typography;
 
@@ -18,13 +19,6 @@ export function RecoveryEditor(props: {
   const updateRange = (key: string, patch: { from?: number; to?: number }) => {
     update({ expectedStatuses: value.expectedStatuses.map((item) => item.key === key ? { ...item, ...patch } : item) });
   };
-  const updateControllerConfig = (controllerConfigText: string) => {
-    try {
-      update({ controllerConfigText, controllerConfig: JSON.parse(controllerConfigText || "{}") as unknown, controllerConfigValid: true });
-    } catch {
-      update({ controllerConfigText, controllerConfigValid: false });
-    }
-  };
   return <Flex gap="middle" vertical>
     <Flex align="center" gap="small" justify="space-between" wrap>
       <div>
@@ -37,18 +31,18 @@ export function RecoveryEditor(props: {
       <section className="builder-card">
         <Label strong>{text.controller}</Label>
         <Divider />
-        <Form.Item label={text.controllerModule}>
-          <Input placeholder="builtin.recovery" value={value.controllerModule} onChange={(event: ChangeEvent<HTMLInputElement>) => update({ controllerModule: event.target.value })} />
-        </Form.Item>
-        <Form.Item label={text.controllerConfig} style={{ marginBottom: 0 }}>
-          <Input.TextArea
-            autoSize={{ minRows: 4, maxRows: 12 }}
-            className="source-input"
-            status={value.controllerConfigValid ? undefined : "error"}
-            value={value.controllerConfigText}
-            onChange={(event: ChangeEvent<HTMLTextAreaElement>) => updateControllerConfig(event.target.value)}
+        <Row gutter={[16, 0]}>
+          <Col xs={24} lg={16}><Form.Item label={text.controllerURL}><Input placeholder="https://control.example.com/recovery" value={value.controllerURL} onChange={(event: ChangeEvent<HTMLInputElement>) => update({ controllerURL: event.target.value })} /></Form.Item></Col>
+          <Col xs={24} lg={8}><Form.Item label={text.controllerTimeout}><Input placeholder="3s" value={value.controllerTimeout} onChange={(event: ChangeEvent<HTMLInputElement>) => update({ controllerTimeout: event.target.value })} /></Form.Item></Col>
+        </Row>
+        <Form.Item label={text.controllerHeaders} style={{ marginBottom: 0 }}>
+          <KeyValueEditor
+            addLabel={text.addControllerHeader}
+            items={value.controllerHeaders}
+            maxItems={64}
+            removeLabel={text.removeControllerHeader}
+            onChange={(controllerHeaders) => update({ controllerHeaders })}
           />
-          {!value.controllerConfigValid ? <Label type="danger">{text.invalidControllerConfig}</Label> : null}
         </Form.Item>
       </section>
       <section className="builder-card">

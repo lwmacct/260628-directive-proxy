@@ -26,16 +26,16 @@ directive 使用有序数组声明程序：
 
 `modules` 每项只包含 `module` 和可选 `config`，对应唯一的 `module.Spec`。所有 Definition 注册到同一个进程级 Module Catalog，名称全局唯一；Program Compiler 要求目标 Definition 提供 Program capability，并把 Module 名直接作为 Record 的 `producer`。Program Definition 通过 `Lifetime()` 静态声明 `exchange` 或 `round_trip`；directive 不再覆盖生命周期。数组顺序是所有当前活跃 Module 的全局 mutation 和事件提交顺序。
 
-`recovery.controller` 直接使用同一个 `module.Spec`，没有 `RecoveryControllerSpec` 或其他平行参数类型。Controller Compiler 从全局 Catalog 查找 Definition 并要求 Recovery Controller capability，在 Prepare 阶段把 config 编译为不可变 Binding；Policy 保存原 Module Spec 和 Binding，并跨全部 RoundTrip 复用。`builtin.recovery` 是当前内置实现。RecoveryTransport 不持有全局 Controller，也不解释 Controller config。
+`recovery.controller` 不是 Module。它直接声明控制面 HTTP callback 的 `url`、可选 `headers` 和可选 `timeout`，并在 Prepare 阶段由 `adapter/recoveryhttp` 编译为不可变 Binding；Policy 只保存 Binding 并跨全部 RoundTrip 复用。Recovery HTTP compiler 不注册到 Module Catalog，RecoveryTransport 也不解释 Controller 参数。
 
 ## 与 Exchange 生命周期的关系
 
 相关 core package 的职责单向依赖，不互相替代：
 
 - `core/lifecycle` 只定义 Fact、Stream、Draft 和 Outcome，不拥有状态或调度；
-- `core/module` 定义唯一 Module Spec、全局 Definition Catalog，以及 Program capability 的 Binding、Instance、Registrar、Policy 和执行 Context；
+- `core/module` 定义 Program Module Spec、Definition Catalog，以及 Binding、Instance、Registrar、Policy 和执行 Context；
 - `core/program` 从 Catalog 选择 Program Definition，编译 Program、创建 Run/Scope、执行 handler、投影流并汇总健康；
-- `core/recovery` 从同一 Catalog 选择 Controller Definition，编译并执行 Recovery 决策 Binding；
+- `core/recovery` 定义类型化 Controller Spec、决策 Binding、Recovery Policy 和 callback 协议；`adapter/recoveryhttp` 编译并执行具体 HTTP callback；
 - `core/exchange` 是生命周期唯一拥有者，驱动 request、round trip、recovery 和 downstream 状态转换；
 - `Manager` 是轻量 Exchange factory，只携带 Program runtime 和服务端 RoundTrip 上限，不维护活动索引或外部 command；
 - `Exchange` 拥有入站请求生命周期、exchange-lifetime scope、下游响应和当前 RoundTrip；流式 Replay Store 通过请求 context 交给 RecoveryTransport；

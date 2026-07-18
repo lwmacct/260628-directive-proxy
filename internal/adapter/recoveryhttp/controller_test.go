@@ -25,9 +25,11 @@ func TestControllerSendsRecoveryEventAndReadsDecision(t *testing.T) {
 		_, _ = w.Write([]byte(`{"action":"retry","after_ms":25}`))
 	}))
 	defer server.Close()
-	definition := New(Options{MaxResponseBytes: 1024})
-	defer func() { _ = definition.Close() }()
-	controller, err := definition.CompileController(json.RawMessage(`{"url":"` + server.URL + `","headers":{"Authorization":"Bearer secret"},"timeout":"1s"}`))
+	compiler := New(Options{MaxResponseBytes: 1024})
+	defer func() { _ = compiler.Close() }()
+	controller, err := compiler.Compile(recovery.ControllerSpec{
+		URL: server.URL, Headers: map[string]string{"Authorization": "Bearer secret"}, Timeout: "1s",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,16 +46,15 @@ func TestControllerSendsRecoveryEventAndReadsDecision(t *testing.T) {
 	}
 }
 
-func TestDefinitionValidatesConfigAndClampsTimeout(t *testing.T) {
-	definition := New(Options{MaxTimeout: 250 * time.Millisecond})
-	defer func() { _ = definition.Close() }()
-	if definition.Name() != "builtin.recovery" {
-		t.Fatalf("unexpected recovery module name: %q", definition.Name())
+func TestCompilerValidatesSpecAndClampsTimeout(t *testing.T) {
+	compiler := New(Options{MaxTimeout: 250 * time.Millisecond})
+	defer func() { _ = compiler.Close() }()
+	if _, err := compiler.Compile(recovery.ControllerSpec{URL: "redis://control.example.com"}); err == nil {
+		t.Fatal("invalid controller URL was accepted")
 	}
-	if _, err := definition.CompileController(json.RawMessage(`{"url":"https://control.example.com","unknown":true}`)); err == nil {
-		t.Fatal("unknown controller config field was accepted")
-	}
-	compiled, err := definition.CompileController(json.RawMessage(`{"url":"https://user:secret@control.example.com/recovery?tenant=a","timeout":"2s"}`))
+	compiled, err := compiler.Compile(recovery.ControllerSpec{
+		URL: "https://user:secret@control.example.com/recovery?tenant=a", Timeout: "2s",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,9 +69,9 @@ func TestControllerRejectsInvalidDecision(t *testing.T) {
 		_, _ = w.Write([]byte(`{"action":"unknown"}`))
 	}))
 	defer server.Close()
-	definition := New(Options{MaxResponseBytes: 1024})
-	defer func() { _ = definition.Close() }()
-	controller, err := definition.CompileController(json.RawMessage(`{"url":"` + server.URL + `","timeout":"1s"}`))
+	compiler := New(Options{MaxResponseBytes: 1024})
+	defer func() { _ = compiler.Close() }()
+	controller, err := compiler.Compile(recovery.ControllerSpec{URL: server.URL, Timeout: "1s"})
 	if err != nil {
 		t.Fatal(err)
 	}

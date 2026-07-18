@@ -3,11 +3,8 @@ package recovery
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"time"
-
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
 const Protocol = "dproxy.recovery.v2"
@@ -33,9 +30,10 @@ type StatusRange struct {
 	To   int
 }
 
-type ControllerDefinition interface {
-	module.Definition
-	CompileController(json.RawMessage) (ControllerBinding, error)
+type ControllerSpec struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Timeout string            `json:"timeout,omitempty"`
 }
 
 type ControllerBinding interface {
@@ -43,7 +41,7 @@ type ControllerBinding interface {
 }
 
 type Compiler interface {
-	Compile(module.Spec) (ControllerBinding, error)
+	Compile(ControllerSpec) (ControllerBinding, error)
 }
 
 type ControllerObservation struct {
@@ -72,13 +70,8 @@ type Budget struct {
 	MaxElapsed    time.Duration
 }
 
-type CompiledController struct {
-	Spec    module.Spec
-	Binding ControllerBinding
-}
-
 type Policy struct {
-	Controller CompiledController
+	Controller ControllerBinding
 	Triggers   TriggerPolicy
 	Budget     Budget
 }
@@ -88,7 +81,6 @@ func ClonePolicy(in *Policy) *Policy {
 		return nil
 	}
 	out := *in
-	out.Controller.Spec.Config = append(json.RawMessage(nil), in.Controller.Spec.Config...)
 	if in.Triggers.UnexpectedStatus != nil {
 		status := *in.Triggers.UnexpectedStatus
 		status.Expected = append([]StatusRange(nil), status.Expected...)

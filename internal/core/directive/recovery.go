@@ -1,7 +1,6 @@
 package directive
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -23,9 +22,9 @@ func normalizeRecoverySpec(spec *RecoverySpec) (*RecoverySpec, error) {
 		return nil, nil
 	}
 	out := *spec
-	controller, err := normalizeModuleSpec(out.Controller)
+	controller, err := recovery.NormalizeControllerSpec(out.Controller)
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidPayload
 	}
 	out.Controller = controller
 
@@ -85,21 +84,17 @@ func CompileRecovery(spec *RecoverySpec, compiler recovery.Compiler) (*recovery.
 	if compiler == nil {
 		return nil, errors.New("recovery controller compiler is unavailable")
 	}
-	controllerSpec := normalized.Controller
-	controllerSpec.Config = append(json.RawMessage(nil), normalized.Controller.Config...)
-	binding, err := compiler.Compile(controllerSpec)
+	binding, err := compiler.Compile(normalized.Controller)
 	if err != nil {
-		return nil, fmt.Errorf("compile recovery controller %q: %w", normalized.Controller.Module, err)
+		return nil, fmt.Errorf("compile recovery controller: %w", err)
 	}
 	if binding == nil {
-		return nil, fmt.Errorf("compile recovery controller %q: nil binding", normalized.Controller.Module)
+		return nil, errors.New("compile recovery controller: nil binding")
 	}
 	maxElapsed, _ := time.ParseDuration(normalized.Budget.MaxElapsed)
 	responseTimeout, _ := time.ParseDuration(normalized.Triggers.ResponseHeaderTimeout)
 	policy := &recovery.Policy{
-		Controller: recovery.CompiledController{
-			Spec: normalized.Controller, Binding: binding,
-		},
+		Controller: binding,
 		Triggers: recovery.TriggerPolicy{
 			ResponseHeaderTimeout: responseTimeout,
 			TransportError:        normalized.Triggers.TransportError,

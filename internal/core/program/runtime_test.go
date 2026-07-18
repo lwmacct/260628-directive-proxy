@@ -124,12 +124,12 @@ func TestRuntimeRejectsDuplicateModulesAndInvalidDefinitionLifetime(t *testing.T
 	if _, err := runtime.Compile(module.Specs{{Module: "test.module"}, {Module: "test.module"}}); err == nil {
 		t.Fatal("duplicate module was accepted")
 	}
-	controllerOnly, err := NewRuntime(module.MustCatalog(baseDefinition{name: "test.controller"}), nil)
+	missingCapability, err := NewRuntime(module.MustCatalog(baseDefinition{name: "test.definition"}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controllerOnly.Compile(module.Specs{{Module: "test.controller"}}); err == nil {
-		t.Fatal("controller-only module was accepted by the program compiler")
+	if _, err := missingCapability.Compile(module.Specs{{Module: "test.definition"}}); err == nil {
+		t.Fatal("definition without program capability was accepted by the program compiler")
 	}
 
 	invalid, err := NewRuntime(module.MustCatalog(runtimeDefinition{
