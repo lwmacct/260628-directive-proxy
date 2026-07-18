@@ -45,7 +45,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	programRuntime, err := program.NewRuntime([]module.Definition{capture.New()}, dispatcher)
+	programRuntime, err := program.NewRuntime(module.MustCatalog(capture.New()), dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	}))
 	defer upstream.Close()
 
-	programRuntime, err := program.NewRuntime([]module.Definition{capture.New()}, nil)
+	programRuntime, err := program.NewRuntime(module.MustCatalog(capture.New()), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestDisabledFluentKeepsModuleRuntimeWithoutCreatingDispatcher(t *testing.T)
 	if err != nil {
 		t.Fatalf("disabled Fluent attempted startup: %v", err)
 	}
-	programRuntime, err := newProgramRuntime(dispatcher)
+	programRuntime, err := newProgramRuntime(module.MustCatalog(capture.New(), llmusage.New()), dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	programRuntime, err := program.NewRuntime([]module.Definition{llmusage.New()}, dispatcher)
+	programRuntime, err := program.NewRuntime(module.MustCatalog(llmusage.New()), dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}

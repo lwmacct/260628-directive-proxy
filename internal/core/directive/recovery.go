@@ -1,7 +1,6 @@
 package directive
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,21 +23,11 @@ func normalizeRecoverySpec(spec *RecoverySpec) (*RecoverySpec, error) {
 		return nil, nil
 	}
 	out := *spec
-	out.Controller.Module = strings.TrimSpace(out.Controller.Module)
-	if out.Controller.Module == "" || len(out.Controller.Module) > maxModuleNameBytes || !isModuleName(out.Controller.Module) {
-		return nil, ErrInvalidPayload
+	controller, err := normalizeModuleSpec(out.Controller)
+	if err != nil {
+		return nil, err
 	}
-	if len(out.Controller.Config) == 0 {
-		out.Controller.Config = json.RawMessage(`{}`)
-	}
-	if len(out.Controller.Config) > maxModuleSpecBytes || !json.Valid(out.Controller.Config) {
-		return nil, ErrInvalidPayload
-	}
-	compact := bytes.NewBuffer(make([]byte, 0, len(out.Controller.Config)))
-	if err := json.Compact(compact, out.Controller.Config); err != nil {
-		return nil, ErrInvalidPayload
-	}
-	out.Controller.Config = append(json.RawMessage(nil), compact.Bytes()...)
+	out.Controller = controller
 
 	responseTimeout, err := parseOptionalRecoveryDuration(out.Triggers.ResponseHeaderTimeout)
 	if err != nil {
@@ -96,10 +85,9 @@ func CompileRecovery(spec *RecoverySpec, compiler recovery.Compiler) (*recovery.
 	if compiler == nil {
 		return nil, errors.New("recovery controller compiler is unavailable")
 	}
-	binding, err := compiler.Compile(recovery.ControllerSpec{
-		Module: normalized.Controller.Module,
-		Config: append(json.RawMessage(nil), normalized.Controller.Config...),
-	})
+	controllerSpec := normalized.Controller
+	controllerSpec.Config = append(json.RawMessage(nil), normalized.Controller.Config...)
+	binding, err := compiler.Compile(controllerSpec)
 	if err != nil {
 		return nil, fmt.Errorf("compile recovery controller %q: %w", normalized.Controller.Module, err)
 	}
@@ -109,8 +97,9 @@ func CompileRecovery(spec *RecoverySpec, compiler recovery.Compiler) (*recovery.
 	maxElapsed, _ := time.ParseDuration(normalized.Budget.MaxElapsed)
 	responseTimeout, _ := time.ParseDuration(normalized.Triggers.ResponseHeaderTimeout)
 	policy := &recovery.Policy{
-		ControllerModule: normalized.Controller.Module,
-		Controller:       binding,
+		Controller: recovery.CompiledController{
+			Spec: normalized.Controller, Binding: binding,
+		},
 		Triggers: recovery.TriggerPolicy{
 			ResponseHeaderTimeout: responseTimeout,
 			TransportError:        normalized.Triggers.TransportError,

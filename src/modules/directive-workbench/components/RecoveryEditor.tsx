@@ -38,7 +38,7 @@ export function RecoveryEditor(props: {
         <Label strong>{text.controller}</Label>
         <Divider />
         <Form.Item label={text.controllerModule}>
-          <Input placeholder="builtin.recovery.http" value={value.controllerModule} onChange={(event: ChangeEvent<HTMLInputElement>) => update({ controllerModule: event.target.value })} />
+          <Input placeholder="builtin.recovery" value={value.controllerModule} onChange={(event: ChangeEvent<HTMLInputElement>) => update({ controllerModule: event.target.value })} />
         </Form.Item>
         <Form.Item label={text.controllerConfig} style={{ marginBottom: 0 }}>
           <Input.TextArea

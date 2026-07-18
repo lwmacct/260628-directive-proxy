@@ -18,8 +18,17 @@ const (
 
 type Definition interface {
 	Name() string
+}
+
+type Spec struct {
+	Module string          `json:"module"`
+	Config json.RawMessage `json:"config,omitempty"`
+}
+
+type ProgramDefinition interface {
+	Definition
 	Lifetime() Lifetime
-	Compile(json.RawMessage) (Binding, error)
+	CompileProgram(json.RawMessage) (Binding, error)
 }
 
 // Binding is immutable and safe for concurrent Open calls after Compile returns.

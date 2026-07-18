@@ -106,7 +106,7 @@ func TestResponseCaptureReportsOutputQueueDropsWithoutBlocking(t *testing.T) {
 }
 
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().Compile([]byte(`{"unknown":true}`)); err == nil {
+	if _, err := New().CompileProgram([]byte(`{"unknown":true}`)); err == nil {
 		t.Fatal("unknown config field was accepted")
 	}
 }
@@ -139,7 +139,7 @@ func TestCaptureDefaultsPreserveObservableCredentials(t *testing.T) {
 func configuredScope(t *testing.T, raw string, output *captureOutput) *program.ScopeSet {
 	t.Helper()
 	provider := &captureRuntime{output: output}
-	runtime, err := program.NewRuntime([]module.Definition{New()}, provider)
+	runtime, err := program.NewRuntime(module.MustCatalog(New()), provider)
 	if err != nil {
 		t.Fatal(err)
 	}

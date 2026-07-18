@@ -100,10 +100,7 @@ export type RemoteSpec =
   | { file: { path: string } };
 
 export type RecoverySpec = {
-  controller: {
-    module: string;
-    config?: unknown;
-  };
+  controller: ModuleSpec;
   triggers: {
     response_header_timeout?: string;
     unexpected_status?: {

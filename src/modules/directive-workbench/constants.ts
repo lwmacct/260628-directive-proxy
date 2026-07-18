@@ -39,7 +39,7 @@ export function newStatusRange(from = 200, to = 299): StatusRange {
 export function initialRecovery(): RecoveryEditorState {
   return {
     enabled: false,
-    controllerModule: "builtin.recovery.http",
+    controllerModule: "builtin.recovery",
     controllerConfig: { url: "https://controller.example.com/recovery", timeout: "3s" },
     controllerConfigText: JSON.stringify({ url: "https://controller.example.com/recovery", timeout: "3s" }, null, 2),
     controllerConfigValid: true,

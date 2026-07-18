@@ -138,11 +138,11 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	handled := make(chan struct{})
-	runtime, err := program.NewRuntime([]module.Definition{drainDefinition{
+	runtime, err := program.NewRuntime(module.MustCatalog(drainDefinition{
 		started: started,
 		release: release,
 		handled: handled,
-	}}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ type drainDefinition struct {
 func (drainDefinition) Name() string              { return "test.drain" }
 func (drainDefinition) Lifetime() module.Lifetime { return module.LifetimeExchange }
 
-func (definition drainDefinition) Compile(_ json.RawMessage) (module.Binding, error) {
+func (definition drainDefinition) CompileProgram(_ json.RawMessage) (module.Binding, error) {
 	return drainBinding(definition), nil
 }
 

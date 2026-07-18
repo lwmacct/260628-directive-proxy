@@ -3,6 +3,7 @@ package directive
 import (
 	"context"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
@@ -13,9 +14,9 @@ func (compile compilerFunc) Compile(source program.Program) (*program.Executable
 	return compile(source)
 }
 
-type recoveryCompilerFunc func(recovery.ControllerSpec) (recovery.ControllerBinding, error)
+type recoveryCompilerFunc func(module.Spec) (recovery.ControllerBinding, error)
 
-func (compile recoveryCompilerFunc) Compile(spec recovery.ControllerSpec) (recovery.ControllerBinding, error) {
+func (compile recoveryCompilerFunc) Compile(spec module.Spec) (recovery.ControllerBinding, error) {
 	return compile(spec)
 }
 
@@ -38,7 +39,7 @@ func newTestResolver(opts ...ResolverOptions) *Resolver {
 		})
 	}
 	if configured.RecoveryCompiler == nil {
-		configured.RecoveryCompiler = recoveryCompilerFunc(func(recovery.ControllerSpec) (recovery.ControllerBinding, error) {
+		configured.RecoveryCompiler = recoveryCompilerFunc(func(module.Spec) (recovery.ControllerBinding, error) {
 			return recoveryBindingFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 				return recovery.Decision{Action: recovery.ActionFail}, nil
 			}), nil

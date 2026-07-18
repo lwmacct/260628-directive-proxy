@@ -27,7 +27,7 @@ func TestControllerSendsRecoveryEventAndReadsDecision(t *testing.T) {
 	defer server.Close()
 	definition := New(Options{MaxResponseBytes: 1024})
 	defer func() { _ = definition.Close() }()
-	controller, err := definition.Compile(json.RawMessage(`{"url":"` + server.URL + `","headers":{"Authorization":"Bearer secret"},"timeout":"1s"}`))
+	controller, err := definition.CompileController(json.RawMessage(`{"url":"` + server.URL + `","headers":{"Authorization":"Bearer secret"},"timeout":"1s"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,10 +47,13 @@ func TestControllerSendsRecoveryEventAndReadsDecision(t *testing.T) {
 func TestDefinitionValidatesConfigAndClampsTimeout(t *testing.T) {
 	definition := New(Options{MaxTimeout: 250 * time.Millisecond})
 	defer func() { _ = definition.Close() }()
-	if _, err := definition.Compile(json.RawMessage(`{"url":"https://control.example.com","unknown":true}`)); err == nil {
+	if definition.Name() != "builtin.recovery" {
+		t.Fatalf("unexpected recovery module name: %q", definition.Name())
+	}
+	if _, err := definition.CompileController(json.RawMessage(`{"url":"https://control.example.com","unknown":true}`)); err == nil {
 		t.Fatal("unknown controller config field was accepted")
 	}
-	compiled, err := definition.Compile(json.RawMessage(`{"url":"https://user:secret@control.example.com/recovery?tenant=a","timeout":"2s"}`))
+	compiled, err := definition.CompileController(json.RawMessage(`{"url":"https://user:secret@control.example.com/recovery?tenant=a","timeout":"2s"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestControllerRejectsInvalidDecision(t *testing.T) {
 	defer server.Close()
 	definition := New(Options{MaxResponseBytes: 1024})
 	defer func() { _ = definition.Close() }()
-	controller, err := definition.Compile(json.RawMessage(`{"url":"` + server.URL + `","timeout":"1s"}`))
+	controller, err := definition.CompileController(json.RawMessage(`{"url":"` + server.URL + `","timeout":"1s"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

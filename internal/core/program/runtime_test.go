@@ -16,9 +16,13 @@ type runtimeDefinition struct {
 	compile  func() module.Binding
 }
 
+type baseDefinition struct{ name string }
+
+func (definition baseDefinition) Name() string { return definition.name }
+
 func (definition runtimeDefinition) Name() string              { return definition.name }
 func (definition runtimeDefinition) Lifetime() module.Lifetime { return definition.lifetime }
-func (definition runtimeDefinition) Compile(json.RawMessage) (module.Binding, error) {
+func (definition runtimeDefinition) CompileProgram(json.RawMessage) (module.Binding, error) {
 	return definition.compile(), nil
 }
 
@@ -30,7 +34,7 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 			}}
 		}}
 	}}
-	runtime, err := NewRuntime([]module.Definition{definition}, nil)
+	runtime, err := NewRuntime(module.MustCatalog(definition), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +69,7 @@ func TestExecutableCompilesOnceAndOpensEachRoundTrip(t *testing.T) {
 			return testInstance{}
 		}}
 	}}
-	runtime, err := NewRuntime([]module.Definition{definition}, nil)
+	runtime, err := NewRuntime(module.MustCatalog(definition), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +96,7 @@ func TestExecutableCompilesOnceAndOpensEachRoundTrip(t *testing.T) {
 }
 
 func TestRuntimeFailsClosedAfterClose(t *testing.T) {
-	runtime, err := NewRuntime(nil, nil)
+	runtime, err := NewRuntime(module.MustCatalog(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,18 +117,25 @@ func TestRuntimeRejectsDuplicateModulesAndInvalidDefinitionLifetime(t *testing.T
 	definition := runtimeDefinition{name: "test.module", lifetime: module.LifetimeExchange, compile: func() module.Binding {
 		return testBinding{open: func() module.Instance { return testInstance{} }}
 	}}
-	runtime, err := NewRuntime([]module.Definition{definition}, nil)
+	runtime, err := NewRuntime(module.MustCatalog(definition), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runtime.Compile(Program{{Module: "test.module"}, {Module: "test.module"}}); err == nil {
 		t.Fatal("duplicate module was accepted")
 	}
+	controllerOnly, err := NewRuntime(module.MustCatalog(baseDefinition{name: "test.controller"}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controllerOnly.Compile(Program{{Module: "test.controller"}}); err == nil {
+		t.Fatal("controller-only module was accepted by the program compiler")
+	}
 
-	invalid, err := NewRuntime([]module.Definition{runtimeDefinition{
+	invalid, err := NewRuntime(module.MustCatalog(runtimeDefinition{
 		name: "invalid.module", lifetime: module.Lifetime("request"),
 		compile: func() module.Binding { return testBinding{open: func() module.Instance { return testInstance{} }} },
-	}}, nil)
+	}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

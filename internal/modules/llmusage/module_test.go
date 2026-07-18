@@ -70,7 +70,7 @@ func TestModuleExtractsOpenAIResponsesFromSSEDataPort(t *testing.T) {
 
 func TestRecoveryRoundTripsUseIsolatedUsageInstances(t *testing.T) {
 	records := &recordingFactory{}
-	runtime, err := program.NewRuntime([]module.Definition{New()}, records)
+	runtime, err := program.NewRuntime(module.MustCatalog(New()), records)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestModuleEmitsNotObservedForChatStreamWithoutUsage(t *testing.T) {
 }
 
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().Compile([]byte(`{"protocol":"auto","unknown":true}`)); err == nil {
+	if _, err := New().CompileProgram([]byte(`{"protocol":"auto","unknown":true}`)); err == nil {
 		t.Fatal("unknown config field was accepted")
 	}
 }
@@ -143,7 +143,7 @@ func TestModuleDeclaresRoundTripLifetime(t *testing.T) {
 
 func TestModuleAcceptsResourceLimits(t *testing.T) {
 	raw := []byte(`{"protocol":"auto","max-sse-metadata-bytes":1024,"max-result-bytes":4096,"max-nesting-depth":32}`)
-	compiled, err := New().Compile(raw)
+	compiled, err := New().CompileProgram(raw)
 	if err != nil {
 		t.Fatalf("resource limits were rejected: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestModuleAcceptsResourceLimits(t *testing.T) {
 func configuredScope(t *testing.T, raw string, roundTrip int) (*program.ScopeSet, *recordingFactory) {
 	t.Helper()
 	records := &recordingFactory{}
-	runtime, err := program.NewRuntime([]module.Definition{New()}, records)
+	runtime, err := program.NewRuntime(module.MustCatalog(New()), records)
 	if err != nil {
 		t.Fatal(err)
 	}

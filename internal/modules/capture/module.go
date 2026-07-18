@@ -62,7 +62,7 @@ func (*Module) Name() string { return Name }
 
 func (*Module) Lifetime() module.Lifetime { return module.LifetimeExchange }
 
-func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
+func (*Module) CompileProgram(raw json.RawMessage) (module.Binding, error) {
 	spec, err := decodeSpec(raw)
 	if err != nil {
 		return nil, err

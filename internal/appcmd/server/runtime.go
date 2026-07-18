@@ -42,7 +42,7 @@ type runtime struct {
 	tls              *tlsRuntime
 	directiveRemotes *directiveRemotes
 	recoveryHTTP     *recoveryhttp.Definition
-	recoveryCompiler *recovery.Registry
+	recoveryCompiler *recovery.ControllerCompiler
 }
 
 func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
@@ -74,8 +74,25 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure event output: %w", err)
 	}
-	programRuntime, err := newProgramRuntime(eventOutput)
+	recoveryHTTP := recoveryhttp.New(recoveryhttp.Options{
+		MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes,
+		MaxTimeout:       cfg.Proxy.Recovery.MaxCallbackTimeout,
+	})
+	catalog, err := module.NewCatalog(capture.New(), llmusage.New(), llmperf.New(), recoveryHTTP)
 	if err != nil {
+		_ = recoveryHTTP.Close()
+		if eventOutput != nil {
+			_ = eventOutput.Close(context.Background())
+		}
+		if sourceAccess != nil {
+			sourceAccess.Close()
+		}
+		_ = tlsRuntime.Close()
+		return nil, fmt.Errorf("configure module catalog: %w", err)
+	}
+	programRuntime, err := newProgramRuntime(catalog, eventOutput)
+	if err != nil {
+		_ = recoveryHTTP.Close()
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
 		}
@@ -100,11 +117,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
 		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
 	})
-	recoveryHTTP := recoveryhttp.New(recoveryhttp.Options{
-		MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes,
-		MaxTimeout:       cfg.Proxy.Recovery.MaxCallbackTimeout,
-	})
-	recoveryCompiler, err := recovery.NewRegistry(recoveryHTTP)
+	recoveryCompiler, err := recovery.NewControllerCompiler(catalog)
 	if err != nil {
 		_ = recoveryHTTP.Close()
 		programRuntime.Close()
@@ -151,9 +164,8 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}, nil
 }
 
-func newProgramRuntime(emission event.Provider) (*program.Runtime, error) {
-	definitions := []module.Definition{capture.New(), llmusage.New(), llmperf.New()}
-	return program.NewRuntime(definitions, emission)
+func newProgramRuntime(catalog *module.Catalog, emission event.Provider) (*program.Runtime, error) {
+	return program.NewRuntime(catalog, emission)
 }
 
 func newEventDispatcher(ctx context.Context, fluentConfig fluent.Config) (*event.Dispatcher, error) {

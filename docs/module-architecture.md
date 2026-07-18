@@ -24,17 +24,18 @@ directive 使用有序数组声明程序：
 }
 ```
 
-每项只包含 `module` 和可选 `config`。`module` 在整个 Program 内唯一，既选择进程级 Definition，也直接作为 Record 的 `producer`。Definition 通过 `Lifetime()` 静态声明 `exchange` 或 `round_trip`；directive 不再覆盖生命周期。数组顺序是所有当前活跃 Module 的全局 mutation 和事件提交顺序，不使用 map，也不存在按 lifetime 注入的隐式优先级。
+每项只包含 `module` 和可选 `config`，对应唯一的 `module.Spec`。所有 Definition 注册到同一个进程级 Module Catalog，名称全局唯一；Program Compiler 要求目标 Definition 提供 Program capability，并把 Module 名直接作为 Record 的 `producer`。Program Definition 通过 `Lifetime()` 静态声明 `exchange` 或 `round_trip`；directive 不再覆盖生命周期。数组顺序是所有当前活跃 Module 的全局 mutation 和事件提交顺序。
 
-Recovery Controller 使用平行但独立的强类型 SPI：Payload 以 `controller: {module, config}` 选择 Controller Definition，Registry 在 Prepare 阶段把 config 编译为不可变 Binding，Policy 持有并跨全部 RoundTrip 复用该 Binding。`builtin.recovery.http` 是当前内置实现；RecoveryTransport 不持有全局 Controller，也不解释 Controller config。未来本地 Controller 复用同一个 Definition/Binding/Registry 边界，无需新增另一套决策抽象。
+`recovery.controller` 直接使用同一个 `module.Spec`，没有 `RecoveryControllerSpec` 或其他平行参数类型。Controller Compiler 从全局 Catalog 查找 Definition 并要求 Recovery Controller capability，在 Prepare 阶段把 config 编译为不可变 Binding；Policy 保存原 Module Spec 和 Binding，并跨全部 RoundTrip 复用。`builtin.recovery` 是当前内置实现。RecoveryTransport 不持有全局 Controller，也不解释 Controller config。
 
 ## 与 Exchange 生命周期的关系
 
-四个 core package 的职责单向依赖，不互相替代：
+相关 core package 的职责单向依赖，不互相替代：
 
 - `core/lifecycle` 只定义 Fact、Stream、Draft 和 Outcome，不拥有状态或调度；
-- `core/module` 只定义 Definition、Binding、Instance、Registrar、Policy 和执行 Context 等 Module SPI；
-- `core/program` 注册 Definition、编译 Program、创建 Run/Scope、执行 handler、投影流并汇总健康；
+- `core/module` 定义唯一 Module Spec、全局 Definition Catalog，以及 Program capability 的 Binding、Instance、Registrar、Policy 和执行 Context；
+- `core/program` 从 Catalog 选择 Program Definition，编译 Program、创建 Run/Scope、执行 handler、投影流并汇总健康；
+- `core/recovery` 从同一 Catalog 选择 Controller Definition，编译并执行 Recovery 决策 Binding；
 - `core/exchange` 是生命周期唯一拥有者，驱动 request、round trip、recovery 和 downstream 状态转换；
 - `Manager` 是轻量 Exchange factory，只携带 Program runtime 和服务端 RoundTrip 上限，不维护活动索引或外部 command；
 - `Exchange` 拥有入站请求生命周期、exchange-lifetime scope、下游响应和当前 RoundTrip；流式 Replay Store 通过请求 context 交给 RecoveryTransport；
@@ -91,7 +92,7 @@ upstream raw
 └─ downstream committed bytes
 ```
 
-`core/program.Runtime` 负责 Definition registry、Program 编译、Run、Scope 和 Module 健康。Module 通过 `module.Context.Emitter` 产生可选外部 Record；Runtime 只依赖 `core/event.Provider`。
+`core/program.Runtime` 负责 Program 编译、Run、Scope 和 Program Module 健康；Definition 的注册和全局名称唯一性属于 `core/module.Catalog`。Module 通过 `module.Context.Emitter` 产生可选外部 Record；Runtime 只依赖 `core/event.Provider`。
 
 `core/event.Dispatcher` 实现该 provider，负责 `dp.event.v4` Record、单 trace sequence、buffer ownership、有界队列、分片和 Sink。Record 包含 `producer`、`topic`、`record_id`、`trace_id`、`metadata`、`round_trip`、`sequence`、`occurred_at` 和 `data`；Dispatcher 在顶层统一附加 metadata，因此 producer 不在 topic data 中重复它。Fluent 默认 tag 前缀为 `dp`。
 

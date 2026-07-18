@@ -56,8 +56,8 @@ type healthState struct {
 type discardSession struct{}
 type discardEmitter struct{}
 
-func NewRuntime(definitions []module.Definition, emission event.Provider) (*Runtime, error) {
-	registry, err := newRegistry(definitions...)
+func NewRuntime(catalog *module.Catalog, emission event.Provider) (*Runtime, error) {
+	registry, err := newRegistry(catalog)
 	if err != nil {
 		return nil, err
 	}

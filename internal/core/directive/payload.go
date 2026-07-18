@@ -1,8 +1,7 @@
 package directive
 
 import (
-	"encoding/json"
-
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
@@ -25,14 +24,9 @@ type Document struct {
 }
 
 type RecoverySpec struct {
-	Controller RecoveryControllerSpec `json:"controller"`
-	Triggers   RecoveryTriggerSpec    `json:"triggers"`
-	Budget     RecoveryBudgetSpec     `json:"budget"`
-}
-
-type RecoveryControllerSpec struct {
-	Module string          `json:"module"`
-	Config json.RawMessage `json:"config,omitempty"`
+	Controller module.Spec         `json:"controller"`
+	Triggers   RecoveryTriggerSpec `json:"triggers"`
+	Budget     RecoveryBudgetSpec  `json:"budget"`
 }
 
 type RecoveryTriggerSpec struct {

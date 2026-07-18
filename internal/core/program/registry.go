@@ -8,7 +8,7 @@ import (
 )
 
 type registry struct {
-	definitions map[string]module.Definition
+	catalog *module.Catalog
 }
 
 type compiled struct {
@@ -17,22 +17,11 @@ type compiled struct {
 	binding    module.Binding
 }
 
-func newRegistry(definitions ...module.Definition) (*registry, error) {
-	result := &registry{definitions: make(map[string]module.Definition, len(definitions))}
-	for _, definition := range definitions {
-		if definition == nil {
-			continue
-		}
-		name := strings.TrimSpace(definition.Name())
-		if name == "" {
-			return nil, fmt.Errorf("module has an empty name")
-		}
-		if _, exists := result.definitions[name]; exists {
-			return nil, fmt.Errorf("module %q is registered more than once", name)
-		}
-		result.definitions[name] = definition
+func newRegistry(catalog *module.Catalog) (*registry, error) {
+	if catalog == nil {
+		return nil, fmt.Errorf("module catalog is unavailable")
 	}
-	return result, nil
+	return &registry{catalog: catalog}, nil
 }
 
 func (r *registry) compile(specs Program) ([]compiled, []compiled, error) {
@@ -54,15 +43,19 @@ func (r *registry) compile(specs Program) ([]compiled, []compiled, error) {
 			return nil, nil, fmt.Errorf("module %q is repeated", name)
 		}
 		seen[name] = struct{}{}
-		definition := r.definitions[name]
-		if definition == nil {
+		registered := r.catalog.Lookup(name)
+		if registered == nil {
 			return nil, nil, fmt.Errorf("module %q at index %d is not registered", name, index)
+		}
+		definition, ok := registered.(module.ProgramDefinition)
+		if !ok {
+			return nil, nil, fmt.Errorf("module %q does not provide program capability", name)
 		}
 		lifetime := definition.Lifetime()
 		if lifetime != module.LifetimeExchange && lifetime != module.LifetimeRoundTrip {
 			return nil, nil, fmt.Errorf("module %q has invalid lifetime %q", name, lifetime)
 		}
-		binding, err := definition.Compile(spec.Config)
+		binding, err := definition.CompileProgram(spec.Config)
 		if err != nil {
 			return nil, nil, fmt.Errorf("compile module %q: %w", name, err)
 		}
@@ -84,9 +77,11 @@ func (r *registry) names() []string {
 	if r == nil {
 		return nil
 	}
-	names := make([]string, 0, len(r.definitions))
-	for name := range r.definitions {
-		names = append(names, name)
+	names := make([]string, 0)
+	for _, definition := range r.catalog.Definitions() {
+		if _, ok := definition.(module.ProgramDefinition); ok {
+			names = append(names, definition.Name())
+		}
 	}
 	return names
 }

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	Name                = "builtin.recovery.http"
+	Name                = "builtin.recovery"
 	defaultTimeout      = 3 * time.Second
 	maxTimeout          = 10 * time.Minute
 	maxHeaderCount      = 64
@@ -65,7 +65,7 @@ func New(options Options) *Definition {
 
 func (*Definition) Name() string { return Name }
 
-func (definition *Definition) Compile(raw json.RawMessage) (recovery.ControllerBinding, error) {
+func (definition *Definition) CompileController(raw json.RawMessage) (recovery.ControllerBinding, error) {
 	if definition == nil || definition.client == nil {
 		return nil, errors.New("recovery HTTP controller definition is unavailable")
 	}

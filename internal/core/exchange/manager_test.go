@@ -201,7 +201,7 @@ func newCaptureRuntime(t *testing.T) (*program.Runtime, *event.Dispatcher, *reco
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := program.NewRuntime([]module.Definition{capture.New()}, dispatcher)
+	runtime, err := program.NewRuntime(module.MustCatalog(capture.New()), dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}

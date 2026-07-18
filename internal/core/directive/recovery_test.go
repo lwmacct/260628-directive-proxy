@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/recoveryhttp"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
@@ -14,7 +15,7 @@ func TestRecoveryPayloadRoundTripAndCompile(t *testing.T) {
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com"},
 		Recovery: &RecoverySpec{
-			Controller: RecoveryControllerSpec{
+			Controller: module.Spec{
 				Module: recoveryhttp.Name,
 				Config: json.RawMessage(`{"url":"https://control.example.com/recovery","headers":{"authorization":"Bearer secret"}}`),
 			},
@@ -44,20 +45,21 @@ func TestRecoveryPayloadRoundTripAndCompile(t *testing.T) {
 	}
 	definition := recoveryhttp.New(recoveryhttp.Options{})
 	defer func() { _ = definition.Close() }()
-	registry, err := recovery.NewRegistry(definition)
+	compiler, err := recovery.NewControllerCompiler(module.MustCatalog(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := CompileRecovery(spec, registry)
+	compiled, err := CompileRecovery(spec, compiler)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if compiled.Budget.MaxRoundTrips != 3 || compiled.Budget.MaxElapsed != 30*time.Second ||
 		compiled.Triggers.ResponseHeaderTimeout != 10*time.Second || !compiled.Triggers.UnexpectedStatus.Matches(401) ||
-		compiled.Triggers.UnexpectedStatus.Matches(204) || compiled.ControllerModule != recoveryhttp.Name {
+		compiled.Triggers.UnexpectedStatus.Matches(204) || compiled.Controller.Spec.Module != recoveryhttp.Name ||
+		len(compiled.Controller.Spec.Config) == 0 {
 		t.Fatalf("unexpected compiled recovery policy: %#v", compiled)
 	}
-	observation := compiled.Controller.(recovery.ObservableControllerBinding).Observation()
+	observation := compiled.Controller.Binding.(recovery.ObservableControllerBinding).Observation()
 	if observation.Endpoint != "https://control.example.com/recovery" || observation.Timeout != 3*time.Second ||
 		observation.Headers.Get("Authorization") != "Bearer secret" {
 		t.Fatalf("unexpected compiled recovery controller: %#v", observation)
@@ -67,7 +69,7 @@ func TestRecoveryPayloadRoundTripAndCompile(t *testing.T) {
 func TestRecoveryValidationRejectsInvalidPolicies(t *testing.T) {
 	valid := func() *RecoverySpec {
 		return &RecoverySpec{
-			Controller: RecoveryControllerSpec{Module: recoveryhttp.Name, Config: json.RawMessage(`{"url":"https://control.example.com/recovery"}`)},
+			Controller: module.Spec{Module: recoveryhttp.Name, Config: json.RawMessage(`{"url":"https://control.example.com/recovery"}`)},
 			Triggers: RecoveryTriggerSpec{UnexpectedStatus: &RecoveryUnexpectedStatusSpec{
 				Expected: []RecoveryStatusRangeSpec{{From: 200, To: 299}},
 			}},
@@ -91,20 +93,44 @@ func TestRecoveryValidationRejectsInvalidPolicies(t *testing.T) {
 	}
 }
 
+func TestRecoveryRejectsControllerFieldsOutsideModuleSpec(t *testing.T) {
+	_, err := DecodePayload([]byte(`{"target":{"base_url":"https://api.example.com"},"recovery":{"controller":{"url":"https://control.example.com"},"triggers":{"transport_error":true},"budget":{"max_round_trips":2}}}`))
+	if err == nil {
+		t.Fatal("legacy controller parameters outside module config were accepted")
+	}
+}
+
 func TestCompileRecoveryRejectsInvalidControllerConfig(t *testing.T) {
 	definition := recoveryhttp.New(recoveryhttp.Options{})
 	defer func() { _ = definition.Close() }()
-	registry, err := recovery.NewRegistry(definition)
+	compiler, err := recovery.NewControllerCompiler(module.MustCatalog(definition))
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := &RecoverySpec{
-		Controller: RecoveryControllerSpec{Module: recoveryhttp.Name, Config: json.RawMessage(`{"url":"redis://control.example.com"}`)},
+		Controller: module.Spec{Module: recoveryhttp.Name, Config: json.RawMessage(`{"url":"redis://control.example.com"}`)},
 		Triggers:   RecoveryTriggerSpec{TransportError: true},
 		Budget:     RecoveryBudgetSpec{MaxRoundTrips: 2},
 	}
-	if _, err := CompileRecovery(spec, registry); err == nil {
+	if _, err := CompileRecovery(spec, compiler); err == nil {
 		t.Fatal("invalid recovery controller config was accepted")
+	}
+}
+
+func TestCompileRecoveryRejectsRemovedHTTPModuleName(t *testing.T) {
+	definition := recoveryhttp.New(recoveryhttp.Options{})
+	defer func() { _ = definition.Close() }()
+	compiler, err := recovery.NewControllerCompiler(module.MustCatalog(definition))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := &RecoverySpec{
+		Controller: module.Spec{Module: "builtin.recovery.http", Config: json.RawMessage(`{"url":"https://control.example.com"}`)},
+		Triggers:   RecoveryTriggerSpec{TransportError: true},
+		Budget:     RecoveryBudgetSpec{MaxRoundTrips: 2},
+	}
+	if _, err := CompileRecovery(spec, compiler); err == nil {
+		t.Fatal("removed recovery module name was accepted")
 	}
 }
 

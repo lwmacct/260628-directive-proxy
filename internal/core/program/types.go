@@ -1,15 +1,8 @@
 package program
 
-import (
-	"encoding/json"
-)
+import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
-type Spec struct {
-	Module string          `json:"module"`
-	Config json.RawMessage `json:"config,omitempty"`
-}
-
-type Program []Spec
+type Program []module.Spec
 
 type Compiler interface {
 	Compile(Program) (*Executable, error)

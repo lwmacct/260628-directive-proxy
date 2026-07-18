@@ -285,19 +285,7 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
   if (value === undefined) return undefined;
   const input = record(value, "recovery", text);
   knownKeys(input, ["controller", "triggers", "budget"], "recovery", text);
-  const controllerInput = record(input.controller, "recovery.controller", text);
-  knownKeys(controllerInput, ["module", "config"], "recovery.controller", text);
-  const controllerModule = stringValue(controllerInput.module, "recovery.controller.module", text);
-  const moduleName = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
-  if (!moduleName.test(controllerModule) || new TextEncoder().encode(controllerModule).length > 64) {
-    throw new Error(text.mustBe("recovery.controller.module", "module name using lowercase letters, digits, dots, or hyphens"));
-  }
-  const controllerConfig = controllerInput.config ?? {};
-  if (new TextEncoder().encode(JSON.stringify(controllerConfig)).length > 65536) throw new Error(text.mustBe("recovery.controller.config", "JSON <= 64 KiB"));
-  const controller = {
-    module: controllerModule,
-    config: controllerConfig,
-  };
+  const controller = parseModule(input.controller, "recovery.controller", text);
   const triggersInput = record(input.triggers, "recovery.triggers", text);
   knownKeys(triggersInput, ["response_header_timeout", "unexpected_status", "transport_error"], "recovery.triggers", text);
   const responseHeaderTimeout = parseDuration(triggersInput.response_header_timeout, "recovery.triggers.response_header_timeout", text);
