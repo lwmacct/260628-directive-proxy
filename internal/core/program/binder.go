@@ -22,10 +22,7 @@ type binder struct {
 	requestBodyChunk     []subscription[lifecycle.BodyChunk]
 	requestBodyEnded     []subscription[lifecycle.RequestBodyEnded]
 	attemptStarted       []subscription[lifecycle.AttemptStarted]
-	directiveResolved    []subscription[lifecycle.DirectiveResolved]
-	directiveFailed      []subscription[lifecycle.DirectiveFailed]
-	metadataBound        []subscription[lifecycle.MetadataBound]
-	metadataChanged      []subscription[lifecycle.MetadataChanged]
+	directivePrepared    []subscription[lifecycle.DirectivePrepared]
 	upstreamStarted      []subscription[lifecycle.UpstreamStarted]
 	upstreamResponse     []subscription[lifecycle.ResponseStarted]
 	upstreamBodyChunk    []subscription[lifecycle.BodyChunk]
@@ -74,17 +71,8 @@ func (b *binder) OnRequestBodyEnded(policy module.Policy, handle module.Handler[
 func (b *binder) OnAttemptStarted(policy module.Policy, handle module.Handler[lifecycle.AttemptStarted]) {
 	appendSubscription(&b.attemptStarted, policy, handle)
 }
-func (b *binder) OnDirectiveResolved(policy module.Policy, handle module.Handler[lifecycle.DirectiveResolved]) {
-	appendSubscription(&b.directiveResolved, policy, handle)
-}
-func (b *binder) OnDirectiveFailed(policy module.Policy, handle module.Handler[lifecycle.DirectiveFailed]) {
-	appendSubscription(&b.directiveFailed, policy, handle)
-}
-func (b *binder) OnMetadataBound(policy module.Policy, handle module.Handler[lifecycle.MetadataBound]) {
-	appendSubscription(&b.metadataBound, policy, handle)
-}
-func (b *binder) OnMetadataChanged(policy module.Policy, handle module.Handler[lifecycle.MetadataChanged]) {
-	appendSubscription(&b.metadataChanged, policy, handle)
+func (b *binder) OnDirectivePrepared(policy module.Policy, handle module.Handler[lifecycle.DirectivePrepared]) {
+	appendSubscription(&b.directivePrepared, policy, handle)
 }
 func (b *binder) OnUpstreamStarted(policy module.Policy, handle module.Handler[lifecycle.UpstreamStarted]) {
 	appendSubscription(&b.upstreamStarted, policy, handle)

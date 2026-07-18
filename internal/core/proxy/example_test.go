@@ -9,9 +9,9 @@ import (
 
 type staticResolver struct{}
 
-func (staticResolver) Prepare(*http.Request) (PreparedDirective, error) {
+func (staticResolver) Prepare(*http.Request) (*PreparedDirective, error) {
 	target, _ := url.Parse("https://api.example.com/v1")
-	return staticPrepared{resolution: Resolution{Plan: &Plan{
+	return NewPreparedDirective(SourceMetadata{Mode: "inline"}, &Plan{
 		Target: target,
 		Headers: httpheader.Plan{Request: httpheader.RequestPlan{Ops: []httpheader.Op{{
 			Action: httpheader.ActionSet,
@@ -21,7 +21,7 @@ func (staticResolver) Prepare(*http.Request) (PreparedDirective, error) {
 			},
 			Values: []string{"Bearer upstream-token"},
 		}}}},
-	}}}, nil
+	}, nil, nil)
 }
 
 func ExampleNewHandler() {

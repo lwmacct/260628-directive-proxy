@@ -157,10 +157,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
 		return
 	}
+	if prepared == nil {
+		slog.Error("resolver returned nil prepared directive", "path", r.URL.Path)
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
+		return
+	}
+	plan := prepared.Plan()
+	if plan == nil || plan.Target == nil {
+		slog.Error("prepared directive has no target", "path", r.URL.Path)
+		WriteProxyErrorJSON(w, http.StatusInternalServerError, "resolver_failed", "resolver: resolve proxy plan failed")
+		return
+	}
+	source := prepared.Source()
 	if current != nil {
 		if configureErr := current.ConfigureProgram(prepared.Program()); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
-			if prepared.Kind() == "remote" {
+			if source.Mode == "remote" {
+				moduleErr = ErrRemoteDirectiveInvalid
+			}
+			writeDirectiveError(w, moduleErr)
+			return
+		}
+		if prepareErr := current.PrepareDirective(exchange.DirectiveInfo{
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
+			PayloadSHA256: source.PayloadSHA256, Duration: source.Duration,
+			Target: plan.Target, Metadata: plan.Metadata,
+		}); prepareErr != nil {
+			moduleErr := error(ErrInvalidDirective)
+			if source.Mode == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
 			}
 			writeDirectiveError(w, moduleErr)

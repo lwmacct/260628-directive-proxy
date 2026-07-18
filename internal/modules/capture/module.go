@@ -80,11 +80,8 @@ func (capture *instance) Bind(binder module.Registrar) {
 	binder.OnRequestStarted(async, capture.onRequestStarted)
 	binder.OnRequestBodyChunk(module.AsyncBarrierPolicy(module.OverflowBlock), capture.onRequestBodyChunk)
 	binder.OnRequestBodyEnded(async, capture.onRequestBodyEnded)
+	binder.OnDirectivePrepared(async, capture.onDirectivePrepared)
 	binder.OnAttemptStarted(async, capture.onAttemptStarted)
-	binder.OnDirectiveResolved(async, capture.onDirectiveResolved)
-	binder.OnDirectiveFailed(async, capture.onDirectiveFailed)
-	binder.OnMetadataBound(async, capture.onMetadataBound)
-	binder.OnMetadataChanged(async, capture.onMetadataChanged)
 	binder.OnUpstreamStarted(async, capture.onUpstreamStarted)
 	binder.OnAttemptFinished(async, capture.onAttemptFinished)
 	binder.OnRecoveryStarted(async, capture.onRecoveryStarted)
@@ -155,17 +152,7 @@ func (capture *instance) emitRequestChunk(emitter event.Emitter, data []byte) {
 	capture.requestOffset += int64(len(data))
 }
 
-func (*instance) onAttemptStarted(ctx module.Context, value lifecycle.AttemptStarted) error {
-	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.attempt.started", map[string]any{"attempt": ctx.Attempt})
-		ctx.Emitter.Emit("capture.directive.resolve.started", map[string]any{
-			"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "resource": value.Resource,
-		})
-	}
-	return nil
-}
-
-func (capture *instance) onDirectiveResolved(ctx module.Context, value lifecycle.DirectiveResolved) error {
+func (capture *instance) onDirectivePrepared(ctx module.Context, value lifecycle.DirectivePrepared) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
@@ -173,38 +160,27 @@ func (capture *instance) onDirectiveResolved(ctx module.Context, value lifecycle
 	if value.Target != nil {
 		target = redactURL(value.Target.String(), capture.spec.RedactQuery)
 	}
-	ctx.Emitter.Emit("capture.directive.resolve.finished", map[string]any{
+	ctx.Emitter.Emit("capture.directive.prepared", map[string]any{
+		"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "resource": value.Resource,
 		"duration_millis": value.Duration.Milliseconds(), "payload_sha256": value.PayloadSHA256,
-		"target_url": target, "target_changed": value.TargetChanged, "plan_changed": value.PlanChanged,
+		"target_url": target, "metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
 	})
 	return nil
 }
 
-func (*instance) onDirectiveFailed(ctx module.Context, value lifecycle.DirectiveFailed) error {
-	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.directive.resolve.failed", map[string]any{
-			"duration_millis": value.Duration.Milliseconds(), "error_code": value.Code,
-		})
+func (capture *instance) onAttemptStarted(ctx module.Context, value lifecycle.AttemptStarted) error {
+	if ctx.Emitter == nil {
+		return nil
 	}
-	return nil
-}
-
-func (capture *instance) onMetadataBound(ctx module.Context, value lifecycle.MetadataBound) error {
-	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.request.metadata.bound", map[string]any{
-			"metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
-		})
+	target := ""
+	if value.Target != nil {
+		target = redactURL(value.Target.String(), capture.spec.RedactQuery)
 	}
-	return nil
-}
-
-func (capture *instance) onMetadataChanged(ctx module.Context, value lifecycle.MetadataChanged) error {
-	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.request.metadata.changed", map[string]any{
-			"bound_metadata":    redactMetadata(value.Bound, capture.spec.RedactHeaders),
-			"observed_metadata": redactMetadata(value.Observed, capture.spec.RedactHeaders),
-		})
-	}
+	ctx.Emitter.Emit("capture.attempt.started", map[string]any{
+		"attempt": ctx.Attempt, "mode": value.Mode, "backend": value.Backend,
+		"endpoint": value.Endpoint, "resource": value.Resource, "payload_sha256": value.PayloadSHA256,
+		"target_url": target, "metadata": redactMetadata(value.Metadata, capture.spec.RedactHeaders),
+	})
 	return nil
 }
 

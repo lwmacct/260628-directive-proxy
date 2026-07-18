@@ -112,6 +112,8 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 Attempt 重读。Recovery retry 使用同一份已解析 Payload。
 
+Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program 和 Recovery。Exchange 在读取正文前发布一次 `DirectivePrepared`；每次 Attempt 只打开新 scope，并携带同一 source、target、payload digest 和 metadata。
+
 `target` 是严格 one-of，必须且只能包含 `base_url` 或 `exact_url`。`base_url` 作为反向代理基址，在 Prepare 阶段拼接入站 path 并追加入站 query；`exact_url` 是完整目标地址，忽略入站 path/query。编译后的最终 URL 写入不可变 Plan，Recovery attempt 复用同一个结果。
 
 HTTP resolver 使用长生命周期连接池；HTTPS 显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1。resolver 与上游共用 `server.proxy.transport` 配置，但使用相互隔离的 transport 实例；明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。

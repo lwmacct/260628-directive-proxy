@@ -16,7 +16,7 @@ var (
 )
 
 func Validate(payload Payload) error {
-	_, err := ToPlan(payload, AssembleOptions{})
+	_, _, err := CompilePayload(payload, AssembleOptions{})
 	return err
 }
 

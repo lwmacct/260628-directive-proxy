@@ -31,15 +31,14 @@ type Exchange struct {
 	method         string
 	idempotencyKey string
 
-	stateMu       sync.Mutex
-	phase         Phase
-	current       *Attempt
-	attemptCount  int
-	metadata      requestmeta.Metadata
-	metadataBound bool
-	targetURL     string
-	maxAttempts   int
-	maxElapsed    time.Duration
+	stateMu           sync.Mutex
+	phase             Phase
+	current           *Attempt
+	attemptCount      int
+	directive         lifecycle.DirectivePrepared
+	directivePrepared bool
+	maxAttempts       int
+	maxElapsed        time.Duration
 
 	lifecycleMu          sync.Mutex
 	requestScope         *program.Scope
@@ -61,7 +60,6 @@ type Attempt struct {
 	startedAt time.Time
 	source    lifecycle.AttemptStarted
 	cancel    context.CancelFunc
-	metadata  requestmeta.Metadata
 
 	scope       *program.Scope
 	projection  program.StreamObserver
@@ -105,7 +103,7 @@ func (current *Exchange) BeginBodyStream() {
 	current.stateMu.Unlock()
 }
 
-func (current *Exchange) BeginAttempt(cancel context.CancelFunc, source AttemptSource) (*Attempt, error) {
+func (current *Exchange) BeginAttempt(cancel context.CancelFunc) (*Attempt, error) {
 	if current == nil || current.completed.Load() {
 		return nil, context.Canceled
 	}
@@ -126,18 +124,20 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc, source AttemptS
 		current.stateMu.Unlock()
 		return nil, ErrMaxAttempts
 	}
+	if !current.directivePrepared {
+		current.stateMu.Unlock()
+		return nil, ErrDirectiveNotPrepared
+	}
 	current.attemptCount++
 	attempt := &Attempt{
 		exchange:  current,
 		number:    current.attemptCount,
 		startedAt: startedAt,
 		cancel:    cancel,
-		source: lifecycle.AttemptStarted{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
-		},
+		source:    attemptStartedFromDirective(current.directive),
 	}
 	current.current = attempt
-	current.phase = PhaseResolving
+	current.phase = PhasePreparingAttempt
 	current.stateMu.Unlock()
 	return attempt, nil
 }
@@ -244,7 +244,7 @@ func (attempt *Attempt) RecoveryContext() RecoveryContext {
 	return RecoveryContext{
 		TraceID: current.traceID, Attempt: attempt.number,
 		MaxAttempts: current.maxAttempts, StartedAt: current.startedAt, Elapsed: elapsed, Remaining: remaining,
-		NextAttempt: attempt.number + 1, RetryAllowed: retryAllowed, Metadata: requestmeta.Clone(attempt.metadata),
+		NextAttempt: attempt.number + 1, RetryAllowed: retryAllowed, Metadata: requestmeta.Clone(attempt.source.Metadata),
 	}
 }
 
@@ -328,4 +328,11 @@ func cloneURL(in *url.URL) *url.URL {
 	}
 	out := *in
 	return &out
+}
+
+func attemptStartedFromDirective(value lifecycle.DirectivePrepared) lifecycle.AttemptStarted {
+	return lifecycle.AttemptStarted{
+		Mode: value.Mode, Backend: value.Backend, Endpoint: value.Endpoint, Resource: value.Resource,
+		PayloadSHA256: value.PayloadSHA256, Target: cloneURL(value.Target), Metadata: requestmeta.Clone(value.Metadata),
+	}
 }

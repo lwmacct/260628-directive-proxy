@@ -144,23 +144,11 @@ func (s *Scope) RequestBodyEnded(ctx context.Context, value lifecycle.RequestBod
 }
 
 func (s *Scope) AttemptStarted(ctx context.Context, value lifecycle.AttemptStarted) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.AttemptStarted] { return b.attemptStarted }, nil)
+	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.AttemptStarted] { return b.attemptStarted }, cloneAttemptStarted)
 }
 
-func (s *Scope) DirectiveResolved(ctx context.Context, value lifecycle.DirectiveResolved) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.DirectiveResolved] { return b.directiveResolved }, cloneDirectiveResolved)
-}
-
-func (s *Scope) DirectiveFailed(ctx context.Context, value lifecycle.DirectiveFailed) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.DirectiveFailed] { return b.directiveFailed }, nil)
-}
-
-func (s *Scope) MetadataBound(ctx context.Context, value lifecycle.MetadataBound) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.MetadataBound] { return b.metadataBound }, cloneMetadataBound)
-}
-
-func (s *Scope) MetadataChanged(ctx context.Context, value lifecycle.MetadataChanged) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.MetadataChanged] { return b.metadataChanged }, cloneMetadataChanged)
+func (s *Scope) DirectivePrepared(ctx context.Context, value lifecycle.DirectivePrepared) error {
+	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.DirectivePrepared] { return b.directivePrepared }, cloneDirectivePrepared)
 }
 
 func (s *Scope) UpstreamStarted(ctx context.Context, value lifecycle.UpstreamStarted) error {
@@ -520,10 +508,7 @@ func (b *binder) allPolicies() []module.Policy {
 		policies(len(b.requestBodyChunk), func(i int) module.Policy { return b.requestBodyChunk[i].policy }),
 		policies(len(b.requestBodyEnded), func(i int) module.Policy { return b.requestBodyEnded[i].policy }),
 		policies(len(b.attemptStarted), func(i int) module.Policy { return b.attemptStarted[i].policy }),
-		policies(len(b.directiveResolved), func(i int) module.Policy { return b.directiveResolved[i].policy }),
-		policies(len(b.directiveFailed), func(i int) module.Policy { return b.directiveFailed[i].policy }),
-		policies(len(b.metadataBound), func(i int) module.Policy { return b.metadataBound[i].policy }),
-		policies(len(b.metadataChanged), func(i int) module.Policy { return b.metadataChanged[i].policy }),
+		policies(len(b.directivePrepared), func(i int) module.Policy { return b.directivePrepared[i].policy }),
 		policies(len(b.upstreamStarted), func(i int) module.Policy { return b.upstreamStarted[i].policy }),
 		policies(len(b.upstreamResponse), func(i int) module.Policy { return b.upstreamResponse[i].policy }),
 		policies(len(b.upstreamBodyChunk), func(i int) module.Policy { return b.upstreamBodyChunk[i].policy }),
@@ -553,7 +538,7 @@ func cloneRequestStarted(value lifecycle.RequestStarted) lifecycle.RequestStarte
 	return value
 }
 
-func cloneDirectiveResolved(value lifecycle.DirectiveResolved) lifecycle.DirectiveResolved {
+func cloneAttemptStarted(value lifecycle.AttemptStarted) lifecycle.AttemptStarted {
 	if value.Target != nil {
 		target := *value.Target
 		value.Target = &target
@@ -562,14 +547,12 @@ func cloneDirectiveResolved(value lifecycle.DirectiveResolved) lifecycle.Directi
 	return value
 }
 
-func cloneMetadataBound(value lifecycle.MetadataBound) lifecycle.MetadataBound {
+func cloneDirectivePrepared(value lifecycle.DirectivePrepared) lifecycle.DirectivePrepared {
+	if value.Target != nil {
+		target := *value.Target
+		value.Target = &target
+	}
 	value.Metadata = cloneMetadata(value.Metadata)
-	return value
-}
-
-func cloneMetadataChanged(value lifecycle.MetadataChanged) lifecycle.MetadataChanged {
-	value.Bound = cloneMetadata(value.Bound)
-	value.Observed = cloneMetadata(value.Observed)
 	return value
 }
 

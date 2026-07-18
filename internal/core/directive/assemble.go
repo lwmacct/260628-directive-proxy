@@ -7,6 +7,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
@@ -21,40 +22,40 @@ const (
 	maxModuleSpecBytes = 64 << 10
 )
 
-func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
+func CompilePayload(payload Payload, opts AssembleOptions) (*proxy.Plan, *recovery.Policy, error) {
 	target, err := compileTarget(payload.Target, opts.InboundURL)
 	if err != nil {
-		return nil, ErrInvalidPayload
+		return nil, nil, ErrInvalidPayload
 	}
 	headers := HeaderPolicy{}
 	if payload.Headers != nil {
 		headers = *payload.Headers
 	}
 	if err := validateHeaderMode(headers.Mode); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	proxyURL, err := ParseProxy(payload.Proxy)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	requestRaw, responseRaw, err := splitHeaderMutations(headers.Mutations, true)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	requestOps, metadata, err := parseRequestHeaderMutations(requestRaw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	responseOps, err := parseResponseHeaderMutations(responseRaw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := normalizeProgram(payload.Program, true, true); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	recoveryPolicy, err := CompileRecovery(payload.Recovery)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	stripBeforeOps := make([]string, 0, len(opts.StripHeaders))
 	for _, name := range opts.StripHeaders {
@@ -78,8 +79,7 @@ func ToPlan(payload Payload, opts AssembleOptions) (*proxy.Plan, error) {
 			Response: httpheader.ResponsePlan{Ops: responseOps},
 		},
 		Metadata: metadata,
-		Recovery: recoveryPolicy,
-	}, nil
+	}, recoveryPolicy, nil
 }
 
 func compileTarget(section TargetSection, inbound *url.URL) (*url.URL, error) {

@@ -32,16 +32,20 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := mustURL(t, "https://upstream.example/v1/chat?token=upstream-secret")
+	if err := current.PrepareDirective(DirectiveInfo{
+		Mode: "remote", Backend: "redis", Resource: "routing", PayloadSHA256: "digest-1", Target: target,
+		Metadata: requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	firstCanceled := false
-	first, err := current.BeginAttempt(func() { firstCanceled = true }, AttemptSource{Mode: "remote", Backend: "redis", Resource: "routing"})
+	first, err := current.BeginAttempt(func() { firstCanceled = true })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := first.OpenScope(); err != nil {
 		t.Fatal(err)
 	}
-	first.BindMetadata(requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-1"}})
-	first.DirectiveResolved(target, time.Millisecond, "digest-1", false, false)
 	if !first.BeginUpstream(req) || !first.BeginRecovery() {
 		t.Fatal("first attempt did not enter recovery")
 	}
@@ -57,13 +61,11 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if decision := first.FinishRoundTrip(false, context.Canceled); decision != DecisionRetry {
 		t.Fatalf("unexpected first decision: %v", decision)
 	}
-	second, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "remote", Backend: "redis", Resource: "routing"})
+	second, err := current.BeginAttempt(func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = second.OpenScope()
-	second.BindMetadata(requestmeta.Metadata{"X-Dproxy-Request-Id": {"request-2"}})
-	second.DirectiveResolved(target, time.Millisecond, "digest-2", false, true)
 	if !second.BeginUpstream(req) {
 		t.Fatal("second attempt did not enter upstream state")
 	}
@@ -76,7 +78,22 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recoveryTopics []string
+	preparedCount := 0
+	attemptStartedCount := 0
 	for _, record := range output.Records() {
+		if record.Topic == "capture.directive.prepared" {
+			preparedCount++
+			if record.Data["payload_sha256"] != "digest-1" {
+				t.Fatalf("unexpected prepared directive: %#v", record.Data)
+			}
+		}
+		if record.Topic == "capture.attempt.started" {
+			attemptStartedCount++
+			metadata := record.Data["metadata"].(map[string][]string)
+			if record.Data["payload_sha256"] != "digest-1" || metadata["X-Dproxy-Request-Id"][0] != "request-1" {
+				t.Fatalf("attempt did not reuse prepared directive: %#v", record.Data)
+			}
+		}
 		if record.Topic == "capture.recovery.started" || record.Topic == "capture.recovery.decided" || record.Topic == "capture.recovery.finished" {
 			recoveryTopics = append(recoveryTopics, record.Topic)
 		}
@@ -87,6 +104,9 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if got := strings.Join(recoveryTopics, ","); got != "capture.recovery.started,capture.recovery.decided,capture.recovery.finished" {
 		t.Fatalf("unexpected recovery event sequence: %s", got)
 	}
+	if preparedCount != 1 || attemptStartedCount != 2 {
+		t.Fatalf("unexpected directive lifecycle counts: prepared=%d attempts=%d", preparedCount, attemptStartedCount)
+	}
 }
 
 func TestRecoveryRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
@@ -94,8 +114,8 @@ func TestRecoveryRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
 			current := manager.Start(httptest.NewRequest(method, "http://proxy.local/resource", nil))
-			attempt, _ := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
-			attempt.DirectiveResolved(mustURL(t, "https://upstream.example"), 0, "", false, false)
+			prepareInlineExchange(t, current)
+			attempt, _ := current.BeginAttempt(func() {})
 			attempt.BeginUpstream(nil)
 			attempt.BeginRecovery()
 			if err := attempt.RequestRecoveryRetry(); err != ErrIdempotencyKeyRequired {
@@ -114,16 +134,18 @@ func TestExchangeMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 	if err := current.ConfigureProgram(executable); err != nil {
 		t.Fatal(err)
 	}
-	attempt, _ := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
-	_ = attempt.OpenScope()
-	attempt.BindMetadata(requestmeta.Metadata{
+	if err := current.PrepareDirective(DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example"), Metadata: requestmeta.Metadata{
 		"X-Dproxy-Request-Id": {"request-1"}, "X-Dproxy-Secret-Key": {"secret"},
-	})
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	attempt, _ := current.BeginAttempt(func() {})
+	_ = attempt.OpenScope()
 	current.Complete()
 	runtime.Close()
 	_ = dispatcher.Close(context.Background())
 	for _, record := range output.Records() {
-		if record.Topic != "capture.request.metadata.bound" {
+		if record.Topic != "capture.directive.prepared" {
 			continue
 		}
 		metadata := record.Data["metadata"].(map[string][]string)
@@ -132,7 +154,7 @@ func TestExchangeMetadataCaptureUsesHeaderRedactionPolicy(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("metadata capture event was not emitted")
+	t.Fatal("prepared directive metadata was not captured")
 }
 
 func TestModuleRuntimeRejectsUnknownRequestModules(t *testing.T) {
@@ -174,4 +196,14 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatal(err)
 	}
 	return value
+}
+
+func prepareInlineExchange(t *testing.T, current *Exchange) {
+	t.Helper()
+	if err := current.ConfigureProgram(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.PrepareDirective(DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")}); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -24,7 +24,7 @@ func TestPayloadRoundTripsOrderedModuleProgram(t *testing.T) {
 	if document.Payload == nil || len(document.Payload.Program.Request) != 1 || len(document.Payload.Program.Attempt) != 1 || document.Payload.Program.Attempt[0].ID != "usage" {
 		t.Fatalf("unexpected module program: %#v", document)
 	}
-	plan, err := ToPlan(*document.Payload, AssembleOptions{})
+	plan, _, err := CompilePayload(*document.Payload, AssembleOptions{})
 	if err != nil || plan == nil {
 		t.Fatalf("payload did not compile to proxy plan: %#v err=%v", plan, err)
 	}

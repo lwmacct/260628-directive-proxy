@@ -121,7 +121,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 			if event.Topic == "capture.response.sse.event" {
 				values = append(values, event.Data["data"].(string))
 			}
-			if event.Topic == "capture.request.metadata.bound" {
+			if event.Topic == "capture.directive.prepared" {
 				metadata := event.Data["metadata"].(map[string][]string)
 				metadataCaptured = len(metadata["X-Dproxy-Request-Id"]) == 1 && metadata["X-Dproxy-Request-Id"][0] == "capture-request"
 			}

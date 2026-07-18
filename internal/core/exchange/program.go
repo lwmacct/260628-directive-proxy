@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
@@ -45,6 +44,44 @@ func (current *Exchange) ConfigureProgram(executable *program.Executable) error 
 		return nil
 	}
 	return scope.RequestStarted(current.ctx, current.requestStarted)
+}
+
+func (current *Exchange) PrepareDirective(info DirectiveInfo) error {
+	if current == nil || info.Target == nil {
+		return ErrDirectiveInvalid
+	}
+	metadata, err := requestmeta.Normalize(info.Metadata)
+	if err != nil {
+		return ErrDirectiveInvalid
+	}
+	value := lifecycle.DirectivePrepared{
+		Mode: info.Mode, Backend: info.Backend, Endpoint: info.Endpoint, Resource: info.Resource,
+		Duration: info.Duration, PayloadSHA256: info.PayloadSHA256, Target: cloneURL(info.Target), Metadata: metadata,
+	}
+	current.lifecycleMu.Lock()
+	configured := current.programConfigured
+	current.lifecycleMu.Unlock()
+	if !configured {
+		return ErrProgramNotConfigured
+	}
+	current.stateMu.Lock()
+	if current.directivePrepared {
+		current.stateMu.Unlock()
+		return ErrDirectiveAlreadySet
+	}
+	if current.completed.Load() || current.phase == PhaseFinished || current.attemptCount > 0 {
+		current.stateMu.Unlock()
+		return context.Canceled
+	}
+	current.directive = value
+	current.directivePrepared = true
+	current.stateMu.Unlock()
+	current.lifecycleMu.Lock()
+	defer current.lifecycleMu.Unlock()
+	if current.requestScope != nil {
+		return current.requestScope.DirectivePrepared(current.ctx, value)
+	}
+	return nil
 }
 
 func (current *Exchange) RequestBodyChunk(data []byte) error {
@@ -113,81 +150,6 @@ func (attempt *Attempt) OpenScope() error {
 		return nil
 	}
 	return scope.AttemptStarted(current.ctx, attempt.source)
-}
-
-func (attempt *Attempt) BindMetadata(observed requestmeta.Metadata) bool {
-	if attempt == nil || attempt.exchange == nil {
-		return false
-	}
-	normalized, err := requestmeta.Normalize(observed)
-	if err != nil {
-		return false
-	}
-	current := attempt.exchange
-	current.stateMu.Lock()
-	if current.current != attempt {
-		current.stateMu.Unlock()
-		return false
-	}
-	attempt.metadata = requestmeta.Clone(normalized)
-	first := false
-	if !current.metadataBound {
-		current.metadata = requestmeta.Clone(normalized)
-		current.metadataBound = true
-		first = true
-	}
-	bound := requestmeta.Clone(current.metadata)
-	changed := !first && !requestmeta.Equal(bound, normalized)
-	current.stateMu.Unlock()
-	current.lifecycleMu.Lock()
-	defer current.lifecycleMu.Unlock()
-	if first {
-		if len(bound) > 0 {
-			_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-				return scope.MetadataBound(current.ctx, lifecycle.MetadataBound{Metadata: bound})
-			})
-		}
-		return false
-	}
-	if changed {
-		_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-			return scope.MetadataChanged(current.ctx, lifecycle.MetadataChanged{Bound: bound, Observed: normalized})
-		})
-	}
-	return changed
-}
-
-func (attempt *Attempt) DirectiveResolved(target *url.URL, duration time.Duration, payloadSHA256 string, targetChanged, planChanged bool) {
-	if attempt == nil || attempt.exchange == nil || target == nil {
-		return
-	}
-	current := attempt.exchange
-	current.stateMu.Lock()
-	if current.current == attempt {
-		current.targetURL = target.String()
-	}
-	metadata := requestmeta.Clone(attempt.metadata)
-	current.stateMu.Unlock()
-	current.lifecycleMu.Lock()
-	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.DirectiveResolved(current.ctx, lifecycle.DirectiveResolved{
-			Duration: duration, PayloadSHA256: payloadSHA256, Target: cloneURL(target), TargetChanged: targetChanged,
-			PlanChanged: planChanged, Metadata: metadata,
-		})
-	})
-}
-
-func (attempt *Attempt) DirectiveFailed(duration time.Duration, code string) {
-	if attempt == nil || attempt.exchange == nil {
-		return
-	}
-	current := attempt.exchange
-	current.lifecycleMu.Lock()
-	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(scope *program.Scope) error {
-		return scope.DirectiveFailed(current.ctx, lifecycle.DirectiveFailed{Duration: duration, Code: code})
-	})
 }
 
 func (attempt *Attempt) MutateOutboundRequest(request *http.Request) error {
@@ -270,11 +232,14 @@ func (attempt *Attempt) BeginUpstream(req *http.Request) bool {
 		return false
 	}
 	current.phase = PhaseAwaitingResponse
-	targetURL := current.targetURL
 	current.stateMu.Unlock()
 	var headers http.Header
+	targetURL := ""
 	if req != nil {
 		headers = req.Header.Clone()
+		if req.URL != nil {
+			targetURL = req.URL.String()
+		}
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()

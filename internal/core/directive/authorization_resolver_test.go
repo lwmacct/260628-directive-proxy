@@ -28,7 +28,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
-	plan := resolution.Plan
+	plan := resolution.Plan()
 	if plan.Target.String() != "https://api.example.com/v1/v1/resources" {
 		t.Fatalf("unexpected target: %s", plan.Target.String())
 	}
@@ -53,7 +53,7 @@ func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := resolution.Plan.Target.String(); got != "https://api.example.com/action?signature=fixed" {
+	if got := resolution.Plan().Target.String(); got != "https://api.example.com/action?signature=fixed" {
 		t.Fatalf("unexpected exact target: %s", got)
 	}
 }
@@ -75,19 +75,13 @@ func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := prepared.ResolveAttempt(req.Context(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first.Plan.Target.Host = "mutated.example"
-	first.Plan.Headers.Request.Ops[0].Values[0] = "mutated"
-	first.Plan.Headers.Response.Ops[0].Values[0] = "mutated"
-	second, err := prepared.ResolveAttempt(req.Context(), 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Plan.Target.Host != "api.example.com" || second.Plan.Headers.Request.Ops[0].Values[0] != "original" || second.Plan.Headers.Response.Ops[0].Values[0] != "original" {
-		t.Fatalf("inline plan mutation leaked across attempts: %#v", second.Plan)
+	first := prepared.Plan()
+	first.Target.Host = "mutated.example"
+	first.Headers.Request.Ops[0].Values[0] = "mutated"
+	first.Headers.Response.Ops[0].Values[0] = "mutated"
+	second := prepared.Plan()
+	if second.Target.Host != "api.example.com" || second.Headers.Request.Ops[0].Values[0] != "original" || second.Headers.Response.Ops[0].Values[0] != "original" {
+		t.Fatalf("inline plan mutation leaked from prepared value: %#v", second)
 	}
 }
 

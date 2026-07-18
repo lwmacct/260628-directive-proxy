@@ -19,12 +19,13 @@ import (
 func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	attempt, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
+	prepareInlineExchange(t, current)
+	attempt, err := current.BeginAttempt(func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
 	attempt.FinishRoundTrip(false, errors.New("upstream failed"))
-	if _, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"}); !errors.Is(err, context.Canceled) {
+	if _, err := current.BeginAttempt(func() {}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("terminal exchange accepted another attempt: %v", err)
 	}
 	current.Complete()
@@ -33,7 +34,8 @@ func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
 func TestAttemptScopeCanOnlyBeOpenedOnce(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	attempt, err := current.BeginAttempt(func() {}, AttemptSource{Mode: "inline"})
+	prepareInlineExchange(t, current)
+	attempt, err := current.BeginAttempt(func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +44,28 @@ func TestAttemptScopeCanOnlyBeOpenedOnce(t *testing.T) {
 	}
 	if err := attempt.OpenScope(); !errors.Is(err, ErrAttemptScopeOpened) {
 		t.Fatalf("duplicate module program was accepted: %v", err)
+	}
+	current.Complete()
+}
+
+func TestExchangeEnforcesDirectivePreparationOrder(t *testing.T) {
+	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
+	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	info := DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")}
+	if err := current.PrepareDirective(info); !errors.Is(err, ErrProgramNotConfigured) {
+		t.Fatalf("directive was prepared before program configuration: %v", err)
+	}
+	if err := current.ConfigureProgram(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := current.BeginAttempt(func() {}); !errors.Is(err, ErrDirectiveNotPrepared) {
+		t.Fatalf("attempt started before directive preparation: %v", err)
+	}
+	if err := current.PrepareDirective(info); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.PrepareDirective(info); !errors.Is(err, ErrDirectiveAlreadySet) {
+		t.Fatalf("directive was prepared twice: %v", err)
 	}
 	current.Complete()
 }
@@ -58,8 +82,9 @@ func TestExchangeFailsClosedWhenProgramRuntimeIsUnavailable(t *testing.T) {
 func TestConcurrentRecoveryRetryIsIdempotent(t *testing.T) {
 	manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
+	prepareInlineExchange(t, current)
 	var cancelCount atomic.Int32
-	attempt, err := current.BeginAttempt(func() { cancelCount.Add(1) }, AttemptSource{Mode: "inline"})
+	attempt, err := current.BeginAttempt(func() { cancelCount.Add(1) })
 	if err != nil {
 		t.Fatal(err)
 	}

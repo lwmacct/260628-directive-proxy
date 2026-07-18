@@ -9,12 +9,12 @@ import (
 type preparedRequestContextKey struct{}
 
 type preparedRequest struct {
-	directive PreparedDirective
+	directive *PreparedDirective
 	template  *RequestTemplate
 	body      *bodystore.Store
 }
 
-func contextWithPreparedRequest(ctx context.Context, directive PreparedDirective, template *RequestTemplate, body ...*bodystore.Store) context.Context {
+func contextWithPreparedRequest(ctx context.Context, directive *PreparedDirective, template *RequestTemplate, body ...*bodystore.Store) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}

@@ -23,34 +23,22 @@ import (
 )
 
 type recoveryPrepared struct {
-	mu      sync.Mutex
-	plans   []*Plan
+	plan    *Plan
 	policy  *recovery.Policy
 	program *program.Executable
-	calls   int
 }
 
-func (*recoveryPrepared) Kind() string                          { return "remote" }
 func (prepared *recoveryPrepared) Program() *program.Executable { return prepared.program }
-func (*recoveryPrepared) Source() SourceMetadata {
-	return SourceMetadata{Mode: "remote", Backend: "redis", Endpoint: "redis://redis.example/1", Resource: "routing"}
-}
-func (prepared *recoveryPrepared) Recovery() *recovery.Policy {
-	return recovery.ClonePolicy(prepared.policy)
-}
-func (prepared *recoveryPrepared) ResolveAttempt(context.Context, int) (Resolution, error) {
-	prepared.mu.Lock()
-	defer prepared.mu.Unlock()
-	index := prepared.calls
-	prepared.calls++
-	if index >= len(prepared.plans) {
-		index = len(prepared.plans) - 1
+func (prepared *recoveryPrepared) Prepared(t *testing.T) *PreparedDirective {
+	t.Helper()
+	value, err := NewPreparedDirective(SourceMetadata{
+		Mode: "remote", Backend: "redis", Endpoint: "redis://redis.example/1", Resource: "routing",
+		PayloadSHA256: "payload-digest",
+	}, prepared.plan, prepared.program, prepared.policy)
+	if err != nil {
+		t.Fatal(err)
 	}
-	plan := ClonePlan(prepared.plans[index])
-	plan.Recovery = recovery.ClonePolicy(prepared.policy)
-	source := prepared.Source()
-	source.PayloadSHA256 = "payload-digest"
-	return Resolution{Plan: plan, Source: source}, nil
+	return value
 }
 
 type recoveryControllerFunc func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error)
@@ -121,13 +109,9 @@ func (*recoveryEventInstance) Finish(module.FinishContext) error { return nil }
 
 func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	targetOne := mustProxyURL(t, "https://one.example")
-	targetTwo := mustProxyURL(t, "https://two.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{
-		{Target: targetOne},
-		{Target: targetTwo},
-	}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: targetOne}}
 	inbound, _ := http.NewRequest(http.MethodPost, "http://proxy.local/chat", strings.NewReader("request-body"))
 	inbound.Header.Set("Idempotency-Key", "recovery-test")
 	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
@@ -143,12 +127,14 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	}
 	var calls int
 	var seenBodies []string
+	var seenTargets []string
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			return nil, err
 		}
 		seenBodies = append(seenBodies, string(body))
+		seenTargets = append(seenTargets, request.URL.String())
 		calls++
 		if calls == 1 {
 			return &http.Response{
@@ -174,11 +160,14 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	}
 	data, _ := io.ReadAll(response.Body)
 	_ = response.Body.Close()
-	if response.StatusCode != http.StatusOK || string(data) != "ok" || calls != 2 || prepared.calls != 2 {
-		t.Fatalf("unexpected recovery result: status=%d body=%q calls=%d resolves=%d", response.StatusCode, data, calls, prepared.calls)
+	if response.StatusCode != http.StatusOK || string(data) != "ok" || calls != 2 {
+		t.Fatalf("unexpected recovery result: status=%d body=%q calls=%d", response.StatusCode, data, calls)
 	}
 	if len(seenBodies) != 2 || seenBodies[0] != "request-body" || seenBodies[1] != "request-body" {
 		t.Fatalf("request body was not replayed: %#v", seenBodies)
+	}
+	if len(seenTargets) != 2 || seenTargets[0] != "https://one.example" || seenTargets[1] != "https://one.example" {
+		t.Fatalf("recovery did not reuse the prepared target: %#v", seenTargets)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(callbackEvent.Response.Body.Data)
 	if err != nil || string(decoded) != `{"error":"expired"}` || callbackEvent.Response.Headers.Get("X-Reason") != "expired" {
@@ -224,7 +213,7 @@ func TestRecoveryTransportForwardsCapturedResponseWhenControllerSaysForward(t *t
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
@@ -266,7 +255,7 @@ func TestRecoveryTransportReportsControllerError(t *testing.T) {
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
@@ -305,7 +294,7 @@ func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
@@ -344,7 +333,7 @@ func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
 	policy := testRecoveryPolicy()
 	policy.Budget.MaxAttempts = 1
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
@@ -382,7 +371,7 @@ func TestRecoveryTransportFailsUnexpectedResponseWhenControllerSaysFail(t *testi
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
 	recorder := &recoveryEventRecorder{}
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	runtime, err := program.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
 	if err != nil {
@@ -420,7 +409,7 @@ func TestRecoveryTransportFailsTransportErrorWhenControllerSaysFail(t *testing.T
 	policy := testRecoveryPolicy()
 	policy.Triggers.UnexpectedStatus = nil
 	policy.Triggers.TransportError = true
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
 	current := manager.Start(inbound)
@@ -444,7 +433,7 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 	policy := testRecoveryPolicy()
 	policy.Triggers.UnexpectedStatus = nil
 	policy.Triggers.ResponseHeaderTimeout = 20 * time.Millisecond
-	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target}, {Target: target}}}
+	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
 	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
 	current := manager.Start(inbound)
@@ -478,13 +467,18 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 	current.Complete()
 }
 
-func TestPlanFingerprintIncludesRecoveryPolicy(t *testing.T) {
+func TestPreparedDirectiveClonesPlanAndRecovery(t *testing.T) {
 	target := mustProxyURL(t, "https://upstream.example")
-	first := &Plan{Target: target, Recovery: testRecoveryPolicy()}
-	second := ClonePlan(first)
-	second.Recovery.Budget.MaxAttempts++
-	if planFingerprint(first) == planFingerprint(second) {
-		t.Fatal("recovery policy did not affect fingerprint")
+	prepared, err := NewPreparedDirective(SourceMetadata{Mode: "inline"}, &Plan{Target: target}, nil, testRecoveryPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := prepared.Plan()
+	policy := prepared.Recovery()
+	plan.Target.Host = "mutated.example"
+	policy.Budget.MaxAttempts++
+	if prepared.Plan().Target.Host != "upstream.example" || prepared.Recovery().Budget.MaxAttempts == policy.Budget.MaxAttempts {
+		t.Fatal("prepared plan or recovery policy exposed mutable state")
 	}
 }
 
@@ -508,8 +502,17 @@ func compileRecoveryProgram(t *testing.T, runtime *program.Runtime) *program.Exe
 	return executable
 }
 
-func recoveryTestContext(t *testing.T, inbound *http.Request, current *exchange.Exchange, prepared PreparedDirective) context.Context {
+func recoveryTestContext(t *testing.T, inbound *http.Request, current *exchange.Exchange, fixture *recoveryPrepared) context.Context {
 	t.Helper()
+	prepared := fixture.Prepared(t)
+	plan := prepared.Plan()
+	source := prepared.Source()
+	if err := current.PrepareDirective(exchange.DirectiveInfo{
+		Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
+		PayloadSHA256: source.PayloadSHA256, Duration: source.Duration, Target: plan.Target, Metadata: plan.Metadata,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	var data []byte
 	if inbound.Body != nil && inbound.Body != http.NoBody {
 		var err error

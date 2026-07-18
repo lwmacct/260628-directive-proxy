@@ -63,22 +63,16 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 	req.URL.Path = "/mutated"
 	req.Header.Set("X-Tenant", "mutated")
 
-	first, err := prepared.ResolveAttempt(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
+	first := prepared.Plan()
+	second := prepared.Plan()
+	if calls != 1 || compileCalls != 1 || first.Target.Host != "one.example" || second.Target.Host != "one.example" {
+		t.Fatalf("remote payload was not prepared once: reads=%d compiles=%d first=%#v second=%#v", calls, compileCalls, first, second)
 	}
-	second, err := prepared.ResolveAttempt(context.Background(), 2)
-	if err != nil {
-		t.Fatal(err)
+	if prepared.Program() == nil || prepared.Recovery() == nil {
+		t.Fatalf("remote payload did not preserve program/recovery semantics: executable=%#v recovery=%#v", prepared.Program(), prepared.Recovery())
 	}
-	if calls != 1 || compileCalls != 1 || first.Plan.Target.Host != "one.example" || second.Plan.Target.Host != "one.example" {
-		t.Fatalf("remote payload was not prepared once: reads=%d compiles=%d first=%#v second=%#v", calls, compileCalls, first.Plan, second.Plan)
-	}
-	if prepared.Program() == nil || first.Plan.Recovery == nil {
-		t.Fatalf("remote payload did not preserve program/recovery semantics: executable=%#v plan=%#v", prepared.Program(), first.Plan)
-	}
-	if first.Source.PayloadSHA256 == "" || first.Source.PayloadSHA256 != second.Source.PayloadSHA256 {
-		t.Fatalf("unexpected remote payload digests: first=%q second=%q", first.Source.PayloadSHA256, second.Source.PayloadSHA256)
+	if prepared.Source().PayloadSHA256 == "" {
+		t.Fatal("remote payload digest was not preserved")
 	}
 }
 
@@ -111,14 +105,15 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve failed: %v", err)
 	}
-	plan := resolution.Plan
+	plan := resolution.Plan()
 	if requested.Endpoint.String() != spec.HTTP.URL || len(requested.Headers.Ops) != 1 ||
 		requested.Headers.Ops[0].Values[0] != "Bearer resolver" || plan.Target.String() != "https://remote.example.com/v1/v1/resources" {
 		t.Fatalf("unexpected resolved directive: spec=%#v plan=%#v", requested, plan)
 	}
-	if resolution.Source.Mode != "remote" || resolution.Source.Backend != "http" ||
-		resolution.Source.Endpoint != spec.HTTP.URL || resolution.Source.Resource != "" {
-		t.Fatalf("unexpected directive metadata: %#v", resolution.Source)
+	source := resolution.Source()
+	if source.Mode != "remote" || source.Backend != "http" ||
+		source.Endpoint != spec.HTTP.URL || source.Resource != "" {
+		t.Fatalf("unexpected directive metadata: %#v", source)
 	}
 	if len(plan.Headers.Request.StripBeforeOps) != 1 || len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Values[0] != "remote" {
 		t.Fatalf("unexpected request header plan: %#v", plan.Headers.Request)
@@ -141,11 +136,11 @@ func TestResolverLoadsCompleteFileDirective(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requested.Path != "team-a/services/primary.json" || resolution.Plan.Target.String() != "https://file.example.com/v1/" {
-		t.Fatalf("unexpected file resolution: reference=%#v plan=%#v", requested, resolution.Plan)
+	if requested.Path != "team-a/services/primary.json" || resolution.Plan().Target.String() != "https://file.example.com/v1/" {
+		t.Fatalf("unexpected file resolution: reference=%#v plan=%#v", requested, resolution.Plan())
 	}
-	if resolution.Source.Backend != RemoteTypeFile || resolution.Source.Endpoint != "" || resolution.Source.Resource != requested.Path {
-		t.Fatalf("unexpected file source metadata: %#v", resolution.Source)
+	if resolution.Source().Backend != RemoteTypeFile || resolution.Source().Endpoint != "" || resolution.Source().Resource != requested.Path {
+		t.Fatalf("unexpected file source metadata: %#v", resolution.Source())
 	}
 }
 

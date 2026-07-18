@@ -3,23 +3,17 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptrace"
-	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 var (
@@ -75,68 +69,34 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	if prepared.body == nil {
 		return nil, ErrBodyStoreUnavailable
 	}
-	recoveryPolicy := t.limitRecoveryPolicy(PreparedRecovery(prepared.directive))
+	plan := prepared.directive.Plan()
+	if plan == nil || plan.Target == nil {
+		return nil, ErrResolverFailed
+	}
+	source := prepared.directive.Source()
+	recoveryPolicy := t.limitRecoveryPolicy(prepared.directive.Recovery())
 	if recoveryPolicy != nil {
 		current.ConfigureRecovery(recoveryPolicy, t.maxRecoveryAttempts, t.maxRecoveryElapsed)
 	}
-	var previousFingerprint string
-	var previousTarget string
 	for {
 		if err := req.Context().Err(); err != nil {
 			return nil, err
 		}
 		attemptCtx, cancel := context.WithCancel(req.Context())
-		source := prepared.directive.Source()
-		attempt, beginErr := current.BeginAttempt(cancel, exchange.AttemptSource{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
-		})
+		attempt, beginErr := current.BeginAttempt(cancel)
 		if beginErr != nil {
 			cancel()
 			return nil, beginErr
 		}
-		attemptNumber := attempt.Number()
-		resolveStartedAt := time.Now()
-		resolution, resolveErr := prepared.directive.ResolveAttempt(attemptCtx, attemptNumber)
-		resolveDuration := time.Since(resolveStartedAt)
-		if resolveErr != nil {
-			attempt.DirectiveFailed(resolveDuration, directiveErrorCode(resolveErr))
-			attempt.FinishRoundTrip(false, resolveErr)
-			cancel()
-			return nil, resolveErr
-		}
-		if resolution.Plan == nil || resolution.Plan.Target == nil {
-			attempt.DirectiveFailed(resolveDuration, "resolver_failed")
-			attempt.FinishRoundTrip(false, ErrResolverFailed)
-			cancel()
-			return nil, ErrResolverFailed
-		}
-		normalizedMetadata, metadataErr := requestmeta.Normalize(resolution.Plan.Metadata)
-		if metadataErr != nil {
-			attempt.DirectiveFailed(resolveDuration, "resolver_failed")
-			attempt.FinishRoundTrip(false, ErrResolverFailed)
-			cancel()
-			return nil, ErrResolverFailed
-		}
-		resolution.Plan.Metadata = normalizedMetadata
 		if configureErr := attempt.OpenScope(); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if source.Mode == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
 			}
-			attempt.DirectiveFailed(resolveDuration, "invalid_module_config")
 			attempt.FinishRoundTrip(false, moduleErr)
 			cancel()
 			return nil, moduleErr
 		}
-		fingerprint := planFingerprint(resolution.Plan)
-		planChanged := previousFingerprint != "" && previousFingerprint != fingerprint
-		previousFingerprint = fingerprint
-		target := cloneURL(resolution.Plan.Target)
-		targetValue := urlString(target)
-		targetChanged := previousTarget != "" && previousTarget != targetValue
-		previousTarget = targetValue
-		attempt.BindMetadata(resolution.Plan.Metadata)
-		attempt.DirectiveResolved(target, resolveDuration, resolution.Source.PayloadSHA256, targetChanged, planChanged)
 
 		body, bodyErr := prepared.body.Open(attemptCtx)
 		if bodyErr != nil {
@@ -144,7 +104,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			cancel()
 			return nil, bodyErr
 		}
-		attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, attemptCtx, body)
+		attemptRequest := BuildAttemptRequest(prepared.template, plan, attemptCtx, body)
 		if attemptRequest == nil {
 			_ = body.Close()
 			attempt.FinishRoundTrip(false, ErrResolverFailed)
@@ -191,7 +151,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 				enabled = recoveryPolicy != nil && recoveryPolicy.Triggers.ResponseHeaderTimeout > 0
 			}
 			if enabled {
-				recoveryResult, started, recoveryErr := t.recoverAttempt(req.Context(), recoveryPolicy, attempt, resolution.Source, trigger, nil)
+				recoveryResult, started, recoveryErr := t.recoverAttempt(req.Context(), recoveryPolicy, attempt, source, trigger, nil)
 				if started && recoveryErr == nil && recoveryResult.Retry {
 					attempt.FinishRoundTrip(false, context.Canceled)
 					cancel()
@@ -215,7 +175,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 				cancel()
 				return nil, captureErr
 			}
-			recoveryResult, started, recoveryErr := t.recoverAttempt(req.Context(), recoveryPolicy, attempt, resolution.Source,
+			recoveryResult, started, recoveryErr := t.recoverAttempt(req.Context(), recoveryPolicy, attempt, source,
 				recovery.Trigger{Type: recovery.TriggerUnexpectedStatus}, captured)
 			if started && recoveryErr == nil && recoveryResult.Retry {
 				_ = response.Body.Close()
@@ -254,7 +214,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			return response, roundTripErr
 		}
 		attempt.ObserveUpstreamResponse(response)
-		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
+		bindResponseHeaderPlan(response, attemptRequest, plan.Headers.Response)
 		response.Body = wrapCancelOnCloseBody(response, cancel)
 		prepared.body.Retire()
 		return response, roundTripErr
@@ -384,18 +344,10 @@ func (body *joinedResponseBody) Close() error {
 }
 
 func (t *RecoveryTransport) roundTripOnce(req *http.Request, prepared preparedRequest) (*http.Response, error) {
-	resolution, err := prepared.directive.ResolveAttempt(req.Context(), 1)
-	if err != nil {
-		return nil, err
-	}
-	if resolution.Plan == nil || resolution.Plan.Target == nil {
+	plan := prepared.directive.Plan()
+	if plan == nil || plan.Target == nil {
 		return nil, ErrResolverFailed
 	}
-	normalizedMetadata, metadataErr := requestmeta.Normalize(resolution.Plan.Metadata)
-	if metadataErr != nil {
-		return nil, ErrResolverFailed
-	}
-	resolution.Plan.Metadata = normalizedMetadata
 	if prepared.body == nil {
 		return nil, ErrBodyStoreUnavailable
 	}
@@ -403,7 +355,7 @@ func (t *RecoveryTransport) roundTripOnce(req *http.Request, prepared preparedRe
 	if bodyErr != nil {
 		return nil, bodyErr
 	}
-	attemptRequest := BuildAttemptRequest(prepared.template, resolution.Plan, req.Context(), body)
+	attemptRequest := BuildAttemptRequest(prepared.template, plan, req.Context(), body)
 	if attemptRequest == nil {
 		_ = body.Close()
 		return nil, ErrResolverFailed
@@ -414,7 +366,7 @@ func (t *RecoveryTransport) roundTripOnce(req *http.Request, prepared preparedRe
 	response, roundTripErr := t.base.RoundTrip(attemptRequest)
 	prepared.body.Retire()
 	if response != nil {
-		bindResponseHeaderPlan(response, attemptRequest, resolution.Plan.Headers.Response)
+		bindResponseHeaderPlan(response, attemptRequest, plan.Headers.Response)
 	}
 	return response, roundTripErr
 }
@@ -474,56 +426,6 @@ func (b *mutatingBody) Close() error {
 		return b.source.Close()
 	}
 	return nil
-}
-
-func directiveErrorCode(err error) string {
-	switch {
-	case errors.Is(err, ErrInvalidDirective):
-		return "invalid_directive"
-	case errors.Is(err, ErrDirectiveUnauthorized):
-		return "directive_unauthorized"
-	case errors.Is(err, ErrDirectiveTokenTooLarge):
-		return "directive_token_too_large"
-	case errors.Is(err, ErrDirectiveNotFound):
-		return "directive_not_found"
-	case errors.Is(err, ErrRemoteDirectiveUnavailable):
-		return "remote_unavailable"
-	case errors.Is(err, ErrRemoteDirectiveInvalid):
-		return "remote_response_invalid"
-	default:
-		return "resolver_failed"
-	}
-}
-
-func planFingerprint(plan *Plan) string {
-	if plan == nil {
-		return ""
-	}
-	data, err := json.Marshal(struct {
-		Target   string
-		Proxy    string
-		Headers  httpheader.Plan
-		Metadata map[string][]string
-		Recovery any
-	}{
-		Target:   urlString(plan.Target),
-		Proxy:    urlString(plan.Proxy),
-		Headers:  plan.Headers,
-		Metadata: plan.Metadata,
-		Recovery: plan.Recovery,
-	})
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:])
-}
-
-func urlString(value *url.URL) string {
-	if value == nil {
-		return ""
-	}
-	return value.String()
 }
 
 type cancelOnCloseBody struct {

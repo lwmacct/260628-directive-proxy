@@ -95,8 +95,8 @@ func TestSwitchingProtocolCancelWrapperRemainsWritable(t *testing.T) {
 func TestHandlerAppliesResponseHeaderPlan(t *testing.T) {
 	target, _ := url.Parse("https://upstream.example")
 	handler := NewHandler(
-		resolverFunc(func(*http.Request) (Resolution, error) {
-			return Resolution{Plan: &Plan{
+		resolverFunc(func(*http.Request) (resolverResult, error) {
+			return resolverResult{Plan: &Plan{
 				Target: target,
 				Headers: httpheader.Plan{Response: httpheader.ResponsePlan{Ops: []httpheader.Op{
 					{Action: httpheader.ActionRemove, Selector: exactSelector("Server")},

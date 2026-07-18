@@ -40,9 +40,7 @@ func (attempt *Attempt) ObserveUpstreamResponse(response *http.Response) {
 		return
 	}
 	current := attempt.exchange
-	current.stateMu.Lock()
-	metadata := requestmeta.Clone(attempt.metadata)
-	current.stateMu.Unlock()
+	metadata := requestmeta.Clone(attempt.source.Metadata)
 	current.lifecycleMu.Lock()
 	attempt.projection = program.NewUpstreamObserver(
 		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.requestScope, attempt.scope,

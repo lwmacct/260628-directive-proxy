@@ -15,10 +15,14 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
-type resolverFunc func(*http.Request) (Resolution, error)
+type resolverResult struct {
+	Plan   *Plan
+	Source SourceMetadata
+}
+
+type resolverFunc func(*http.Request) (resolverResult, error)
 
 type errorResponse struct {
 	Error struct {
@@ -27,31 +31,21 @@ type errorResponse struct {
 	} `json:"error"`
 }
 
-func (f resolverFunc) Prepare(req *http.Request) (PreparedDirective, error) {
-	resolution, err := f(req)
+func (f resolverFunc) Prepare(req *http.Request) (*PreparedDirective, error) {
+	result, err := f(req)
 	if err != nil {
 		return nil, err
 	}
-	return staticPrepared{resolution: resolution}, nil
+	return NewPreparedDirective(result.Source, result.Plan, nil, nil)
 }
 
-type staticPrepared struct {
-	resolution Resolution
-	err        error
+type preparedResolver struct {
+	prepared *PreparedDirective
+	err      error
 }
 
-type preparedResolver struct{ prepared PreparedDirective }
-
-func (r preparedResolver) Prepare(*http.Request) (PreparedDirective, error) { return r.prepared, nil }
-
-func (p staticPrepared) Kind() string { return p.resolution.Source.Mode }
-
-func (p staticPrepared) Source() SourceMetadata { return p.resolution.Source }
-
-func (p staticPrepared) Program() *program.Executable { return nil }
-
-func (p staticPrepared) ResolveAttempt(context.Context, int) (Resolution, error) {
-	return Resolution{Plan: ClonePlan(p.resolution.Plan), Source: p.resolution.Source}, p.err
+func (r preparedResolver) Prepare(*http.Request) (*PreparedDirective, error) {
+	return r.prepared, r.err
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -63,9 +57,9 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T) {
 	nextCalled := false
 	resolveCalls := 0
-	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
+	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
 		resolveCalls++
-		return Resolution{}, ErrNoMatch
+		return resolverResult{}, ErrNoMatch
 	}), http.DefaultTransport, HandlerOptions{
 		Next: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			nextCalled = true
@@ -90,8 +84,8 @@ func TestHandlerPassesUnmatchedRequestToNextWithoutProxySideEffects(t *testing.T
 }
 
 func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
-	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
-		return Resolution{}, ErrInvalidDirective
+	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
+		return resolverResult{}, ErrInvalidDirective
 	}), http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/responses", nil)
@@ -111,7 +105,7 @@ func TestHandlerReturnsBadRequestWhenDirectiveIsInvalid(t *testing.T) {
 	}
 }
 
-func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
+func TestHandlerMapsDirectivePreparationErrors(t *testing.T) {
 	tests := []struct {
 		err    error
 		status int
@@ -125,8 +119,8 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 		{ErrRemoteDirectiveInvalid, http.StatusBadGateway, "remote_response_invalid", "directive: remote payload is invalid"},
 	}
 	for _, tt := range tests {
-		handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
-			return Resolution{}, tt.err
+		handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
+			return resolverResult{}, tt.err
 		}), http.DefaultTransport, HandlerOptions{})
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
@@ -143,26 +137,8 @@ func TestHandlerMapsDirectiveResolutionErrors(t *testing.T) {
 	}
 }
 
-func TestHandlerMapsPerAttemptDirectiveResolutionError(t *testing.T) {
-	handler := NewHandler(preparedResolver{prepared: staticPrepared{err: ErrDirectiveNotFound, resolution: Resolution{Source: SourceMetadata{Mode: "remote"}}}}, http.DefaultTransport, HandlerOptions{})
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("unexpected status: %d body=%s", recorder.Code, recorder.Body.String())
-	}
-	var body errorResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Error.Code != "directive_not_found" {
-		t.Fatalf("unexpected error response: %#v", body)
-	}
-}
-
 func TestHandlerReturnsInternalErrorWhenDirectiveTargetMissing(t *testing.T) {
-	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
-		return Resolution{Plan: &Plan{}}, nil
-	}), http.DefaultTransport, HandlerOptions{})
+	handler := NewHandler(preparedResolver{prepared: &PreparedDirective{plan: &Plan{}}}, http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
 	recorder := httptest.NewRecorder()
@@ -186,8 +162,8 @@ func TestHandlerDoesNotExposeResolverErrorText(t *testing.T) {
 	const rawAuthorization = "Bearer encoded-auth-secret"
 	const decodedSecret = "decoded-auth-secret"
 
-	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
-		return Resolution{}, errors.New("resolve failed with " + rawAuthorization + " and " + decodedSecret)
+	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
+		return resolverResult{}, errors.New("resolve failed with " + rawAuthorization + " and " + decodedSecret)
 	}), http.DefaultTransport, HandlerOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil)
@@ -224,8 +200,8 @@ func TestHandlerDoesNotExposeProxyTransportErrorText(t *testing.T) {
 		t.Fatalf("parse target failed: %v", err)
 	}
 	handler := NewHandler(
-		resolverFunc(func(*http.Request) (Resolution, error) {
-			return Resolution{Plan: &Plan{
+		resolverFunc(func(*http.Request) (resolverResult, error) {
+			return resolverResult{Plan: &Plan{
 				Target: target,
 			}}, nil
 		}),
@@ -268,8 +244,8 @@ func TestHandlerPassesThroughUpstreamErrorResponse(t *testing.T) {
 		t.Fatalf("parse target failed: %v", err)
 	}
 	handler := NewHandler(
-		resolverFunc(func(*http.Request) (Resolution, error) {
-			return Resolution{Plan: &Plan{
+		resolverFunc(func(*http.Request) (resolverResult, error) {
+			return resolverResult{Plan: &Plan{
 				Target: target,
 			}}, nil
 		}),
@@ -328,8 +304,8 @@ func TestHandlerPatchHeaderPolicySurvivesReverseProxyPreprocessing(t *testing.T)
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			handler := NewHandler(
-				resolverFunc(func(*http.Request) (Resolution, error) {
-					return Resolution{Plan: &Plan{Target: target, Headers: httpheader.Plan{
+				resolverFunc(func(*http.Request) (resolverResult, error) {
+					return resolverResult{Plan: &Plan{Target: target, Headers: httpheader.Plan{
 						Request: httpheader.RequestPlan{PreserveProxyDisclosure: tt.preserve},
 					}}}, nil
 				}),
@@ -433,8 +409,8 @@ func TestHandlerStreamsRequestBodyBeforeClientEOF(t *testing.T) {
 		MemoryMaxBytes: 16, MemoryPerBodyBytes: 16, DiskMaxBytes: 64,
 		MaxBodyBytes: 16, ChunkBytes: 4, TempDir: t.TempDir(),
 	})
-	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
-		return Resolution{Plan: &Plan{Target: target}}, nil
+	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
+		return resolverResult{Plan: &Plan{Target: target}}, nil
 	}), transport, HandlerOptions{BodyStore: store, BodyReadTimeout: time.Second})
 
 	body := &stagedBody{
@@ -469,8 +445,8 @@ func TestHandlerAcceptsUnknownContentLength(t *testing.T) {
 		MemoryMaxBytes: 16, MemoryPerBodyBytes: 16, DiskMaxBytes: 64,
 		MaxBodyBytes: 16, ChunkBytes: 4, TempDir: t.TempDir(),
 	})
-	handler := NewHandler(resolverFunc(func(*http.Request) (Resolution, error) {
-		return Resolution{Plan: &Plan{Target: target}}, nil
+	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
+		return resolverResult{Plan: &Plan{Target: target}}, nil
 	}), roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		upstreamCalls.Add(1)
 		if _, err := io.ReadAll(request.Body); err != nil {

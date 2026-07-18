@@ -22,31 +22,24 @@ type RequestBodyEnded struct {
 }
 
 type AttemptStarted struct {
-	Mode     string
-	Backend  string
-	Endpoint string
-	Resource string
-}
-
-type DirectiveResolved struct {
-	Duration      time.Duration
+	Mode          string
+	Backend       string
+	Endpoint      string
+	Resource      string
 	PayloadSHA256 string
 	Target        *url.URL
-	TargetChanged bool
-	PlanChanged   bool
 	Metadata      requestmeta.Metadata
 }
 
-type DirectiveFailed struct {
-	Duration time.Duration
-	Code     string
-}
-
-type MetadataBound struct{ Metadata requestmeta.Metadata }
-
-type MetadataChanged struct {
-	Bound    requestmeta.Metadata
-	Observed requestmeta.Metadata
+type DirectivePrepared struct {
+	Mode          string
+	Backend       string
+	Endpoint      string
+	Resource      string
+	Duration      time.Duration
+	PayloadSHA256 string
+	Target        *url.URL
+	Metadata      requestmeta.Metadata
 }
 
 type UpstreamStarted struct {

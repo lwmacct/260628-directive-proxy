@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
@@ -14,6 +15,10 @@ var (
 	ErrRecoveryFailed         = errors.New("exchange recovery failed")
 	ErrAttemptActive          = errors.New("exchange already has an active attempt")
 	ErrAttemptScopeOpened     = errors.New("exchange attempt scope is already open")
+	ErrProgramNotConfigured   = errors.New("exchange program is not configured")
+	ErrDirectiveNotPrepared   = errors.New("exchange directive is not prepared")
+	ErrDirectiveAlreadySet    = errors.New("exchange directive is already prepared")
+	ErrDirectiveInvalid       = errors.New("exchange directive is invalid")
 )
 
 type Phase string
@@ -21,7 +26,7 @@ type Phase string
 const (
 	PhaseStartingBody      Phase = "starting_body_stream"
 	PhaseStreamingRequest  Phase = "streaming_request"
-	PhaseResolving         Phase = "resolving_directive"
+	PhasePreparingAttempt  Phase = "preparing_attempt"
 	PhaseAwaitingResponse  Phase = "awaiting_response"
 	PhaseRecovering        Phase = "recovering"
 	PhaseRetryRequested    Phase = "retry_requested"
@@ -36,11 +41,15 @@ const (
 	DecisionRetry
 )
 
-type AttemptSource struct {
-	Mode     string
-	Backend  string
-	Endpoint string
-	Resource string
+type DirectiveInfo struct {
+	Mode          string
+	Backend       string
+	Endpoint      string
+	Resource      string
+	PayloadSHA256 string
+	Duration      time.Duration
+	Target        *url.URL
+	Metadata      requestmeta.Metadata
 }
 
 type ManagerOptions struct {

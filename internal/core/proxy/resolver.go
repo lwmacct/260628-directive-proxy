@@ -1,12 +1,12 @@
 package proxy
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/requestmeta"
 )
 
 var (
@@ -20,27 +20,58 @@ var (
 )
 
 type Resolver interface {
-	Prepare(*http.Request) (PreparedDirective, error)
+	Prepare(*http.Request) (*PreparedDirective, error)
 }
 
-// PreparedDirective is an immutable, fully resolved Payload. A remote token is
-// dereferenced before this boundary, so attempts do not distinguish how the
-// Payload was acquired.
-type PreparedDirective interface {
-	Kind() string
-	Source() SourceMetadata
-	Program() *program.Executable
-	ResolveAttempt(context.Context, int) (Resolution, error)
+// PreparedDirective is one immutable compilation result. Remote dereference,
+// Payload validation and Program compilation are complete before this value is
+// constructed; every Attempt consumes the same Plan and Recovery policy.
+type PreparedDirective struct {
+	source   SourceMetadata
+	plan     *Plan
+	program  *program.Executable
+	recovery *recovery.Policy
 }
 
-type RecoveryPreparedDirective interface {
-	Recovery() *recovery.Policy
+func NewPreparedDirective(source SourceMetadata, plan *Plan, executable *program.Executable, policy *recovery.Policy) (*PreparedDirective, error) {
+	if plan == nil || plan.Target == nil {
+		return nil, ErrInvalidDirective
+	}
+	normalized, err := requestmeta.Normalize(plan.Metadata)
+	if err != nil {
+		return nil, ErrInvalidDirective
+	}
+	cloned := ClonePlan(plan)
+	cloned.Metadata = normalized
+	return &PreparedDirective{
+		source: source, plan: cloned, program: executable, recovery: recovery.ClonePolicy(policy),
+	}, nil
 }
 
-func PreparedRecovery(prepared PreparedDirective) *recovery.Policy {
-	value, ok := prepared.(RecoveryPreparedDirective)
-	if !ok || value == nil {
+func (prepared *PreparedDirective) Source() SourceMetadata {
+	if prepared == nil {
+		return SourceMetadata{}
+	}
+	return prepared.source
+}
+
+func (prepared *PreparedDirective) Plan() *Plan {
+	if prepared == nil {
 		return nil
 	}
-	return value.Recovery()
+	return ClonePlan(prepared.plan)
+}
+
+func (prepared *PreparedDirective) Program() *program.Executable {
+	if prepared == nil {
+		return nil
+	}
+	return prepared.program
+}
+
+func (prepared *PreparedDirective) Recovery() *recovery.Policy {
+	if prepared == nil {
+		return nil
+	}
+	return recovery.ClonePolicy(prepared.recovery)
 }

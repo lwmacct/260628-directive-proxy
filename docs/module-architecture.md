@@ -40,15 +40,17 @@ directive 使用有序数组声明程序：
 - `core/exchange` 是生命周期唯一拥有者，驱动 request、attempt、recovery 和 downstream 状态转换；
 - `Manager` 是轻量 Exchange factory，只携带 Program runtime 和服务端 Attempt 上限，不维护活动索引或外部 command；
 - `Exchange` 拥有入站请求生命周期、request scope、下游响应和当前 Attempt；流式 Replay Store 通过请求 context 交给 RecoveryTransport；
-- `Attempt` 是 Exchange 创建的强类型子对象，拥有一次 directive 解析、上游访问和 attempt scope；
+- `Attempt` 是 Exchange 创建的强类型子对象，拥有一次上游访问和 attempt scope；
 - `program.Executable` 在 Prepare 阶段生成一次；Recovery Attempt 复用同一批不可变 Binding，只重新调用 `Binding.Open` 创建实例。
+
+`proxy.PreparedDirective` 是 Prepare 阶段唯一的产物，固定持有 `Source + Plan + Program + Recovery`。其中 Plan 描述 target、proxy、header policy 和 request metadata，Recovery 独立归属；Transport 在 Attempt 循环外读取一次这些值。
 
 生命周期方法直接接收 `*Attempt`，不传递裸 attempt 整数，也没有每请求 coordinator goroutine/channel。状态转换与 Module 事件提交分别由明确的 mutex 串行化。
 
 ## Scope
 
 - request scope 由 Exchange 在读取请求正文前打开，跨越全部 Recovery Attempt 和下游响应；
-- attempt scope 在每次 directive plan 解析后打开，Recovery retry、transport error 或响应 body 结束时关闭；
+- attempt scope 在每次 Attempt 构造上游请求前打开，Recovery retry、transport error 或响应 body 结束时关闭；
 - request Module 可以观察所有 attempt，attempt Module 不会泄漏状态到下一次重试；
 - scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`；客户端取消只改变 Finish cause，不跳过 drain。
 
@@ -57,7 +59,7 @@ directive 使用有序数组声明程序：
 - Hook：提交前可变 Draft，例如 outbound request/body chunk、upstream response/body chunk；
 - Transform：按 directive 顺序修改流数据；
 - Stream：只读数据或派生投影，例如 raw chunk、JSON chunk、SSE data/comment；
-- Fact：不可变生命周期事实，例如 request started、directive resolved、Recovery transaction、body ended；
+- Fact：不可变生命周期事实，例如 request started、directive prepared、attempt started、Recovery transaction、body ended；
 - Command：预留给异步影响未来状态的控制消息，不允许异步任务反向修改已经提交的数据。
 
 Module 通过 `module.Registrar` 明确声明端口，端口值来自 `core/lifecycle`。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。

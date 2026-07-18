@@ -12,7 +12,6 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
 var (
@@ -41,13 +40,6 @@ type Resolver struct {
 	compiler      program.Compiler
 }
 
-type preparedDirective struct {
-	kind       string
-	plan       *proxy.Plan
-	executable *program.Executable
-	source     proxy.SourceMetadata
-}
-
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 	var configured ResolverOptions
 	if len(opts) > 0 {
@@ -67,7 +59,7 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 // Prepare resolves a token to one canonical Payload. Inline tokens contain the
 // Payload directly; remote tokens contain only the RemoteSpec used to fetch it.
 // After this dereference both modes share the same validation and execution path.
-func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
+func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) {
 	raw, ok := directiveTokenFromAuthorization(req)
 	if !ok {
 		return nil, proxy.ErrNoMatch
@@ -100,7 +92,7 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 	if payload == nil {
 		return nil, proxy.ErrInvalidDirective
 	}
-	plan, err := ToPlan(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}, InboundURL: req.URL})
+	plan, recoveryPolicy, err := CompilePayload(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}, InboundURL: req.URL})
 	if err != nil {
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid
@@ -126,9 +118,14 @@ func (r *Resolver) Prepare(req *http.Request) (proxy.PreparedDirective, error) {
 			return nil, proxy.ErrInvalidDirective
 		}
 	}
-	return &preparedDirective{
-		kind: document.Kind, plan: proxy.ClonePlan(plan), executable: executable, source: source,
-	}, nil
+	prepared, err := proxy.NewPreparedDirective(source, plan, executable, recoveryPolicy)
+	if err != nil {
+		if document.Kind == KindRemote {
+			return nil, proxy.ErrRemoteDirectiveInvalid
+		}
+		return nil, proxy.ErrInvalidDirective
+	}
+	return prepared, nil
 }
 
 func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Payload, proxy.SourceMetadata, error) {
@@ -190,41 +187,6 @@ func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Pay
 	digest := sha256.Sum256(payloadRaw)
 	source.PayloadSHA256 = hex.EncodeToString(digest[:])
 	return payload, source, nil
-}
-
-func (p *preparedDirective) Kind() string {
-	if p == nil {
-		return ""
-	}
-	return p.kind
-}
-
-func (p *preparedDirective) Program() *program.Executable {
-	if p == nil {
-		return nil
-	}
-	return p.executable
-}
-
-func (p *preparedDirective) Source() proxy.SourceMetadata {
-	if p == nil {
-		return proxy.SourceMetadata{}
-	}
-	return p.source
-}
-
-func (p *preparedDirective) Recovery() *recovery.Policy {
-	if p == nil || p.plan == nil {
-		return nil
-	}
-	return recovery.ClonePolicy(p.plan.Recovery)
-}
-
-func (p *preparedDirective) ResolveAttempt(context.Context, int) (proxy.Resolution, error) {
-	if p == nil || p.plan == nil {
-		return proxy.Resolution{}, proxy.ErrInvalidDirective
-	}
-	return proxy.Resolution{Plan: proxy.ClonePlan(p.plan), Source: p.source}, nil
 }
 
 // MatchesRequest reports whether the request carries a token from the reserved

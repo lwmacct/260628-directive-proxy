@@ -28,4 +28,6 @@
 
 Capture 订阅 request/attempt facts、流式 `RequestBodyChunk`、downstream raw body、共享 SSE data/comment 投影和 request finish。请求正文端口使用 `ordered_lane + before_commit`，Capture 按 `body-chunk-bytes` 重新分片并以 borrowed Record 提交，Dispatcher 在入队时复制自己拥有的数据；其余端口异步执行并在 request scope 结束前 drain。
 
-主要 topics 为 `capture.request.*`、`capture.directive.*`、`capture.attempt.*`、`capture.recovery.*` 和 `capture.response.*`。Recovery transaction 依次输出 `capture.recovery.started`、`capture.recovery.decided` 和 `capture.recovery.finished`；三者共享 Controller callback 的 `event_id`，最终 topic 包含实际 outcome、action、delay 和错误信息。正文 chunk 使用 MessagePack binary，包含 offset、length 和 chunk index。Sink 队列拒绝 borrowed response chunk 时，Module 累计 `dropped_bytes` 并输出 `capture.response.body.gap`，不会阻塞代理数据面。
+主要 topics 为 `capture.request.*`、`capture.directive.*`、`capture.attempt.*`、`capture.recovery.*` 和 `capture.response.*`。`capture.directive.prepared` 每个请求只输出一次，包含 source、固定 target、payload digest 和 metadata；`capture.attempt.started` 每次 Attempt 输出一次并重复这些固定事实，便于独立审计。不存在 per-Attempt directive resolve 或 metadata changed topic。
+
+Recovery transaction 依次输出 `capture.recovery.started`、`capture.recovery.decided` 和 `capture.recovery.finished`；三者共享 Controller callback 的 `event_id`，最终 topic 包含实际 outcome、action、delay 和错误信息。正文 chunk 使用 MessagePack binary，包含 offset、length 和 chunk index。Sink 队列拒绝 borrowed response chunk 时，Module 累计 `dropped_bytes` 并输出 `capture.response.body.gap`，不会阻塞代理数据面。
