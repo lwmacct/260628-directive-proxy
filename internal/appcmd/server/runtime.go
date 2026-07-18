@@ -12,8 +12,6 @@ import (
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/recoveryhttp"
@@ -38,8 +36,7 @@ type runtime struct {
 	moduleRuntime    *module.Runtime
 	eventOutput      *event.Dispatcher
 	adminAuth        *authme.Auth
-	sourceAccess     *sourcehttp.Guard
-	sourceEngine     *sourceaccess.Engine
+	sourceAccess     *directiveSourceAccess
 	tls              *tlsRuntime
 	directiveRemotes *directiveRemotes
 	recovery         *recoveryhttp.Controller
@@ -50,10 +47,9 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
 	}
-	var sourceAccess *sourcehttp.Guard
-	var sourceEngine *sourceaccess.Engine
+	var sourceAccess *directiveSourceAccess
 	if cfg.Proxy.Directive.SourceAccess.Enabled {
-		sourceAccess, sourceEngine, err = newDirectiveSourceAccess(ctx, cfg.Proxy.Directive.SourceAccess)
+		sourceAccess, err = newDirectiveSourceAccess(ctx, cfg.Proxy.Directive.SourceAccess)
 		if err != nil {
 			_ = tlsRuntime.Close()
 			return nil, fmt.Errorf("configure source access: %w", err)
@@ -61,16 +57,16 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}
 	adminAuth, err := newAdminAuth(ctx, cfg.HTTP)
 	if err != nil {
-		if sourceEngine != nil {
-			sourceEngine.Close()
+		if sourceAccess != nil {
+			sourceAccess.Close()
 		}
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	eventOutput, err := newEventDispatcher(ctx, cfg.Fluent)
 	if err != nil {
-		if sourceEngine != nil {
-			sourceEngine.Close()
+		if sourceAccess != nil {
+			sourceAccess.Close()
 		}
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure event output: %w", err)
@@ -80,8 +76,8 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
 		}
-		if sourceEngine != nil {
-			sourceEngine.Close()
+		if sourceAccess != nil {
+			sourceAccess.Close()
 		}
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure module runtime: %w", err)
@@ -115,8 +111,8 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
 		}
-		if sourceEngine != nil {
-			sourceEngine.Close()
+		if sourceAccess != nil {
+			sourceAccess.Close()
 		}
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure recovery transport: %w", err)
@@ -131,7 +127,6 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		eventOutput:      eventOutput,
 		adminAuth:        adminAuth,
 		sourceAccess:     sourceAccess,
-		sourceEngine:     sourceEngine,
 		tls:              tlsRuntime,
 		directiveRemotes: directiveRemotes,
 		recovery:         recoveryController,
@@ -180,34 +175,6 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, err
 	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
-func newDirectiveSourceAccess(ctx context.Context, cfg config.DirectiveSourceAccess) (*sourcehttp.Guard, *sourceaccess.Engine, error) {
-	policy, err := sourceaccess.Compile(cfg.Rules)
-	if err != nil || policy.Len() == 0 {
-		return nil, nil, config.ErrInvalidAccess
-	}
-	engine, err := sourceaccess.NewEngine(ctx, cfg.DNS)
-	if err != nil {
-		return nil, nil, err
-	}
-	guard, err := sourcehttp.New(sourcehttp.Config{
-		TrustedProxies: cfg.TrustedProxies,
-		Headers:        []sourcehttp.Header{sourcehttp.HeaderForwarded, sourcehttp.HeaderXForwardedFor, sourcehttp.HeaderXRealIP},
-	}, engine.Bind(policy), sourcehttp.WithDeniedHandler(
-		func(w http.ResponseWriter, _ *http.Request, result sourceaccess.Result) {
-			code := result.Decision.Reason
-			if code == "" {
-				code = sourceaccess.ReasonSourceNotAllowed
-			}
-			proxy.WriteProxyErrorJSON(w, http.StatusForbidden, string(code), "directive: source access denied")
-		},
-	))
-	if err != nil {
-		engine.Close()
-		return nil, nil, err
-	}
-	return guard, engine, nil
-}
-
 func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
@@ -236,9 +203,8 @@ func (rt *runtime) Close(ctx context.Context) error {
 		return nil
 	}
 	var errs []error
-	if rt.sourceEngine != nil {
-		rt.sourceEngine.Close()
-		rt.sourceEngine = nil
+	if rt.sourceAccess != nil {
+		rt.sourceAccess.Close()
 		rt.sourceAccess = nil
 	}
 	if rt.tls != nil {

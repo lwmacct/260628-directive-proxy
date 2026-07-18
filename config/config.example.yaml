@@ -103,21 +103,18 @@ server:
 
       # Directive 入口来源白名单
       source-access:
-        enabled: false # whether source access is enabled by the calling application
+        enabled: false # 是否由调用方启用来源地址限制
 
-        # source allowlist rules
+        # IP、CIDR 或域名允许规则
         rules:
-          - id: ""
-            kind: ""
-            value: "127.0.0.1"
-          - id: ""
-            kind: ""
-            value: "::1"
-          - id: ""
-            kind: ""
-            value: "172.22.0.0/16"
+          - id: "" # 规则标识
+            value: "127.0.0.1" # 允许的 IP、CIDR 或域名
+          - id: "" # 规则标识
+            value: "::1" # 允许的 IP、CIDR 或域名
+          - id: "" # 规则标识
+            value: "172.22.0.0/16" # 允许的 IP、CIDR 或域名
 
-        # domain resolution cache settings
+        # 域名解析与缓存配置
         dns:
           lookup-timeout: 2s # 单次域名解析超时
           success-ttl: 1m0s # 域名成功解析结果缓存时间
@@ -125,8 +122,16 @@ server:
           stale-ttl: 10m0s # 解析失败后允许继续使用旧成功结果的最长时间
           max-hosts: 1024 # DNS 缓存的最大域名数量
 
-        # 可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头
+        # 可信反向代理 IP 或 CIDR 列表
         trusted-proxies: []
+
+        # 按优先级启用的客户端地址转发头
+        headers:
+          - forwarded
+          - x-forwarded-for
+          - x-real-ip
+        max-header-bytes: 8192 # 转发头允许的最大字节数
+        max-hops: 16 # 代理链允许的最大地址数量
 
       # 远程指令解析资源限制
       remote:

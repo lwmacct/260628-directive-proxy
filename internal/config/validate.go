@@ -7,7 +7,6 @@ import (
 
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourcehttp"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 )
 
@@ -116,19 +115,15 @@ func validateFluentOutput(cfg fluent.Config) (fluent.Config, error) {
 }
 
 func validateDirectiveSourceAccess(cfg DirectiveSourceAccess) (DirectiveSourceAccess, error) {
-	normalized, err := cfg.Config.Normalize()
+	normalized, err := cfg.SourceIPAllowConfig.Normalize()
 	if err != nil || normalized.Enabled && len(normalized.Rules) == 0 {
 		return cfg, ErrInvalidAccess
 	}
-	httpConfig := sourcehttp.Config{
-		TrustedProxies: cfg.TrustedProxies,
-		Headers:        []sourcehttp.Header{sourcehttp.HeaderForwarded, sourcehttp.HeaderXForwardedFor, sourcehttp.HeaderXRealIP},
-	}
-	if err := httpConfig.Validate(); err != nil {
+	if err := cfg.SourceClientIPConfig.Validate(); err != nil {
 		return cfg, ErrInvalidAccess
 	}
-	cfg.Config = normalized
-	cfg.TrustedProxies = normalizeTrustedProxies(cfg.TrustedProxies)
+	cfg.SourceIPAllowConfig = normalized
+	cfg.SourceClientIPConfig.TrustedProxies = normalizeTrustedProxies(cfg.SourceClientIPConfig.TrustedProxies)
 	return cfg, nil
 }
 

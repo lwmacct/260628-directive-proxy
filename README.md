@@ -267,7 +267,7 @@ pnpm dev
 
 `server.proxy.directive.source-access` 只保护 dp data plane，不保护 AuthMe、健康检查或静态前端。启用后，来源校验发生在 token 解码和远程 resolver 访问之前。
 
-规则支持 IP、CIDR 和域名。只有直接对端命中 `trusted-proxies` 时才读取 `Forwarded`、`X-Forwarded-For` 或 `X-Real-IP`。
+规则支持自动识别的 IP、CIDR 和域名。只有直接对端命中 `trusted-proxies` 时才按 `headers` 的配置顺序读取转发头；`max-header-bytes` 和 `max-hops` 限制转发链的资源消耗。
 
 ## 构建与验证
 

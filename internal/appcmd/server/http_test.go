@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
+	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
 )
 
 func enableRedisJSON(t *testing.T, redisServer *miniredis.Miniredis) {
@@ -383,7 +384,7 @@ func TestDirectiveSourceAccessRejectsBeforeTokenDecode(t *testing.T) {
 func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 	cfg := newTestServerConfig()
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: "198.51.100.7"}}
+	cfg.Proxy.Directive.SourceAccess.Rules = []ipallow.Rule{{Value: "198.51.100.7"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -409,7 +410,7 @@ func TestDirectiveSourceAccessUsesTrustedProxyChain(t *testing.T) {
 func TestDirectiveSourceAccessRejectsMalformedTrustedProxyHeader(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: "198.51.100.7"}}
+	cfg.Proxy.Directive.SourceAccess.Rules = []ipallow.Rule{{Value: "198.51.100.7"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"192.0.2.0/24"}
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
@@ -442,33 +443,32 @@ func TestDirectiveSourceAccessFailsClosedWhenRuntimeIsUnavailable(t *testing.T) 
 
 func newTestRuntimeWithSourceAccess(t *testing.T, cfg config.Server, value runtime) *runtime {
 	t.Helper()
-	access, engine, err := newDirectiveSourceAccess(context.Background(), cfg.Proxy.Directive.SourceAccess)
+	access, err := newDirectiveSourceAccess(context.Background(), cfg.Proxy.Directive.SourceAccess)
 	if err != nil {
 		t.Fatalf("configure test source access: %v", err)
 	}
-	t.Cleanup(engine.Close)
+	t.Cleanup(access.Close)
 	value.sourceAccess = access
-	value.sourceEngine = engine
 	if value.bodyStore == nil {
 		value.bodyStore = newTestBodyStore(cfg.Proxy.BodyStore)
 	}
 	return &value
 }
 
-func TestRuntimeCloseClosesSourceEngine(t *testing.T) {
+func TestRuntimeCloseClosesSourceMatcher(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{})
-	engine := rt.sourceEngine
-	policy, err := sourceaccess.Compile([]sourceaccess.Rule{{Value: "127.0.0.1"}})
+	matcher := rt.sourceAccess.matcher
+	policy, err := ipallow.Compile([]ipallow.Rule{{Value: "127.0.0.1"}})
 	if err != nil {
 		t.Fatalf("compile test policy: %v", err)
 	}
 	if err := rt.Close(context.Background()); err != nil {
 		t.Fatalf("close runtime: %v", err)
 	}
-	result := engine.Evaluate(context.Background(), policy, netip.MustParseAddr("127.0.0.1"))
-	if result.Decision.Reason != sourceaccess.ReasonEngineClosed || rt.sourceEngine != nil || rt.sourceAccess != nil {
-		t.Fatalf("source engine remained available after close: %#v", result)
+	result, matchErr := matcher.Match(context.Background(), policy, netip.MustParseAddr("127.0.0.1"))
+	if !errors.Is(matchErr, ipallow.ErrMatcherClosed) || result.Reason != ipallow.ReasonMatcherClosed || rt.sourceAccess != nil {
+		t.Fatalf("source matcher remained available after close: result=%#v err=%v", result, matchErr)
 	}
 }
 

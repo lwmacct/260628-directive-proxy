@@ -10,7 +10,8 @@ import (
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
+	"github.com/lwmacct/260718-go-pkg-clientip/pkg/clientip"
+	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
 )
 
 func validDefaultConfig() Server {
@@ -184,8 +185,10 @@ func TestValidateReportsAuthCause(t *testing.T) {
 func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
 	tests := []func(*DirectiveSourceAccess){
 		func(cfg *DirectiveSourceAccess) { cfg.Rules = nil },
-		func(cfg *DirectiveSourceAccess) { cfg.Rules = []sourceaccess.Rule{{Value: "bad_name.example"}} },
+		func(cfg *DirectiveSourceAccess) { cfg.Rules = []ipallow.Rule{{Value: "bad_name.example"}} },
 		func(cfg *DirectiveSourceAccess) { cfg.TrustedProxies = []string{"proxy.example.com"} },
+		func(cfg *DirectiveSourceAccess) { cfg.Headers = []clientip.Header{"invalid"} },
+		func(cfg *DirectiveSourceAccess) { cfg.MaxHops = -1 },
 		func(cfg *DirectiveSourceAccess) { cfg.DNS.LookupTimeout = -1 },
 		func(cfg *DirectiveSourceAccess) { cfg.DNS.MaxHosts = 0 },
 	}
@@ -202,7 +205,7 @@ func TestValidateRejectsInvalidSourceAccess(t *testing.T) {
 func TestValidateNormalizesSourceAccess(t *testing.T) {
 	cfg := validDefaultConfig()
 	cfg.Proxy.Directive.SourceAccess.Enabled = true
-	cfg.Proxy.Directive.SourceAccess.Rules = []sourceaccess.Rule{{Value: " EDGE.Example.COM. "}, {Value: "192.0.2.7/24"}}
+	cfg.Proxy.Directive.SourceAccess.Rules = []ipallow.Rule{{Value: " EDGE.Example.COM. "}, {Value: "192.0.2.7/24"}}
 	cfg.Proxy.Directive.SourceAccess.TrustedProxies = []string{"10.0.0.1"}
 
 	validated, err := Validate(cfg)

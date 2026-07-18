@@ -9,8 +9,9 @@ import (
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
-	"github.com/lwmacct/260713-go-pkg-sourceaccess/pkg/sourceaccess"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
+	"github.com/lwmacct/260718-go-pkg-clientip/pkg/clientip"
+	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
 )
 
 var (
@@ -81,9 +82,12 @@ type ProxyDirective struct {
 	Remote        RemoteDirective       `json:"remote"         desc:"远程指令解析资源限制"`
 }
 
+type SourceIPAllowConfig = ipallow.Config
+type SourceClientIPConfig = clientip.Config
+
 type DirectiveSourceAccess struct {
-	sourceaccess.Config `cfgm:",inline"`
-	TrustedProxies      []string `json:"trusted-proxies" desc:"可信反向代理 IP/CIDR 列表，仅这些来源可提供真实客户端 IP 头"`
+	SourceIPAllowConfig  `cfgm:",inline"`
+	SourceClientIPConfig `cfgm:",inline"`
 }
 
 type RemoteDirective struct {
@@ -168,14 +172,17 @@ func DefaultConfig() Config {
 					TokenSecret:   "${DIRECTIVE_TOKEN_SECRET:?directive token HMAC secret is required}",
 					MaxTokenBytes: 64 << 10,
 					SourceAccess: func() DirectiveSourceAccess {
-						access := sourceaccess.DefaultConfig()
-						access.Rules = []sourceaccess.Rule{
+						access := ipallow.DefaultConfig()
+						access.Rules = []ipallow.Rule{
 							{Value: "127.0.0.1"},
 							{Value: "::1"},
 							{Value: "172.22.0.0/16"},
 						}
 						access.DNS.StaleTTL = 10 * time.Minute
-						return DirectiveSourceAccess{Config: access}
+						return DirectiveSourceAccess{
+							SourceIPAllowConfig:  access,
+							SourceClientIPConfig: clientip.DefaultConfig(),
+						}
 					}(),
 					Remote: RemoteDirective{
 						Timeout:         time.Second,
