@@ -6,6 +6,7 @@ import type { Text } from "../../../shared/i18n";
 import { newHeaderMutation } from "../constants";
 import type { DirectiveSource, EditorState, HeaderMutation } from "../types";
 import { HeaderMutationsTable } from "./HeaderMutationsTable";
+import { KeyValueEditor } from "./KeyValueEditor";
 import { ModuleProgramEditor } from "./ModuleProgramEditor";
 import { RecoveryEditor } from "./RecoveryEditor";
 
@@ -96,6 +97,19 @@ export function StructuredEditorPanel(props: {
 
   const inlineItems = [
     { key: "target", label: text.target, children: target },
+    {
+      key: "metadata",
+      label: text.metadata,
+      children: <KeyValueEditor
+        addLabel={text.addMetadataField}
+        items={editor.metadataFields}
+        maxItems={15}
+        namePlaceholder={text.metadataKeyPlaceholder}
+        removeLabel={text.removeMetadataField}
+        valuePlaceholder={text.metadataValuePlaceholder}
+        onChange={(metadataFields) => onUpdate({ metadataFields })}
+      />,
+    },
     {
       key: "headers",
       label: text.headers,

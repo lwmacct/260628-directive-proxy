@@ -61,6 +61,7 @@ export function createInitialEditor(): EditorState {
     resolverHeaderMode: "patch",
     resolverPreserveProxyDisclosure: false,
     resolverHeaderMutations: [newHeaderMutation("set", "name", "Authorization", ["Bearer policy-token"])],
+    metadataFields: [],
     targetMode: "base",
     targetURL: "https://httpbin.org/anything",
     proxyURL: "",

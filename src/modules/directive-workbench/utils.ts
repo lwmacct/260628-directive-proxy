@@ -36,8 +36,9 @@ function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
 export function buildPayload(input: EditorState): DirectivePayload {
   const mutations = buildHeaderMutations(input.headerMutations);
   const targetURL = input.targetURL.trim();
+  const metadata = buildHeaderMap(input.metadataFields);
   const payload: DirectivePayload = {
-    ...(input.metadata && Object.keys(input.metadata).length ? { metadata: input.metadata } : {}),
+    ...(Object.keys(metadata).length ? { metadata } : {}),
     target: input.targetMode === "base" ? { base_url: targetURL } : { exact_url: targetURL },
   };
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
@@ -118,7 +119,7 @@ export function buildEnvelope(source: DirectiveSource, editor: EditorState): Dir
 
 function payloadToEditor(payload: DirectivePayload) {
   return {
-    metadata: payload.metadata,
+    metadataFields: Object.entries(payload.metadata ?? {}).map(([name, value]) => newResolverHeader(name, value)),
     targetMode: "base_url" in payload.target ? "base" as const : "exact" as const,
     targetURL: "base_url" in payload.target ? payload.target.base_url : payload.target.exact_url,
     proxyURL: payload.proxy ?? "",

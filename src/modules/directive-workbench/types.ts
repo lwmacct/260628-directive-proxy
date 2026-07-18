@@ -7,6 +7,8 @@ export type ResolverHeader = {
   value: string;
 };
 
+export type MetadataField = ResolverHeader;
+
 export type HeaderMutation = {
   key: string;
   side: "request" | "response";
@@ -53,7 +55,7 @@ export type EditorState = {
   resolverHeaderMode: "patch" | "replace";
   resolverPreserveProxyDisclosure: boolean;
   resolverHeaderMutations: HeaderMutation[];
-  metadata?: Record<string, string>;
+  metadataFields: MetadataField[];
   targetMode: "base" | "exact";
   targetURL: string;
   proxyURL: string;

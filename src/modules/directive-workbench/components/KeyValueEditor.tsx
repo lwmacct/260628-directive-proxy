@@ -8,6 +8,7 @@ export function KeyValueEditor(props: {
   addLabel: string;
   items: ResolverHeader[];
   namePlaceholder?: string;
+  maxItems?: number;
   removeLabel: string;
   valuePlaceholder?: string;
   onChange: (items: ResolverHeader[]) => void;
@@ -37,7 +38,7 @@ export function KeyValueEditor(props: {
         onClick={() => props.onChange(props.items.filter((candidate) => candidate.key !== item.key))}
       />
     </Flex>)}
-    <Button icon={<PlusOutlined />} onClick={() => props.onChange([...props.items, newResolverHeader("", "")])}>
+    <Button disabled={props.maxItems !== undefined && props.items.length >= props.maxItems} icon={<PlusOutlined />} onClick={() => props.onChange([...props.items, newResolverHeader("", "")])}>
       {props.addLabel}
     </Button>
   </Flex>;
