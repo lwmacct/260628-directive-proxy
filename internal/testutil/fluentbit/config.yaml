@@ -8,6 +8,7 @@ service:
   hot_reload: on
 
 includes:
+  - private/*
   - pipeline/inputs/*
   - pipeline/filters/*
   - pipeline/outputs/*
