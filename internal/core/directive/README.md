@@ -36,11 +36,11 @@
 - remote Payload 每个请求只读取一次，不做字段合并、per-RoundTrip 重读、回退、value 缓存或递归引用。
 - Redis directive 只使用 `JSON.GET key` 读取根文档；String key 不兼容，由写入方使用 `JSON.SET key $` 管理。
 - File directive 只使用 slash 相对 `path`，由配置 root 限定读取范围；支持子目录，只读取普通文件。
-- `headers` 是单一 HeaderPolicy；每条 mutation 必须显式声明 `side: request|response`，action 只允许 `set|remove|append`，并且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
-- `mode` 和 `preserve_proxy_disclosure` 只作用于 request；请求 header 默认使用 patch 模式并移除代理披露 header。
+- `headers` 是单一 HeaderPolicy；每条 mutation 必须显式声明 `side: request|response`，action 只允许 `add|set|del`，并且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。
+- request 始终继承清理后的原 Header；首条 `del` + `glob: "*"` 表示清空普通 Header 后重建。`preserve_proxy_disclosure` 只作用于 request。
 - HTTP RemoteSpec 复用同一 HeaderPolicy，但只允许 `side: request`。
 - 响应 header mutation 只应用于最终上游响应，不应用于被重试丢弃的响应、informational response、trailer 或本地代理错误。
-- `Host` 只接受 exact selector；`remove` 删除完整 header，不接受 `values`。
+- `add` 至少包含一个 value，`set` 必须且只能包含一个 value，`del` 删除完整 Header 且不接受 `values`；`Host` 只接受 exact `set|del`。
 - malformed 或不支持版本的 dp family token 返回 `proxy.ErrInvalidDirective`。
 - 未识别到 dp family token 返回 `proxy.ErrNoMatch`，不会启动代理请求生命周期。
 

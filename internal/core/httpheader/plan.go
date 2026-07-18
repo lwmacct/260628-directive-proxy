@@ -1,19 +1,11 @@
 package httpheader
 
-type Mode string
-
-const (
-	ModePatch   Mode = "patch"
-	ModeReplace Mode = "replace"
-)
-
 type Plan struct {
 	Request  RequestPlan
 	Response ResponsePlan
 }
 
 type RequestPlan struct {
-	Mode                    Mode
 	PreserveProxyDisclosure bool
 	StripBeforeOps          []string
 	Ops                     []Op
@@ -26,9 +18,9 @@ type ResponsePlan struct {
 type Action string
 
 const (
-	ActionAdd    Action = "+"
-	ActionRemove Action = "-"
-	ActionSet    Action = "="
+	ActionAdd Action = "add"
+	ActionSet Action = "set"
+	ActionDel Action = "del"
 )
 
 type SelectorKind string

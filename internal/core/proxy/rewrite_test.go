@@ -30,12 +30,12 @@ func TestApplyHeaderOps(t *testing.T) {
 		"X-Other": []string{"gone"},
 	}
 	httpheader.Apply(headers, []httpheader.Op{
-		{Action: httpheader.ActionSet, Selector: exactSelector("X-Test"), Values: []string{"new", "alt"}},
+		{Action: httpheader.ActionSet, Selector: exactSelector("X-Test"), Values: []string{"new"}},
 		{Action: httpheader.ActionAdd, Selector: exactSelector("X-Extra"), Values: []string{"one", "two"}},
-		{Action: httpheader.ActionRemove, Selector: exactSelector("X-Other")},
+		{Action: httpheader.ActionDel, Selector: exactSelector("X-Other")},
 	})
 
-	if got := headers.Values("X-Test"); len(got) != 2 || got[0] != "new" || got[1] != "alt" {
+	if got := headers.Values("X-Test"); len(got) != 1 || got[0] != "new" {
 		t.Fatalf("unexpected X-Test: %#v", got)
 	}
 	if got := headers.Values("X-Extra"); len(got) != 2 {
@@ -55,7 +55,7 @@ func TestApplyHeaderOpsWithGlobSelector(t *testing.T) {
 	httpheader.Apply(headers, []httpheader.Op{
 		{Action: httpheader.ActionSet, Selector: globSelector("x-tenant-*"), Values: []string{"shared"}},
 		{Action: httpheader.ActionAdd, Selector: exactSelector("X-Tenant-Three"), Values: []string{"new"}},
-		{Action: httpheader.ActionRemove, Selector: globSelector("X-Tenant-Tw?")},
+		{Action: httpheader.ActionDel, Selector: globSelector("X-Tenant-Tw?")},
 	})
 
 	if got := headers.Get("X-Tenant-One"); got != "shared" {
@@ -91,7 +91,7 @@ func TestGlobSelectorNeverMatchesHost(t *testing.T) {
 		"X-Test": []string{"remove"},
 	}
 	httpheader.Apply(headers, []httpheader.Op{
-		{Action: httpheader.ActionRemove, Selector: globSelector("*")},
+		{Action: httpheader.ActionDel, Selector: globSelector("*")},
 	})
 
 	if got := headers.Get("Host"); got != "keep.example.com" {
@@ -110,7 +110,7 @@ func TestApplyRewrite(t *testing.T) {
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
+		Headers: requestHeaderPlan(false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("Authorization"),
 			Values:   []string{"Bearer abc"},
@@ -138,7 +138,7 @@ func TestApplyRewriteUsesCompiledTargetAsIs(t *testing.T) {
 	}
 }
 
-func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
+func TestApplyRewriteDeleteAllClearsInboundHeaders(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
 	in.Header.Set("X-Inbound", "drop")
@@ -147,11 +147,10 @@ func TestApplyRewriteReplaceHeaderModeClearsInboundHeaders(t *testing.T) {
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		Headers: requestHeaderPlan(httpheader.ModeReplace, false, httpheader.Op{
-			Action:   httpheader.ActionSet,
-			Selector: exactSelector("X-Only"),
-			Values:   []string{"keep"},
-		}),
+		Headers: requestHeaderPlan(false,
+			httpheader.Op{Action: httpheader.ActionDel, Selector: globSelector("*")},
+			httpheader.Op{Action: httpheader.ActionSet, Selector: exactSelector("X-Only"), Values: []string{"keep"}},
+		),
 	})
 
 	if got := req.Out.Header.Get("X-Inbound"); got != "" {
@@ -194,7 +193,7 @@ func TestApplyRewriteCanPreserveProxyDisclosureHeaders(t *testing.T) {
 
 	applyRewrite(req, &Plan{
 		Target:  target,
-		Headers: requestHeaderPlan(httpheader.ModePatch, true),
+		Headers: requestHeaderPlan(true),
 	})
 
 	if got := req.Out.Header.Get("Forwarded"); got != "for=client.example" {
@@ -213,7 +212,7 @@ func TestApplyRewriteAlwaysRemovesSystemHeaders(t *testing.T) {
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
+		Headers: requestHeaderPlan(false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("X-Dp-Injected"),
 			Values:   []string{"drop"},
@@ -241,7 +240,7 @@ func TestApplyRewriteProxyDisclosurePolicyRunsBeforeOps(t *testing.T) {
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		Headers: requestHeaderPlan(httpheader.ModePatch, false,
+		Headers: requestHeaderPlan(false,
 			httpheader.Op{Action: httpheader.ActionSet, Selector: exactSelector("True-Client-IP"), Values: []string{"explicit"}},
 		),
 	})
@@ -289,7 +288,7 @@ func TestApplyRewritePreservesTrustedTransportHeadersAndRejectsDirectiveInjectio
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		Headers: requestHeaderPlan(httpheader.ModePatch, false,
+		Headers: requestHeaderPlan(false,
 			httpheader.Op{Action: httpheader.ActionSet, Selector: exactSelector("Connection"), Values: []string{"X-Injected"}},
 			httpheader.Op{Action: httpheader.ActionSet, Selector: exactSelector("X-Injected"), Values: []string{"unsafe"}},
 		),
@@ -314,7 +313,7 @@ func TestApplyRewriteCanSetOutboundHost(t *testing.T) {
 
 	applyRewrite(req, &Plan{
 		Target: target,
-		Headers: requestHeaderPlan(httpheader.ModePatch, false, httpheader.Op{
+		Headers: requestHeaderPlan(false, httpheader.Op{
 			Action:   httpheader.ActionSet,
 			Selector: exactSelector("Host"),
 			Values:   []string{"custom.example.com"},
@@ -337,8 +336,8 @@ func globSelector(pattern string) httpheader.Selector {
 	return httpheader.Selector{Kind: httpheader.SelectorGlob, Pattern: pattern}
 }
 
-func requestHeaderPlan(mode httpheader.Mode, preserveProxyDisclosure bool, ops ...httpheader.Op) httpheader.Plan {
+func requestHeaderPlan(preserveProxyDisclosure bool, ops ...httpheader.Op) httpheader.Plan {
 	return httpheader.Plan{Request: httpheader.RequestPlan{
-		Mode: mode, PreserveProxyDisclosure: preserveProxyDisclosure, Ops: ops,
+		PreserveProxyDisclosure: preserveProxyDisclosure, Ops: ops,
 	}}
 }

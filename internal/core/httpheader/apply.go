@@ -62,12 +62,7 @@ func ApplyRequest(out *http.Request, originalHeaders http.Header, plan RequestPl
 		transportHeaders = trustedTransportHeaders(originalHeaders)
 	}
 	out.Host = ""
-	replaceHeaders := plan.Mode == ModeReplace
-	if replaceHeaders {
-		out.Header = make(http.Header)
-	} else {
-		out.Header = cloneEndToEndHeaders(originalHeaders)
-	}
+	out.Header = cloneEndToEndHeaders(originalHeaders)
 	for _, name := range plan.StripBeforeOps {
 		out.Header.Del(name)
 	}
@@ -80,9 +75,7 @@ func ApplyRequest(out *http.Request, originalHeaders http.Header, plan RequestPl
 	if len(transportHeaders) > 0 {
 		copyHeaders(out.Header, transportHeaders)
 	}
-	if replaceHeaders {
-		suppressDefaultUserAgent(out.Header)
-	}
+	suppressDefaultUserAgent(out.Header)
 }
 
 func Apply(headers http.Header, ops []Op) {
@@ -131,10 +124,7 @@ func ApplyOp(headers http.Header, name string, op Op) {
 			return
 		}
 		headers.Set(name, op.Values[0])
-		for _, value := range op.Values[1:] {
-			headers.Add(name, value)
-		}
-	case ActionRemove:
+	case ActionDel:
 		headers.Del(name)
 	}
 }
@@ -241,7 +231,7 @@ func applyHostOp(req *http.Request, op Op) {
 	switch op.Action {
 	case ActionSet, ActionAdd:
 		req.Host = value
-	case ActionRemove:
+	case ActionDel:
 		if req.Host == "" || req.Host == value {
 			req.Host = ""
 		}
@@ -250,7 +240,10 @@ func applyHostOp(req *http.Request, op Op) {
 }
 
 func suppressDefaultUserAgent(headers http.Header) {
-	if _, exists := headers["User-Agent"]; !exists {
-		headers["User-Agent"] = nil
+	for name := range headers {
+		if strings.EqualFold(name, "User-Agent") {
+			return
+		}
 	}
+	headers["User-Agent"] = nil
 }

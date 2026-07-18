@@ -66,9 +66,9 @@ const (
 type HeaderAction string
 
 const (
-	HeaderActionSet    HeaderAction = "set"
-	HeaderActionRemove HeaderAction = "remove"
-	HeaderActionAppend HeaderAction = "append"
+	HeaderActionAdd HeaderAction = "add"
+	HeaderActionSet HeaderAction = "set"
+	HeaderActionDel HeaderAction = "del"
 )
 
 type RemoteSpec struct {
@@ -106,7 +106,6 @@ type TargetSection struct {
 }
 
 type HeaderPolicy struct {
-	Mode                    string           `json:"mode,omitempty"`
 	PreserveProxyDisclosure bool             `json:"preserve_proxy_disclosure,omitempty"`
 	Mutations               []HeaderMutation `json:"mutations,omitempty"`
 }

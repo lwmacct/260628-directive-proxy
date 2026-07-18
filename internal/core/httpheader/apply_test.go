@@ -31,18 +31,23 @@ func TestApplyRequestPreservesDirectiveOrderAfterBaselineCleanup(t *testing.T) {
 			t.Fatalf("baseline cleanup did not remove %s: %#v", name, request.Header)
 		}
 	}
+	if values, exists := request.Header["User-Agent"]; !exists || values != nil {
+		t.Fatalf("default user-agent was not suppressed for inherited baseline: exists=%t values=%#v", exists, values)
+	}
 }
 
-func TestApplyRequestReplaceUsesOnlyDirectiveHeaders(t *testing.T) {
+func TestApplyRequestDeleteAllUsesOnlyDirectiveHeaders(t *testing.T) {
 	original := http.Header{"Content-Type": {"application/json"}, "Cookie": {"session=trusted"}}
 	request := httptest.NewRequest(http.MethodPost, "https://resolver.example/", nil)
 	ApplyRequest(request, original, RequestPlan{
-		Mode: ModeReplace,
-		Ops:  []Op{{Action: ActionSet, Selector: Selector{Kind: SelectorExact, Pattern: "X-Resolver"}, Values: []string{"primary"}}},
+		Ops: []Op{
+			{Action: ActionDel, Selector: Selector{Kind: SelectorGlob, Pattern: "*"}},
+			{Action: ActionSet, Selector: Selector{Kind: SelectorExact, Pattern: "X-Resolver"}, Values: []string{"primary"}},
+		},
 	}, RequestOptions{})
 
 	if request.Header.Get("Content-Type") != "" || request.Header.Get("Cookie") != "" || request.Header.Get("X-Resolver") != "primary" {
-		t.Fatalf("replace mode did not honor directive headers: %#v", request.Header)
+		t.Fatalf("delete-all mutation did not honor directive headers: %#v", request.Header)
 	}
 	if values, exists := request.Header["User-Agent"]; !exists || values != nil {
 		t.Fatalf("default user-agent was not suppressed: exists=%t values=%#v", exists, values)

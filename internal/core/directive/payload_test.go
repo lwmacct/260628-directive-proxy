@@ -13,12 +13,11 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
 		Proxy:    "socks5://user:pass@127.0.0.1:1080",
 		Headers: &HeaderPolicy{
-			Mode:                    "replace",
 			PreserveProxyDisclosure: true,
 			Mutations: []HeaderMutation{
 				{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
 				{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
-				{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server"},
+				{Side: HeaderSideResponse, Action: HeaderActionDel, Name: "Server"},
 			},
 		},
 	}
@@ -45,8 +44,8 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if decoded.Proxy != input.Proxy {
 		t.Fatalf("unexpected proxy: %#v", decoded.Proxy)
 	}
-	if decoded.Headers == nil || decoded.Headers.Mode != "replace" || !decoded.Headers.PreserveProxyDisclosure {
-		t.Fatalf("unexpected header mode: %#v", decoded.Headers)
+	if decoded.Headers == nil || !decoded.Headers.PreserveProxyDisclosure {
+		t.Fatalf("unexpected header policy: %#v", decoded.Headers)
 	}
 	if len(decoded.Headers.Mutations) != 3 || decoded.Headers.Mutations[0].Name != "Authorization" ||
 		len(decoded.Headers.Mutations[0].Values) != 1 || decoded.Headers.Mutations[0].Values[0] != "Bearer secret" ||
@@ -90,7 +89,6 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 		HTTP: &HTTPRemoteSpec{
 			URL: "https://policy.example.com/v1/team-a/service-a",
 			Headers: &HeaderPolicy{
-				Mode:                    "replace",
 				PreserveProxyDisclosure: true,
 				Mutations: []HeaderMutation{{
 					Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer policy-token"},
@@ -110,7 +108,7 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 		t.Fatalf("decode remote failed: %v", err)
 	}
 	if token.Kind != KindRemote || token.Remote.HTTP == nil || token.Remote.Redis != nil || token.Remote.File != nil ||
-		token.Remote.HTTP.URL != input.HTTP.URL || token.Remote.HTTP.Headers == nil || token.Remote.HTTP.Headers.Mode != "replace" ||
+		token.Remote.HTTP.URL != input.HTTP.URL || token.Remote.HTTP.Headers == nil ||
 		!token.Remote.HTTP.Headers.PreserveProxyDisclosure || len(token.Remote.HTTP.Headers.Mutations) != 1 || token.Remote.HTTP.Headers.Mutations[0].Values[0] != "Bearer policy-token" {
 		t.Fatalf("unexpected decoded token: %#v", token)
 	}
@@ -174,7 +172,6 @@ func TestRemoteSpecValidation(t *testing.T) {
 		{HTTP: &HTTPRemoteSpec{URL: "file:///tmp/directive"}},
 		{HTTP: &HTTPRemoteSpec{URL: "https://user:pass@policy.example.com"}},
 		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com/#fragment"}},
-		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com", Headers: &HeaderPolicy{Mode: "invalid"}}},
 		{Redis: &RedisRemoteSpec{URL: "http://redis.example.com", Key: "key"}},
 		{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com/0#fragment", Key: "key"}},
 		{HTTP: &HTTPRemoteSpec{URL: "https://policy.example.com", Headers: &HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Test"}}}}},
@@ -283,14 +280,25 @@ func TestDecodeRejectsLegacyTransportProxy(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsInvalidHeaderMode(t *testing.T) {
-	err := Validate(Payload{
-		Metadata: testDirectiveMetadata(),
-		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-		Headers:  &HeaderPolicy{Mode: "invalid"},
-	})
-	if err == nil {
-		t.Fatal("expected validation error")
+func TestDecodeRejectsRemovedHeaderModeAndActions(t *testing.T) {
+	invalid := []string{
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mode":"replace"}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"append","name":"X-Test","values":["value"]}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"request","action":"remove","name":"X-Test"}]}}`,
+	}
+	for _, raw := range invalid {
+		if _, err := DecodePayload([]byte(raw)); err == nil {
+			t.Fatalf("removed header field or action was accepted: %s", raw)
+		}
+	}
+	remoteInvalid := []string{
+		`{"http":{"url":"https://resolver.example.com","headers":{"mode":"replace"}}}`,
+		`{"http":{"url":"https://resolver.example.com","headers":{"mutations":[{"side":"request","action":"remove","glob":"*"}]}}}`,
+	}
+	for _, raw := range remoteInvalid {
+		if _, err := Decode(testTokenSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
+			t.Fatalf("removed remote header field or action was accepted: %s", raw)
+		}
 	}
 }
 
@@ -305,6 +313,28 @@ func TestValidateRejectsHeaderSetWithoutValues(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsHeaderSetWithMultipleValues(t *testing.T) {
+	err := Validate(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"one", "two"}}),
+	})
+	if err == nil {
+		t.Fatal("multi-value set mutation was accepted")
+	}
+}
+
+func TestValidateRejectsHeaderAddWithoutValues(t *testing.T) {
+	err := Validate(Payload{
+		Metadata: testDirectiveMetadata(),
+		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionAdd, Name: "X-Test"}),
+	})
+	if err == nil {
+		t.Fatal("add mutation without values was accepted")
+	}
+}
+
 func TestValidateRejectsMultiValueHost(t *testing.T) {
 	err := Validate(Payload{
 		Metadata: testDirectiveMetadata(),
@@ -316,11 +346,11 @@ func TestValidateRejectsMultiValueHost(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsAppendHost(t *testing.T) {
+func TestValidateRejectsAddHost(t *testing.T) {
 	err := Validate(Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionAppend, Name: "Host", Values: []string{"api.example.com"}}),
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionAdd, Name: "Host", Values: []string{"api.example.com"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -331,7 +361,7 @@ func TestValidateRejectsHeaderMutationWithBothNameAndGlob(t *testing.T) {
 	err := Validate(Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionRemove, Name: "X-Test", Glob: "X-*"}),
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionDel, Name: "X-Test", Glob: "X-*"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -340,9 +370,9 @@ func TestValidateRejectsHeaderMutationWithBothNameAndGlob(t *testing.T) {
 
 func TestDecodeRejectsMissingOrInvalidHeaderSide(t *testing.T) {
 	invalid := []string{
-		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"action":"remove","name":"Server"}]}}`,
-		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"upstream","action":"remove","name":"Server"}]}}`,
-		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":" request ","action":"remove","name":"Server"}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"action":"del","name":"Server"}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":"upstream","action":"del","name":"Server"}]}}`,
+		`{"target":{"base_url":"https://api.example.com/v1"},"headers":{"mutations":[{"side":" request ","action":"del","name":"Server"}]}}`,
 	}
 	for _, raw := range invalid {
 		if _, err := DecodePayload([]byte(raw)); err == nil {
@@ -352,7 +382,7 @@ func TestDecodeRejectsMissingOrInvalidHeaderSide(t *testing.T) {
 }
 
 func TestRemoteHeadersRejectResponseSide(t *testing.T) {
-	raw := []byte(`{"http":{"url":"https://resolver.example/resolve","headers":{"mutations":[{"side":"response","action":"remove","name":"Server"}]}}}`)
+	raw := []byte(`{"http":{"url":"https://resolver.example/resolve","headers":{"mutations":[{"side":"response","action":"del","name":"Server"}]}}}`)
 	if _, err := Decode(testTokenSecret, encodeRawRemoteToken(raw)); err == nil {
 		t.Fatal("expected remote response header side to be rejected")
 	}
@@ -362,7 +392,7 @@ func TestValidateRejectsInvalidHeaderGlob(t *testing.T) {
 	err := Validate(Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionRemove, Glob: "X-["}),
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionDel, Glob: "X-["}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -373,18 +403,18 @@ func TestValidateRejectsInvalidExactHeaderName(t *testing.T) {
 	err := Validate(Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionRemove, Name: "Bad Header"}),
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionDel, Name: "Bad Header"}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
 }
 
-func TestValidateRejectsRemoveWithValues(t *testing.T) {
+func TestValidateRejectsDelWithValues(t *testing.T) {
 	err := Validate(Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionRemove, Glob: "X-*", Values: []string{"value"}}),
+		Headers:  requestHeaders(HeaderMutation{Action: HeaderActionDel, Glob: "X-*", Values: []string{"value"}}),
 	})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -396,7 +426,7 @@ func TestValidateRejectsProtectedResponseHeader(t *testing.T) {
 		err := Validate(Payload{
 			Metadata: testDirectiveMetadata(),
 			Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
-			Headers:  &HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: name}}},
+			Headers:  &HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideResponse, Action: HeaderActionDel, Name: name}}},
 		})
 		if err == nil {
 			t.Fatalf("expected protected response header %s to be rejected", name)
@@ -407,7 +437,7 @@ func TestValidateRejectsProtectedResponseHeader(t *testing.T) {
 func TestValidateRejectsInvalidHeaderValue(t *testing.T) {
 	for _, headers := range []*HeaderPolicy{
 		requestHeaders(HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"bad\rvalue"}}),
-		&HeaderPolicy{Mutations: []HeaderMutation{{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Test", Values: []string{"bad\nvalue"}}}},
+		{Mutations: []HeaderMutation{{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Test", Values: []string{"bad\nvalue"}}}},
 	} {
 		if err := Validate(Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com/v1"}, Headers: headers}); err == nil {
 			t.Fatal("expected invalid header value to be rejected")

@@ -16,7 +16,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 		Headers: requestHeaders(
 			HeaderMutation{Action: HeaderActionSet, Name: "Authorization", Values: []string{"Bearer secret"}},
 			HeaderMutation{Action: HeaderActionSet, Name: "X-Test", Values: []string{"a"}},
-			HeaderMutation{Action: HeaderActionAppend, Name: "X-Multi", Values: []string{"b", "c"}},
+			HeaderMutation{Action: HeaderActionAdd, Name: "X-Multi", Values: []string{"b", "c"}},
 		),
 	})
 	if err != nil {

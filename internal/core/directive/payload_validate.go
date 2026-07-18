@@ -5,8 +5,6 @@ import (
 	"net"
 	"net/url"
 	"strings"
-
-	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 var (
@@ -52,13 +50,4 @@ func ParseProxy(raw string) (*url.URL, error) {
 
 	parsed.Scheme = "socks5"
 	return parsed, nil
-}
-
-func validateHeaderMode(raw string) error {
-	switch strings.TrimSpace(raw) {
-	case "", string(httpheader.ModePatch), string(httpheader.ModeReplace):
-		return nil
-	default:
-		return ErrInvalidPayload
-	}
 }

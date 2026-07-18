@@ -12,7 +12,7 @@ export type MetadataField = ResolverHeader;
 export type HeaderMutation = {
   key: string;
   side: "request" | "response";
-  action: "set" | "remove" | "append";
+  action: "add" | "set" | "del";
   selector: "name" | "glob";
   pattern: string;
   values: string[];
@@ -51,14 +51,12 @@ export type EditorState = {
   httpURL: string;
   redisURL: string;
   filePath: string;
-  resolverHeaderMode: "patch" | "replace";
   resolverPreserveProxyDisclosure: boolean;
   resolverHeaderMutations: HeaderMutation[];
   metadataFields: MetadataField[];
   targetMode: "base" | "exact";
   targetURL: string;
   proxyURL: string;
-  requestHeaderMode: "patch" | "replace";
   preserveProxyDisclosure: boolean;
   headerMutations: HeaderMutation[];
   modules: EditorModuleSpec[];
@@ -81,14 +79,13 @@ export type DirectivePayload = {
 
 export type DirectiveHeaderMutation = {
   side: "request" | "response";
-  action: "set" | "remove" | "append";
+  action: "add" | "set" | "del";
   name?: string;
   glob?: string;
   values?: string[];
 };
 
 export type DirectiveHeaderPolicy = {
-  mode?: "patch" | "replace";
   preserve_proxy_disclosure?: boolean;
   mutations?: DirectiveHeaderMutation[];
 };

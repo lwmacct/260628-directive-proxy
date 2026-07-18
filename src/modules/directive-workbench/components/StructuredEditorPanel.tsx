@@ -31,14 +31,6 @@ export function StructuredEditorPanel(props: {
     <Flex align="center" gap="small" justify="space-between" wrap>
       <Label strong>{text.headerMutations}</Label>
       <Space wrap>
-        <Label type="secondary">{text.headerMode}</Label>
-        <Select
-          aria-label={text.headerMode}
-          options={[{ label: "Patch", value: "patch" }, { label: "Replace", value: "replace" }]}
-          style={{ width: 120 }}
-          value={field === "headerMutations" ? editor.requestHeaderMode : editor.resolverHeaderMode}
-          onChange={(mode: EditorState["requestHeaderMode"]) => field === "headerMutations" ? onUpdate({ requestHeaderMode: mode }) : onUpdate({ resolverHeaderMode: mode })}
-        />
         <Button icon={<PlusOutlined />} onClick={() => updateHeaderMutations(field, [...editor[field], newHeaderMutation("set", "name", "", [])])}>{text.add}</Button>
       </Space>
     </Flex>

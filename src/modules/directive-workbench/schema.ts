@@ -140,7 +140,7 @@ function parseHeaderMutation(value: unknown, label: string, text: Text["authCons
   if (input.side !== "request" && input.side !== "response") throw new Error(text.onlyValues(`${label}.side`, "request, response"));
   if (requestOnly && input.side !== "request") throw new Error(text.onlyValues(`${label}.side`, "request"));
   const side = input.side;
-  if (input.action !== "set" && input.action !== "remove" && input.action !== "append") throw new Error(text.onlyValues(`${label}.action`, "set, remove, append"));
+  if (input.action !== "add" && input.action !== "set" && input.action !== "del") throw new Error(text.onlyValues(`${label}.action`, "add, set, del"));
   const hasName = input.name !== undefined;
   const hasGlob = input.glob !== undefined;
   if (hasName === hasGlob) throw new Error(text.exactlyOneSelector(label));
@@ -154,13 +154,14 @@ function parseHeaderMutation(value: unknown, label: string, text: Text["authCons
   } else {
     selector = { glob: parseGlob(input.glob, `${label}.glob`, text) };
   }
-  if (input.action === "remove") {
-    if (input.values !== undefined && arrayValue(input.values, `${label}.values`, text).length) throw new Error(text.removeHasValues(label));
+  if (input.action === "del") {
+    if (input.values !== undefined && arrayValue(input.values, `${label}.values`, text).length) throw new Error(text.delHasValues(label));
     return { side, action: input.action, ...selector };
   }
   const values = arrayValue(input.values, `${label}.values`, text);
-  if (!values.length || values.some((item) => typeof item !== "string" || !isHeaderValue(item))) throw new Error(text.setNeedsValues(label));
-  if (side === "request" && exactName?.toLowerCase() === "host" && (input.action === "append" || values.length !== 1)) throw new Error(text.hostValues(label));
+  if (!values.length || values.some((item) => typeof item !== "string" || !isHeaderValue(item))) throw new Error(text.addNeedsValues(label));
+  if (input.action === "set" && values.length !== 1) throw new Error(text.setNeedsOneValue(label));
+  if (side === "request" && exactName?.toLowerCase() === "host" && input.action === "add") throw new Error(text.hostValues(label));
   return { side, action: input.action, ...selector, values: values as string[] };
 }
 
@@ -207,10 +208,8 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
   let headers: DirectivePayload["headers"];
   if (input.headers !== undefined) {
     const headersInput = record(input.headers, "payload.headers", text);
-    knownKeys(headersInput, ["mode", "preserve_proxy_disclosure", "mutations"], "payload.headers", text);
-    if (headersInput.mode !== undefined && headersInput.mode !== "patch" && headersInput.mode !== "replace") throw new Error(text.onlyValues("payload.headers.mode", "patch, replace"));
+    knownKeys(headersInput, ["preserve_proxy_disclosure", "mutations"], "payload.headers", text);
     headers = {
-      ...(headersInput.mode === undefined ? {} : { mode: headersInput.mode }),
       ...(headersInput.preserve_proxy_disclosure === undefined ? {} : { preserve_proxy_disclosure: booleanValue(headersInput.preserve_proxy_disclosure, "payload.headers.preserve_proxy_disclosure", text) }),
       ...(headersInput.mutations === undefined ? {} : { mutations: arrayValue(headersInput.mutations, "payload.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `payload.headers.mutations[${index}]`, text, false)) }),
     };
@@ -343,10 +342,8 @@ function parseRemoteSpec(value: unknown, text: Text["authConsole"]): RemoteSpec 
   let headers: Extract<RemoteSpec, { http: unknown }>["http"]["headers"];
   if (http.headers !== undefined) {
     const headerInput = record(http.headers, "remote.http.headers", text);
-    knownKeys(headerInput, ["mode", "preserve_proxy_disclosure", "mutations"], "remote.http.headers", text);
-    if (headerInput.mode !== undefined && headerInput.mode !== "patch" && headerInput.mode !== "replace") throw new Error(text.onlyValues("remote.http.headers.mode", "patch, replace"));
+    knownKeys(headerInput, ["preserve_proxy_disclosure", "mutations"], "remote.http.headers", text);
     headers = {
-      ...(headerInput.mode === undefined ? {} : { mode: headerInput.mode }),
       ...(headerInput.preserve_proxy_disclosure === undefined ? {} : { preserve_proxy_disclosure: booleanValue(headerInput.preserve_proxy_disclosure, "remote.http.headers.preserve_proxy_disclosure", text) }),
       ...(headerInput.mutations === undefined ? {} : { mutations: arrayValue(headerInput.mutations, "remote.http.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `remote.http.headers.mutations[${index}]`, text, true)) }),
     };

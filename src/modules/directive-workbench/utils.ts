@@ -21,7 +21,7 @@ function buildHeaderMutations(items: HeaderMutation[]): DirectiveHeaderMutation[
     const pattern = item.pattern.trim();
     if (!pattern) return [];
     const selector = item.selector === "name" ? { name: pattern } : { glob: pattern };
-    return [{ side: item.side, action: item.action, ...selector, ...(item.action === "remove" ? {} : { values: item.values }) }];
+    return [{ side: item.side, action: item.action, ...selector, ...(item.action === "del" ? {} : { values: item.values }) }];
   });
 }
 
@@ -42,7 +42,6 @@ export function buildPayload(input: EditorState): DirectivePayload {
   };
   if (input.proxyURL.trim()) payload.proxy = input.proxyURL.trim();
   const headers = {
-    ...(input.requestHeaderMode === "replace" ? { mode: input.requestHeaderMode } : {}),
     ...(input.preserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
     ...(mutations.length ? { mutations } : {}),
   };
@@ -66,7 +65,6 @@ export function buildRemoteSpec(source: Exclude<DirectiveSource, "inline">, edit
   if (source === "redis") return { redis: { url: editor.redisURL.trim(), key: editor.remoteKey } };
   const mutations = buildHeaderMutations(editor.resolverHeaderMutations);
   const headers = {
-    ...(editor.resolverHeaderMode === "replace" ? { mode: "replace" as const } : {}),
     ...(editor.resolverPreserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
     ...(mutations.length ? { mutations } : {}),
   };
@@ -117,7 +115,6 @@ function payloadToEditor(payload: DirectivePayload) {
     targetMode: "base_url" in payload.target ? "base" as const : "exact" as const,
     targetURL: "base_url" in payload.target ? payload.target.base_url : payload.target.exact_url,
     proxyURL: payload.proxy ?? "",
-    requestHeaderMode: payload.headers?.mode ?? "patch",
     preserveProxyDisclosure: payload.headers?.preserve_proxy_disclosure ?? false,
     headerMutations: toEditorHeaderMutations(payload.headers?.mutations ?? []),
     modules: (payload.modules ?? []).map((item) => newModuleSpec(item.module, item.config ?? {})),
@@ -162,7 +159,6 @@ export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvel
   return {
     ...previous,
     httpURL: spec.http.url,
-    resolverHeaderMode: spec.http.headers?.mode ?? "patch",
     resolverPreserveProxyDisclosure: spec.http.headers?.preserve_proxy_disclosure ?? false,
     resolverHeaderMutations: toEditorHeaderMutations(spec.http.headers?.mutations ?? []),
   };

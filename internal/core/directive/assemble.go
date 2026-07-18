@@ -42,9 +42,6 @@ func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, err
 	if payload.Headers != nil {
 		headers = *payload.Headers
 	}
-	if err := validateHeaderMode(headers.Mode); err != nil {
-		return CompiledPayload{}, err
-	}
 	proxyURL, err := ParseProxy(payload.Proxy)
 	if err != nil {
 		return CompiledPayload{}, err
@@ -83,7 +80,6 @@ func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, err
 			Proxy:  proxyURL,
 			Headers: httpheader.Plan{
 				Request: httpheader.RequestPlan{
-					Mode:                    toHeaderMode(headers.Mode),
 					PreserveProxyDisclosure: headers.PreserveProxyDisclosure,
 					StripBeforeOps:          stripBeforeOps,
 					Ops:                     requestOps,
@@ -202,9 +198,6 @@ func CompileResolverRequestHeaders(section *HeaderPolicy) (httpheader.RequestPla
 	if section == nil {
 		section = &HeaderPolicy{}
 	}
-	if err := validateHeaderMode(section.Mode); err != nil {
-		return httpheader.RequestPlan{}, err
-	}
 	requestRaw, responseRaw, err := splitHeaderMutations(section.Mutations, false)
 	if err != nil || len(responseRaw) > 0 {
 		return httpheader.RequestPlan{}, ErrInvalidPayload
@@ -223,7 +216,6 @@ func CompileResolverRequestHeaders(section *HeaderPolicy) (httpheader.RequestPla
 		}
 	}
 	return httpheader.RequestPlan{
-		Mode:                    toHeaderMode(section.Mode),
 		PreserveProxyDisclosure: section.PreserveProxyDisclosure,
 		StripBeforeOps:          []string{"Authorization", "Content-Length"},
 		Ops:                     ops,
@@ -272,9 +264,9 @@ func parseHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, error) {
 		switch mutation.Action {
 		case HeaderActionSet:
 			action = httpheader.ActionSet
-		case HeaderActionRemove:
-			action = httpheader.ActionRemove
-		case HeaderActionAppend:
+		case HeaderActionDel:
+			action = httpheader.ActionDel
+		case HeaderActionAdd:
 			action = httpheader.ActionAdd
 		default:
 			return nil, ErrInvalidPayload
@@ -294,7 +286,7 @@ func parseHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, error) {
 			return nil, ErrInvalidPayload
 		}
 		switch action {
-		case httpheader.ActionAdd, httpheader.ActionSet:
+		case httpheader.ActionAdd:
 			if len(mutation.Values) == 0 {
 				return nil, ErrInvalidPayload
 			}
@@ -303,7 +295,11 @@ func parseHeaderMutations(raw []HeaderMutation) ([]httpheader.Op, error) {
 					return nil, ErrInvalidPayload
 				}
 			}
-		case httpheader.ActionRemove:
+		case httpheader.ActionSet:
+			if len(mutation.Values) != 1 || !isValidHeaderValue(mutation.Values[0]) {
+				return nil, ErrInvalidPayload
+			}
+		case httpheader.ActionDel:
 			if len(mutation.Values) != 0 {
 				return nil, ErrInvalidPayload
 			}
@@ -345,13 +341,4 @@ func isValidHeaderValue(value string) bool {
 		return false
 	}
 	return true
-}
-
-func toHeaderMode(raw string) httpheader.Mode {
-	switch httpheader.Mode(strings.TrimSpace(raw)) {
-	case httpheader.ModeReplace:
-		return httpheader.ModeReplace
-	default:
-		return httpheader.ModePatch
-	}
 }

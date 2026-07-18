@@ -68,7 +68,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 			Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
-			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionRemove, Name: "X-Upstream"},
+			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionDel, Name: "X-Upstream"},
 			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionSet, Name: "X-Downstream", Values: []string{"rewritten"}},
 		}},
 	})

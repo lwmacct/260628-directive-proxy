@@ -132,9 +132,9 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	}
 }
 
-func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
+func TestSourceDeleteAllHeaderMutationStartsEmpty(t *testing.T) {
 	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Cookie") != "" || r.Header.Get("Content-Type") != "" || r.Header.Get("X-Policy") != "resolver" {
+		if r.Header.Get("Cookie") != "" || r.Header.Get("Content-Type") != "" || r.Header.Get("User-Agent") != "" || r.Header.Get("X-Policy") != "resolver" {
 			t.Errorf("unexpected resolver headers: %#v", r.Header)
 		}
 		_, _ = w.Write([]byte(`{"target":{"base_url":"https://api.example.com"}}`))
@@ -146,9 +146,10 @@ func TestSourceReplaceHeaderPolicyStartsEmpty(t *testing.T) {
 	req.Header.Set("Cookie", "session=secret")
 	reference := testHTTPReference(t, directive.HTTPRemoteSpec{
 		URL: resolver.URL,
-		Headers: &directive.HeaderPolicy{Mode: "replace", Mutations: []directive.HeaderMutation{{
-			Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "X-Policy", Values: []string{"resolver"},
-		}}},
+		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
+			{Side: directive.HeaderSideRequest, Action: directive.HeaderActionDel, Glob: "*"},
+			{Side: directive.HeaderSideRequest, Action: directive.HeaderActionSet, Name: "X-Policy", Values: []string{"resolver"}},
+		}},
 	})
 	if _, err := source.Read(context.Background(), reference, testRequestSnapshot(req)); err != nil {
 		t.Fatalf("resolve failed: %v", err)

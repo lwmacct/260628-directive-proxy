@@ -3,6 +3,8 @@ package directive
 import (
 	"net/url"
 	"testing"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
 func TestCompilePayload(t *testing.T) {
@@ -44,22 +46,21 @@ func TestCompilePayloadAllowsOmittedMetadata(t *testing.T) {
 	}
 }
 
-func TestCompilePayloadBuildsReplaceHeaderMode(t *testing.T) {
+func TestCompilePayloadBuildsOrderedDeleteAllMutation(t *testing.T) {
 	compiled, err := CompilePayload(Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
-		Headers: &HeaderPolicy{Mode: "replace", Mutations: []HeaderMutation{{
-			Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Host", Values: []string{"custom.example.com"},
-		}}},
+		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
+			{Side: HeaderSideRequest, Action: HeaderActionDel, Glob: "*"},
+			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "Host", Values: []string{"custom.example.com"}},
+		}},
 	}, AssembleOptions{})
 	if err != nil {
 		t.Fatalf("assemble failed: %v", err)
 	}
 	plan := compiled.Plan
-	if plan.Headers.Request.Mode != "replace" {
-		t.Fatalf("unexpected header mode: %s", plan.Headers.Request.Mode)
-	}
-	if len(plan.Headers.Request.Ops) != 1 || plan.Headers.Request.Ops[0].Selector.Pattern != "Host" {
+	if len(plan.Headers.Request.Ops) != 2 || plan.Headers.Request.Ops[0].Action != httpheader.ActionDel ||
+		plan.Headers.Request.Ops[0].Selector.Pattern != "*" || plan.Headers.Request.Ops[1].Selector.Pattern != "Host" {
 		t.Fatalf("unexpected header ops: %#v", plan.Headers.Request.Ops)
 	}
 }
@@ -69,7 +70,7 @@ func TestCompilePayloadBuildsGlobHeaderSelector(t *testing.T) {
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: requestHeaders(
-			HeaderMutation{Action: HeaderActionRemove, Glob: "M-Runtime-*"},
+			HeaderMutation{Action: HeaderActionDel, Glob: "M-Runtime-*"},
 		),
 	}, AssembleOptions{})
 	if err != nil {
@@ -86,7 +87,7 @@ func TestCompilePayloadBuildsHeaderPoliciesAndResponseOps(t *testing.T) {
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{PreserveProxyDisclosure: true, Mutations: []HeaderMutation{{
-			Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server",
+			Side: HeaderSideResponse, Action: HeaderActionDel, Name: "Server",
 		}}},
 	}, AssembleOptions{})
 	if err != nil {
@@ -103,7 +104,7 @@ func TestCompilePayloadSplitsMixedHeaderSides(t *testing.T) {
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/base"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
-			{Side: HeaderSideResponse, Action: HeaderActionRemove, Name: "Server"},
+			{Side: HeaderSideResponse, Action: HeaderActionDel, Name: "Server"},
 			{Side: HeaderSideRequest, Action: HeaderActionSet, Name: "X-Request", Values: []string{"request"}},
 			{Side: HeaderSideResponse, Action: HeaderActionSet, Name: "X-Response", Values: []string{"response"}},
 		}},

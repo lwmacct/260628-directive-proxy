@@ -31,8 +31,8 @@ func TestModifyResponseAppliesOrderedOpsAndStripsReservedHeaders(t *testing.T) {
 		Request: request,
 	}
 	bindResponseHeaderPlan(response, request, httpheader.ResponsePlan{Ops: []httpheader.Op{
-		{Action: httpheader.ActionRemove, Selector: exactSelector("Server")},
-		{Action: httpheader.ActionRemove, Selector: globSelector("X-Upstream-*")},
+		{Action: httpheader.ActionDel, Selector: exactSelector("Server")},
+		{Action: httpheader.ActionDel, Selector: globSelector("X-Upstream-*")},
 		{Action: httpheader.ActionAdd, Selector: exactSelector("Set-Cookie"), Values: []string{"b=2"}},
 		{Action: httpheader.ActionSet, Selector: exactSelector("Access-Control-Allow-Origin"), Values: []string{"*"}},
 	}})
@@ -65,7 +65,7 @@ func TestModifyResponsePreservesSwitchingProtocolHeaders(t *testing.T) {
 		Request: request,
 	}
 	bindResponseHeaderPlan(response, request, httpheader.ResponsePlan{Ops: []httpheader.Op{
-		{Action: httpheader.ActionRemove, Selector: globSelector("*")},
+		{Action: httpheader.ActionDel, Selector: globSelector("*")},
 	}})
 
 	if err := modifyResponse(response); err != nil {
@@ -99,7 +99,7 @@ func TestHandlerAppliesResponseHeaderPlan(t *testing.T) {
 			return resolverResult{Plan: &Plan{
 				Target: target,
 				Headers: httpheader.Plan{Response: httpheader.ResponsePlan{Ops: []httpheader.Op{
-					{Action: httpheader.ActionRemove, Selector: exactSelector("Server")},
+					{Action: httpheader.ActionDel, Selector: exactSelector("Server")},
 					{Action: httpheader.ActionSet, Selector: exactSelector("X-Downstream"), Values: []string{"rewritten"}},
 				}}},
 			}}, nil

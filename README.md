@@ -40,10 +40,9 @@ inline token 的解码内容是：
   "metadata": {"user_id": "user-1", "user_key": "key-1", "tenant_id": "tenant-a"},
   "target": {"base_url": "https://api.example.com/v1"},
   "headers": {
-    "mode": "patch",
     "mutations": [
       {"side": "request", "action": "set", "name": "Authorization", "values": ["Bearer upstream-token"]},
-      {"side": "response", "action": "remove", "name": "Server"}
+      {"side": "response", "action": "del", "name": "Server"}
     ]
   },
   "recovery": {
@@ -65,7 +64,6 @@ remote token 的解码内容是：
   "http": {
     "url": "https://resolver.example.com/v1/team-a/service-a",
     "headers": {
-      "mode": "patch",
       "mutations": [
         {"side": "request", "action": "set", "name": "Authorization", "values": ["Bearer resolver-token"]}
       ]
@@ -118,7 +116,7 @@ Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、
 
 HTTP resolver 使用长生命周期连接池；HTTPS 显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1。resolver 与上游共用 `server.proxy.transport` 配置，但使用相互隔离的 transport 实例；明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 
-Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `side: request|response`，action 只允许 `set|remove|append`；数组顺序就是应用顺序。`mode` 和 `preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 直接复用同一结构，但只允许 request side，因为它描述的是 resolver 请求本身。默认 patch 以原请求头为基线：directive Authorization 与原 Content-Length 在 mutations 前移除，代理披露头默认移除；mutations 可以重新设置 resolver Authorization；最后统一移除 `x-dp-*` 和 hop-by-hop headers。
+Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `side: request|response`，action 与 Go `http.Header` 对齐，只允许 `add|set|del`：`add` 追加一个或多个值，`set` 必须且只能设置一个值，`del` 删除名称对应的全部值且不能包含 `values`。数组顺序就是应用顺序；需要从空集合重建 Header 时，先声明 `{"side":"request","action":"del","glob":"*"}`。`preserve_proxy_disclosure` 只作用于 request。HTTP RemoteSpec 复用同一结构，但只允许 request side。请求始终以原 Header 为基线，directive Authorization、原 Content-Length 和默认不保留的代理披露 Header 在 mutations 前移除；最后统一移除 `x-dp-*` 与 hop-by-hop Header。最终未设置 User-Agent 时会抑制 Go transport 的默认 User-Agent。
 
 ## Recovery Controller
 
