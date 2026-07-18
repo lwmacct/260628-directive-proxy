@@ -196,15 +196,29 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 				if recoveryErr == nil {
 					switch decision.Action {
 					case recovery.ActionRetry:
-						if retryErr := attempt.RequestRecoveryRetry(); retryErr == nil {
+						retryErr := attempt.RequestRecoveryRetry()
+						if retryErr == nil {
 							attempt.FinishRoundTrip(false, context.Canceled)
 							cancel()
 							continue
 						}
+						attempt.RecoveryFinished(module.RecoveryFinished{
+							Outcome: recoveryOutcomeForError(retryErr), Action: module.RecoveryActionRetry,
+							AfterMS: decision.AfterMS, ErrorCode: recoveryErrorCode(retryErr), Error: retryErr.Error(),
+						})
 					case recovery.ActionFail:
+						attempt.RecoveryFinished(module.RecoveryFinished{
+							Outcome: module.RecoveryOutcomeFailed, Action: module.RecoveryActionFail,
+							AfterMS: decision.AfterMS, ErrorCode: "controller_fail",
+						})
 						attempt.FinishRoundTrip(false, ErrRecoveryFailed)
 						cancel()
 						return nil, ErrRecoveryFailed
+					case recovery.ActionForward:
+						attempt.RecoveryFinished(module.RecoveryFinished{
+							Outcome: module.RecoveryOutcomeForwarded, Action: module.RecoveryActionForward,
+							AfterMS: decision.AfterMS,
+						})
 					}
 				}
 			}
@@ -226,17 +240,31 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 				if recoveryErr == nil {
 					switch decision.Action {
 					case recovery.ActionRetry:
-						if retryErr := attempt.RequestRecoveryRetry(); retryErr == nil {
+						retryErr := attempt.RequestRecoveryRetry()
+						if retryErr == nil {
 							_ = response.Body.Close()
 							attempt.FinishRoundTrip(false, context.Canceled)
 							cancel()
 							continue
 						}
+						attempt.RecoveryFinished(module.RecoveryFinished{
+							Outcome: recoveryOutcomeForError(retryErr), Action: module.RecoveryActionRetry,
+							AfterMS: decision.AfterMS, ErrorCode: recoveryErrorCode(retryErr), Error: retryErr.Error(),
+						})
 					case recovery.ActionFail:
+						attempt.RecoveryFinished(module.RecoveryFinished{
+							Outcome: module.RecoveryOutcomeFailed, Action: module.RecoveryActionFail,
+							AfterMS: decision.AfterMS, ErrorCode: "controller_fail",
+						})
 						_ = response.Body.Close()
 						attempt.FinishRoundTrip(false, ErrRecoveryFailed)
 						cancel()
 						return nil, ErrRecoveryFailed
+					case recovery.ActionForward:
+						attempt.RecoveryFinished(module.RecoveryFinished{
+							Outcome: module.RecoveryOutcomeForwarded, Action: module.RecoveryActionForward,
+							AfterMS: decision.AfterMS,
+						})
 					}
 				}
 			}
@@ -332,9 +360,10 @@ func (t *RecoveryTransport) recover(ctx context.Context, policy *recovery.Policy
 		return recovery.Decision{}, ErrRecoveryFailed
 	}
 	info := attempt.RecoveryContext()
+	eventID := fmt.Sprintf("%s:%d:%s", info.TraceID, info.Attempt, trigger.Type)
 	event := recovery.Event{
 		Protocol: recovery.Protocol,
-		EventID:  fmt.Sprintf("%s:%d:%s", info.TraceID, info.Attempt, trigger.Type),
+		EventID:  eventID,
 		TraceID:  info.TraceID, ObservedAt: time.Now().UTC(),
 		Attempt: recovery.AttemptInfo{
 			Number: info.Attempt, MaxAttempts: info.MaxAttempts, ElapsedMS: info.Elapsed.Milliseconds(),
@@ -346,16 +375,65 @@ func (t *RecoveryTransport) recover(ctx context.Context, policy *recovery.Policy
 		},
 		Metadata: info.Metadata, Response: response,
 	}
+	controllerURL := ""
+	if policy.Controller.URL != nil {
+		controllerURL = policy.Controller.URL.String()
+	}
+	attempt.RecoveryStarted(module.RecoveryStarted{
+		EventID: eventID, Trigger: string(trigger.Type), TriggerCode: trigger.Code,
+		TriggerTimeoutMS: trigger.TimeoutMS, Attempt: module.RecoveryAttempt{
+			Number: info.Attempt, MaxAttempts: info.MaxAttempts, ElapsedMS: info.Elapsed.Milliseconds(),
+			RemainingMS: info.Remaining.Milliseconds(), NextAttempt: info.NextAttempt, RetryAllowed: info.RetryAllowed,
+		}, Directive: module.RecoveryDirective{
+			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
+			PayloadSHA256: payloadSHA256,
+		}, Metadata: info.Metadata, Response: moduleRecoveryResponse(response),
+		ControllerURL: controllerURL, ControllerTimeoutMS: policy.Controller.Timeout.Milliseconds(),
+		ControllerHeaders: policy.Controller.Headers.Clone(),
+	})
 	decision, err := t.recoveryController.Decide(ctx, policy.Controller, event)
 	if err != nil {
+		attempt.RecoveryFinished(module.RecoveryFinished{
+			EventID: eventID, Outcome: module.RecoveryOutcomeControllerError,
+			ErrorCode: "controller_error", Error: err.Error(),
+		})
 		return recovery.Decision{}, err
 	}
+	if !validRecoveryDecision(decision.Action, trigger, response) {
+		err := fmt.Errorf("recovery callback returned an invalid decision: action=%q trigger=%q", decision.Action, trigger.Type)
+		attempt.RecoveryFinished(module.RecoveryFinished{
+			EventID: eventID, Outcome: module.RecoveryOutcomeInvalidDecision,
+			Action: module.RecoveryAction(decision.Action), ErrorCode: "invalid_decision", Error: err.Error(),
+		})
+		return recovery.Decision{}, err
+	}
+	if decision.AfterMS < 0 {
+		err := errors.New("recovery callback returned a negative delay")
+		attempt.RecoveryFinished(module.RecoveryFinished{
+			EventID: eventID, Outcome: module.RecoveryOutcomeInvalidDecision,
+			Action: module.RecoveryAction(decision.Action), ErrorCode: "invalid_decision", Error: err.Error(),
+		})
+		return recovery.Decision{}, err
+	}
+	attempt.RecoveryDecided(module.RecoveryDecided{
+		EventID: eventID, Action: module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+	})
 	if decision.Action == recovery.ActionRetry && !info.RetryAllowed {
+		attempt.RecoveryFinished(module.RecoveryFinished{
+			EventID: eventID, Outcome: module.RecoveryOutcomeBudgetRejected,
+			Action: module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+			NextAttempt: info.NextAttempt, ErrorCode: "retry_not_allowed",
+		})
 		return recovery.Decision{}, exchange.ErrMaxAttempts
 	}
 	if decision.AfterMS > 0 {
 		delay := time.Duration(decision.AfterMS) * time.Millisecond
 		if info.Remaining > 0 && delay >= info.Remaining {
+			attempt.RecoveryFinished(module.RecoveryFinished{
+				EventID: eventID, Outcome: module.RecoveryOutcomeBudgetRejected,
+				Action: module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+				NextAttempt: info.NextAttempt, ErrorCode: "recovery_budget_exceeded",
+			})
 			return recovery.Decision{}, exchange.ErrRecoveryBudgetExceeded
 		}
 		timer := time.NewTimer(delay)
@@ -363,10 +441,63 @@ func (t *RecoveryTransport) recover(ctx context.Context, policy *recovery.Policy
 		select {
 		case <-timer.C:
 		case <-ctx.Done():
+			attempt.RecoveryFinished(module.RecoveryFinished{
+				EventID: eventID, Outcome: module.RecoveryOutcomeCanceled,
+				Action: module.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
+				NextAttempt: info.NextAttempt, ErrorCode: "context_canceled", Error: ctx.Err().Error(),
+			})
 			return recovery.Decision{}, ctx.Err()
 		}
 	}
 	return decision, nil
+}
+
+func validRecoveryDecision(action recovery.Action, trigger recovery.Trigger, response *recovery.Response) bool {
+	switch action {
+	case recovery.ActionRetry, recovery.ActionForward, recovery.ActionFail:
+		return action != recovery.ActionForward ||
+			(trigger.Type == recovery.TriggerUnexpectedStatus && response != nil)
+	default:
+		return false
+	}
+}
+
+func moduleRecoveryResponse(response *recovery.Response) *module.RecoveryResponse {
+	if response == nil {
+		return nil
+	}
+	result := &module.RecoveryResponse{StatusCode: response.StatusCode, Header: response.Headers.Clone()}
+	result.Body = &module.RecoveryBody{
+		Encoding: response.Body.Encoding, Data: response.Body.Data,
+		Size: response.Body.Size, Truncated: response.Body.Truncated,
+	}
+	return result
+}
+
+func recoveryOutcomeForError(err error) module.RecoveryOutcome {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return module.RecoveryOutcomeCanceled
+	case errors.Is(err, exchange.ErrMaxAttempts), errors.Is(err, exchange.ErrRecoveryBudgetExceeded), errors.Is(err, exchange.ErrIdempotencyKeyRequired):
+		return module.RecoveryOutcomeBudgetRejected
+	default:
+		return module.RecoveryOutcomeFailed
+	}
+}
+
+func recoveryErrorCode(err error) string {
+	switch {
+	case errors.Is(err, exchange.ErrMaxAttempts):
+		return "max_attempts"
+	case errors.Is(err, exchange.ErrRecoveryBudgetExceeded):
+		return "recovery_budget_exceeded"
+	case errors.Is(err, exchange.ErrIdempotencyKeyRequired):
+		return "idempotency_key_required"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "context_canceled"
+	default:
+		return "recovery_failed"
+	}
 }
 
 func captureRecoveryResponse(response *http.Response, limit int64) (*recovery.Response, error) {

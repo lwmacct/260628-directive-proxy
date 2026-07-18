@@ -31,7 +31,9 @@ type Binder struct {
 	upstreamSSEData      []subscription[SSEData]
 	upstreamBodyEnded    []subscription[BodyEnded]
 	attemptFinished      []subscription[AttemptFinished]
-	retryRequested       []subscription[RetryRequested]
+	recoveryStarted      []subscription[RecoveryStarted]
+	recoveryDecided      []subscription[RecoveryDecided]
+	recoveryFinished     []subscription[RecoveryFinished]
 	downstreamResponse   []subscription[ResponseStarted]
 	downstreamBodyChunk  []subscription[BodyChunk]
 	downstreamSSEData    []subscription[SSEData]
@@ -103,8 +105,14 @@ func (b *Binder) OnUpstreamBodyEnded(policy Policy, handle Handler[BodyEnded]) {
 func (b *Binder) OnAttemptFinished(policy Policy, handle Handler[AttemptFinished]) {
 	appendSubscription(&b.attemptFinished, policy, handle)
 }
-func (b *Binder) OnRetryRequested(policy Policy, handle Handler[RetryRequested]) {
-	appendSubscription(&b.retryRequested, policy, handle)
+func (b *Binder) OnRecoveryStarted(policy Policy, handle Handler[RecoveryStarted]) {
+	appendSubscription(&b.recoveryStarted, policy, handle)
+}
+func (b *Binder) OnRecoveryDecided(policy Policy, handle Handler[RecoveryDecided]) {
+	appendSubscription(&b.recoveryDecided, policy, handle)
+}
+func (b *Binder) OnRecoveryFinished(policy Policy, handle Handler[RecoveryFinished]) {
+	appendSubscription(&b.recoveryFinished, policy, handle)
 }
 func (b *Binder) OnDownstreamResponseStarted(policy Policy, handle Handler[ResponseStarted]) {
 	appendSubscription(&b.downstreamResponse, policy, handle)

@@ -192,10 +192,84 @@ type BodyEnded struct{ Cause error }
 
 type AttemptFinished struct{ Outcome string }
 
-type RetryRequested struct {
-	Trigger          string
-	NextAttempt      int
-	SelectorMetadata requestmeta.Metadata
+type RecoveryAction string
+
+const (
+	RecoveryActionRetry   RecoveryAction = "retry"
+	RecoveryActionForward RecoveryAction = "forward"
+	RecoveryActionFail    RecoveryAction = "fail"
+)
+
+type RecoveryOutcome string
+
+const (
+	RecoveryOutcomeRetryRequested  RecoveryOutcome = "retry_requested"
+	RecoveryOutcomeForwarded       RecoveryOutcome = "forwarded"
+	RecoveryOutcomeFailed          RecoveryOutcome = "failed"
+	RecoveryOutcomeControllerError RecoveryOutcome = "controller_error"
+	RecoveryOutcomeInvalidDecision RecoveryOutcome = "invalid_decision"
+	RecoveryOutcomeBudgetRejected  RecoveryOutcome = "budget_rejected"
+	RecoveryOutcomeCanceled        RecoveryOutcome = "canceled"
+)
+
+type RecoveryAttempt struct {
+	Number       int
+	MaxAttempts  int
+	ElapsedMS    int64
+	RemainingMS  int64
+	NextAttempt  int
+	RetryAllowed bool
+}
+
+type RecoveryDirective struct {
+	Mode          string
+	Backend       string
+	Endpoint      string
+	Resource      string
+	PayloadSHA256 string
+}
+
+type RecoveryBody struct {
+	Encoding  string
+	Data      string
+	Size      int64
+	Truncated bool
+}
+
+type RecoveryResponse struct {
+	StatusCode int
+	Header     http.Header
+	Body       *RecoveryBody
+}
+
+type RecoveryStarted struct {
+	EventID             string
+	Trigger             string
+	TriggerCode         string
+	TriggerTimeoutMS    int64
+	Attempt             RecoveryAttempt
+	Directive           RecoveryDirective
+	Metadata            requestmeta.Metadata
+	Response            *RecoveryResponse
+	ControllerURL       string
+	ControllerTimeoutMS int64
+	ControllerHeaders   http.Header
+}
+
+type RecoveryDecided struct {
+	EventID string
+	Action  RecoveryAction
+	AfterMS int64
+}
+
+type RecoveryFinished struct {
+	EventID     string
+	Outcome     RecoveryOutcome
+	Action      RecoveryAction
+	AfterMS     int64
+	NextAttempt int
+	ErrorCode   string
+	Error       string
 }
 
 type RequestFinished struct {

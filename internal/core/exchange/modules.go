@@ -317,15 +317,44 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	return decision
 }
 
-func (attempt *Attempt) emitRetryRequested(trigger string, nextAttempt int) {
+func (attempt *Attempt) RecoveryStarted(value module.RecoveryStarted) {
 	if attempt == nil || attempt.exchange == nil {
 		return
 	}
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
+	attempt.recoveryEventID = value.EventID
 	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
-		return scope.RetryRequested(current.ctx, module.RetryRequested{Trigger: trigger, NextAttempt: nextAttempt})
+		return scope.RecoveryStarted(current.ctx, value)
+	})
+}
+
+func (attempt *Attempt) RecoveryDecided(value module.RecoveryDecided) {
+	if attempt == nil || attempt.exchange == nil {
+		return
+	}
+	current := attempt.exchange
+	current.lifecycleMu.Lock()
+	defer current.lifecycleMu.Unlock()
+	attempt.recoveryAfterMS = value.AfterMS
+	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
+		return scope.RecoveryDecided(current.ctx, value)
+	})
+}
+
+func (attempt *Attempt) RecoveryFinished(value module.RecoveryFinished) {
+	if attempt == nil || attempt.exchange == nil {
+		return
+	}
+	current := attempt.exchange
+	current.lifecycleMu.Lock()
+	defer current.lifecycleMu.Unlock()
+	if value.EventID == "" {
+		value.EventID = attempt.recoveryEventID
+	}
+	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
+		return scope.RecoveryFinished(current.ctx, value)
 	})
 }
 

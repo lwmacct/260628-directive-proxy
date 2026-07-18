@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,8 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if !first.BeginUpstream(req) || !first.BeginRecovery() {
 		t.Fatal("first attempt did not enter recovery")
 	}
+	first.RecoveryStarted(module.RecoveryStarted{EventID: "trace:1:unexpected_status", Trigger: "unexpected_status"})
+	first.RecoveryDecided(module.RecoveryDecided{EventID: "trace:1:unexpected_status", Action: module.RecoveryActionRetry})
 	if err := first.RequestRecoveryRetry(); err != nil || !firstCanceled {
 		t.Fatalf("recovery retry was not accepted: canceled=%t err=%v", firstCanceled, err)
 	}
@@ -65,14 +68,17 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if err := dispatcher.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	var sawRetry bool
+	var recoveryTopics []string
 	for _, record := range output.Records() {
-		if record.Topic == "capture.retry.requested" && record.Data["trigger"] == "recovery_controller" {
-			sawRetry = true
+		if record.Topic == "capture.recovery.started" || record.Topic == "capture.recovery.decided" || record.Topic == "capture.recovery.finished" {
+			recoveryTopics = append(recoveryTopics, record.Topic)
+		}
+		if record.Topic == "capture.recovery.finished" && record.Data["outcome"] != string(module.RecoveryOutcomeRetryRequested) {
+			t.Fatalf("unexpected recovery finish: %#v", record.Data)
 		}
 	}
-	if !sawRetry {
-		t.Fatal("recovery retry event was not captured")
+	if got := strings.Join(recoveryTopics, ","); got != "capture.recovery.started,capture.recovery.decided,capture.recovery.finished" {
+		t.Fatalf("unexpected recovery event sequence: %s", got)
 	}
 }
 

@@ -52,10 +52,12 @@ directive 使用有序数组声明程序：
 - Hook：提交前可变 Draft，例如 outbound request/body chunk、upstream response/body chunk；
 - Transform：按 directive 顺序修改流数据；
 - Stream：只读数据或派生投影，例如 raw chunk、JSON chunk、SSE data/comment；
-- Fact：不可变生命周期事实，例如 request started、directive resolved、retry requested、body ended；
+- Fact：不可变生命周期事实，例如 request started、directive resolved、Recovery transaction、body ended；
 - Command：预留给异步影响未来状态的控制消息，不允许异步任务反向修改已经提交的数据。
 
 Module 通过 `Binder` 明确声明端口。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。
+
+Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarted` 在调用 Controller 前投递，`OnRecoveryDecided` 在收到合法决策后投递，`OnRecoveryFinished` 在决策实际应用或失败后且在 `AttemptFinished` 前投递。三个事件共享同一 `EventID`。Module 可以完整观察 trigger、Controller 请求上下文、决策和最终 outcome，但不能覆盖 directive 或 Controller 决策。
 
 ## 执行策略
 

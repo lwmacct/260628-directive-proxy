@@ -176,8 +176,17 @@ func (s *Scope) AttemptFinished(ctx context.Context, value AttemptFinished) erro
 	return dispatch(s, ctx, value, func(b *Binder) []subscription[AttemptFinished] { return b.attemptFinished }, nil)
 }
 
-func (s *Scope) RetryRequested(ctx context.Context, value RetryRequested) error {
-	return dispatch(s, ctx, value, func(b *Binder) []subscription[RetryRequested] { return b.retryRequested }, cloneRetryRequested)
+func (s *Scope) RecoveryStarted(ctx context.Context, value RecoveryStarted) error {
+	value = cloneRecoveryStarted(value)
+	return dispatch(s, ctx, value, func(b *Binder) []subscription[RecoveryStarted] { return b.recoveryStarted }, cloneRecoveryStarted)
+}
+
+func (s *Scope) RecoveryDecided(ctx context.Context, value RecoveryDecided) error {
+	return dispatch(s, ctx, value, func(b *Binder) []subscription[RecoveryDecided] { return b.recoveryDecided }, nil)
+}
+
+func (s *Scope) RecoveryFinished(ctx context.Context, value RecoveryFinished) error {
+	return dispatch(s, ctx, value, func(b *Binder) []subscription[RecoveryFinished] { return b.recoveryFinished }, nil)
 }
 
 func (s *Scope) DownstreamResponseStarted(ctx context.Context, value ResponseStarted) error {
@@ -460,7 +469,9 @@ func (b *Binder) allPolicies() []Policy {
 		policies(len(b.upstreamSSEData), func(i int) Policy { return b.upstreamSSEData[i].policy }),
 		policies(len(b.upstreamBodyEnded), func(i int) Policy { return b.upstreamBodyEnded[i].policy }),
 		policies(len(b.attemptFinished), func(i int) Policy { return b.attemptFinished[i].policy }),
-		policies(len(b.retryRequested), func(i int) Policy { return b.retryRequested[i].policy }),
+		policies(len(b.recoveryStarted), func(i int) Policy { return b.recoveryStarted[i].policy }),
+		policies(len(b.recoveryDecided), func(i int) Policy { return b.recoveryDecided[i].policy }),
+		policies(len(b.recoveryFinished), func(i int) Policy { return b.recoveryFinished[i].policy }),
 		policies(len(b.downstreamResponse), func(i int) Policy { return b.downstreamResponse[i].policy }),
 		policies(len(b.downstreamBodyChunk), func(i int) Policy { return b.downstreamBodyChunk[i].policy }),
 		policies(len(b.downstreamSSEData), func(i int) Policy { return b.downstreamSSEData[i].policy }),
@@ -525,8 +536,18 @@ func cloneSSEData(value SSEData) SSEData {
 	return value
 }
 
-func cloneRetryRequested(value RetryRequested) RetryRequested {
-	value.SelectorMetadata = cloneMetadata(value.SelectorMetadata)
+func cloneRecoveryStarted(value RecoveryStarted) RecoveryStarted {
+	value.Metadata = cloneMetadata(value.Metadata)
+	value.ControllerHeaders = value.ControllerHeaders.Clone()
+	if value.Response != nil {
+		response := *value.Response
+		response.Header = value.Response.Header.Clone()
+		if value.Response.Body != nil {
+			body := *value.Response.Body
+			response.Body = &body
+		}
+		value.Response = &response
+	}
 	return value
 }
 

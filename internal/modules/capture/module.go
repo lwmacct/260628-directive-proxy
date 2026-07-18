@@ -90,7 +90,9 @@ func (capture *instance) Mount(binder *module.Binder) {
 	binder.OnMetadataChanged(async, capture.onMetadataChanged)
 	binder.OnUpstreamStarted(async, capture.onUpstreamStarted)
 	binder.OnAttemptFinished(async, capture.onAttemptFinished)
-	binder.OnRetryRequested(async, capture.onRetryRequested)
+	binder.OnRecoveryStarted(async, capture.onRecoveryStarted)
+	binder.OnRecoveryDecided(async, capture.onRecoveryDecided)
+	binder.OnRecoveryFinished(async, capture.onRecoveryFinished)
 	binder.OnDownstreamResponseStarted(async, capture.onDownstreamResponseStarted)
 	binder.OnDownstreamBodyChunk(async, capture.onDownstreamBodyChunk)
 	binder.OnDownstreamSSEData(async, capture.onDownstreamSSEData)
@@ -226,15 +228,64 @@ func (*instance) onAttemptFinished(ctx module.EventContext, value module.Attempt
 	return nil
 }
 
-func (capture *instance) onRetryRequested(ctx module.EventContext, value module.RetryRequested) error {
+func (capture *instance) onRecoveryStarted(ctx module.EventContext, value module.RecoveryStarted) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
-	data := map[string]any{"trigger": value.Trigger, "attempt": ctx.Attempt, "next_attempt": value.NextAttempt}
-	if len(value.SelectorMetadata) > 0 {
-		data["selector_metadata"] = redactMetadata(value.SelectorMetadata, capture.spec.RedactHeaders)
+	data := map[string]any{
+		"event_id": value.EventID, "trigger": value.Trigger, "trigger_code": value.TriggerCode,
+		"trigger_timeout_ms": value.TriggerTimeoutMS, "attempt": value.Attempt.Number,
+		"max_attempts": value.Attempt.MaxAttempts, "elapsed_ms": value.Attempt.ElapsedMS,
+		"remaining_ms": value.Attempt.RemainingMS, "next_attempt": value.Attempt.NextAttempt,
+		"retry_allowed": value.Attempt.RetryAllowed,
+		"directive": map[string]any{
+			"mode": value.Directive.Mode, "backend": value.Directive.Backend,
+			"endpoint": value.Directive.Endpoint, "resource": value.Directive.Resource,
+			"payload_sha256": value.Directive.PayloadSHA256,
+		},
+		"metadata":              redactMetadata(value.Metadata, capture.spec.RedactHeaders),
+		"controller_url":        value.ControllerURL,
+		"controller_timeout_ms": value.ControllerTimeoutMS,
+		"controller_headers":    redactHTTPHeaders(value.ControllerHeaders, capture.spec.RedactHeaders),
 	}
-	ctx.Emitter.Emit("capture.retry.requested", data)
+	if value.Response != nil {
+		response := map[string]any{
+			"status_code": value.Response.StatusCode,
+			"headers":     redactHTTPHeaders(value.Response.Header, capture.spec.RedactHeaders),
+		}
+		if value.Response.Body != nil {
+			response["body"] = map[string]any{
+				"encoding": value.Response.Body.Encoding, "data": value.Response.Body.Data,
+				"size": value.Response.Body.Size, "truncated": value.Response.Body.Truncated,
+			}
+		}
+		data["response"] = response
+	}
+	ctx.Emitter.Emit("capture.recovery.started", data)
+	return nil
+}
+
+func (*instance) onRecoveryDecided(ctx module.EventContext, value module.RecoveryDecided) error {
+	if ctx.Emitter != nil {
+		ctx.Emitter.Emit("capture.recovery.decided", map[string]any{
+			"event_id": value.EventID, "action": string(value.Action), "after_ms": value.AfterMS,
+		})
+	}
+	return nil
+}
+
+func (*instance) onRecoveryFinished(ctx module.EventContext, value module.RecoveryFinished) error {
+	if ctx.Emitter != nil {
+		data := map[string]any{
+			"event_id": value.EventID, "outcome": string(value.Outcome),
+			"action": string(value.Action), "after_ms": value.AfterMS,
+			"next_attempt": value.NextAttempt, "error_code": value.ErrorCode,
+		}
+		if value.Error != "" {
+			data["error"] = value.Error
+		}
+		ctx.Emitter.Emit("capture.recovery.finished", data)
+	}
 	return nil
 }
 

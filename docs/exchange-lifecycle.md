@@ -70,7 +70,9 @@ decode token and resolve canonical Payload
        -> AttemptStarted / DirectiveResolved
        -> outbound request + streaming body mutation barriers
        -> UpstreamStarted
-       -> optional Recovery callback before downstream commit
+       -> optional RecoveryStarted before downstream commit
+            -> Controller callback -> RecoveryDecided
+            -> apply decision -> RecoveryFinished
        -> upstream response mutation barrier
        -> raw chunks -> transforms -> SSE/JSON projection
        -> upstream body end -> AttemptFinished -> close attempt scope
@@ -80,7 +82,7 @@ decode token and resolve canonical Payload
 
 Module 通过 `Binder` 声明自己接收的事件和 mutation port。未声明的事件不会投递，未订阅的 SSE/JSON 投影不会创建。例如 `builtin.llmusage` 只接收 upstream response headers、SSE data、JSON chunk 和 body end；`builtin.llmperf` 接收 upstream start、response headers、raw body chunk 和 body end。
 
-`RetryRequested` 仍是内部生命周期事实，表示 Recovery Controller 已决定切换到下一 Attempt；它不对应外部 Retry API 或 Retry-ID。
+Recovery 使用同一个 `event_id=<trace_id>:<attempt>:<trigger>` 关联三个只读事实：`RecoveryStarted` 包含 trigger、Attempt budget、directive source、metadata、Controller endpoint/header 和可选的异常响应；`RecoveryDecided` 记录 Controller 返回的 `action` 与 `after_ms`；`RecoveryFinished` 记录实际应用结果，包括 `retry_requested`、`forwarded`、`failed`、Controller/决策错误、预算拒绝或取消。Controller 返回 `retry` 并不等于重试已经发生，只有 `RecoveryFinished.outcome=retry_requested` 表示 Exchange 已接受下一 Attempt。
 
 ## Replay Store
 
