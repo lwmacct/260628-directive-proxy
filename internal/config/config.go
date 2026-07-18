@@ -206,7 +206,7 @@ func DefaultConfig() Config {
 			},
 			Fluent: func() fluent.Config {
 				config := fluent.DefaultConfig()
-				config.Endpoint = "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}"
+				config.Endpoint = "${FLUENT_ENDPOINT:-tcp://127.0.0.1:23194}"
 				config.TagPrefix = "dp"
 				return config
 			}(),

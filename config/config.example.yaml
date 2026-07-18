@@ -151,7 +151,7 @@ server:
   # Fluent Forward 事件输出配置；关闭时不创建 Sink、Queue 或连接
   fluent:
     enabled: false # Enable Fluent client in the calling application
-    endpoint: "${FLUENT_ENDPOINT:-unix:///run/fluent/fluent.sock}" # Fluent endpoint using tcp, tls, unix, ws, or wss
+    endpoint: "${FLUENT_ENDPOINT:-tcp://127.0.0.1:23194}" # Fluent endpoint using tcp, tls, unix, ws, or wss
 
     # Forward authentication settings
     auth: null
