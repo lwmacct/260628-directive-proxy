@@ -230,7 +230,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 - [`builtin.llmusage`](docs/module-llmusage.md)：LLM token usage 提取；
 - [`builtin.llmperf`](docs/module-llmperf.md)：LLM 响应性能测量。
 
-Module 经内部有界队列向 Fluent 输出统一 `dp.event.v5` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 顶层分别包含系统 `trace_id` 和完整 directive `metadata`，各 topic 的 `data` 不重复这两个公共字段；Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
+Module 经内部有界队列向 Fluent 输出统一 `dp.event.v6` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 使用 `(trace_id, sequence)` 作为事件身份，并在顶层携带完整 directive `metadata`；各 topic 的 `data` 不重复这些公共字段。Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
 已解析的 `Payload.modules` 在 Prepare 阶段编译一次为不可变 Program Executable；exchange-lifetime 实例打开一次，Recovery 的每个 RoundTrip 仅从同一批 Binding 打开新的 round-trip-lifetime 实例，不重新编译 Module 配置。数组顺序是所有当前活跃 Module 的全局执行顺序；Module 名在 Program Module Catalog 内唯一，并直接作为外部 Record 的 `producer`。Recovery Controller 使用独立的类型化 HTTP 参数和 Binding，不属于 Module Catalog。
 

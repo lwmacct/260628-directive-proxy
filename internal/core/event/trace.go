@@ -1,7 +1,6 @@
 package event
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,7 +68,6 @@ func (trace *Trace) emit(producer, topic string, roundTrip int, data map[string]
 		SchemaVersion: SchemaVersion,
 		Producer:      producer,
 		Topic:         topic,
-		RecordID:      fmt.Sprintf("%s:%08d", trace.traceID, trace.sequence),
 		TraceID:       trace.traceID,
 		Metadata:      trace.metadata.Map(),
 		RoundTrip:     roundTrip,

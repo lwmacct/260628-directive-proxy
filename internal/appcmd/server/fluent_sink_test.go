@@ -69,7 +69,7 @@ func assertFluentMetadataOnWire(t *testing.T, fields map[string]string) {
 	}
 	record := event.Record{
 		SchemaVersion: event.SchemaVersion, Producer: "usage", Topic: "llm.usage.observed",
-		RecordID: "trace-1:00000001", TraceID: "trace-1", Sequence: 1,
+		TraceID: "trace-1", Sequence: 1,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Time: time.Now().UTC(),
 		Metadata: fields,
 		Data:     map[string]any{"total_tokens": int64(13)},

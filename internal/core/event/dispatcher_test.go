@@ -96,7 +96,7 @@ func TestTraceAssignsRecordIdentityAndSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	records := sink.Records()
-	if len(records) != 2 || records[0].Sequence != 1 || records[1].Sequence != 2 || records[0].RecordID != "trace:00000001" || records[0].Producer != "binding" || records[0].RoundTrip != 2 {
+	if len(records) != 2 || records[0].Sequence != 1 || records[1].Sequence != 2 || records[0].TraceID != "trace" || records[0].Producer != "binding" || records[0].RoundTrip != 2 {
 		t.Fatalf("unexpected records: %#v", records)
 	}
 	if records[0].SchemaVersion != event.SchemaVersion || records[0].TraceID != "trace" || records[0].Metadata[metadata.KeyUserKey] != "uk_test" {

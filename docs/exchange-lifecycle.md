@@ -107,6 +107,6 @@ Store 按实际字节限制正文大小，支持未知 `Content-Length`，以内
 
 Recovery 只允许发生在最终响应头提交给下游之前。异常状态的捕获正文会被重新组装，所以 `forward` 可以保持原响应；一旦进入 `streaming_response`，SSE 或普通流式正文都不会被透明替换、拼接或重连。
 
-异步 `scope_end` lane 在 scope 结束前必须 drain，即使客户端 context 已取消；Finish cause 仍会标记为 `completed`、`failed`、`canceled` 或 `replaced`。外部 Record 使用 `schema_version=dp.event.v5`，顶层分别携带 trace ID 和完整 directive metadata；同一 Exchange 的两类 Module 共享单调递增 sequence。
+异步 `scope_end` lane 在 scope 结束前必须 drain，即使客户端 context 已取消；Finish cause 仍会标记为 `completed`、`failed`、`canceled` 或 `replaced`。外部 Record 使用 `schema_version=dp.event.v6`，以 `(trace_id, sequence)` 标识事件并携带完整 directive metadata；同一 Exchange 的两类 Module 共享单调递增 sequence。
 
 Fluent Sink 与 Program runtime 独立。Fluent 关闭时不创建连接、Queue 或 worker，但 Module 仍会编译和执行。运行阶段 Module panic/错误通过 `/health.modules` 报告，Sink 失败和队列溢出通过 `/health.event_output` 报告。
