@@ -57,7 +57,7 @@ directive 使用有序数组声明程序：
 
 Module 通过 `Binder` 明确声明端口。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。
 
-Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarted` 在调用 Controller 前投递，`OnRecoveryDecided` 在收到合法决策后投递，`OnRecoveryFinished` 在决策实际应用或失败后且在 `AttemptFinished` 前投递。三个事件共享同一 `EventID`。Module 可以完整观察 trigger、Controller 请求上下文、决策和最终 outcome，但不能覆盖 directive 或 Controller 决策。
+Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarted` 在调用 Controller 前投递，`OnRecoveryDecided` 在收到合法决策后投递，`OnRecoveryFinished` 在决策实际应用或失败后且在 `AttemptFinished` 前投递。三个事件共享同一 `EventID`。`EventContext.Sequence` 是同一 Exchange Run 内单调递增的生命周期序号；Recovery 事件的 `EventContext.EventID` 与 payload 的 `EventID` 相同。Module 可以完整观察 trigger、Controller 请求上下文、决策和最终 outcome，但不能覆盖 directive 或 Controller 决策。
 
 ## 执行策略
 

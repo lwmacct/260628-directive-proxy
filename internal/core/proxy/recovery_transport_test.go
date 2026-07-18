@@ -57,11 +57,13 @@ func (controller recoveryControllerFunc) Decide(ctx context.Context, spec recove
 }
 
 type recoveryEventRecorder struct {
-	mu       sync.Mutex
-	phases   []string
-	started  module.RecoveryStarted
-	decided  module.RecoveryDecided
-	finished module.RecoveryFinished
+	mu        sync.Mutex
+	phases    []string
+	sequences []uint64
+	eventIDs  []string
+	started   module.RecoveryStarted
+	decided   module.RecoveryDecided
+	finished  module.RecoveryFinished
 }
 
 type recoveryEventDefinition struct{ recorder *recoveryEventRecorder }
@@ -83,24 +85,30 @@ func (binding recoveryEventBinding) Open(module.OpenContext) (module.Instance, e
 }
 
 func (instance *recoveryEventInstance) Mount(binder *module.Binder) {
-	binder.OnRecoveryStarted(module.SyncPolicy(), func(_ module.EventContext, value module.RecoveryStarted) error {
+	binder.OnRecoveryStarted(module.SyncPolicy(), func(ctx module.EventContext, value module.RecoveryStarted) error {
 		instance.recorder.mu.Lock()
 		defer instance.recorder.mu.Unlock()
 		instance.recorder.phases = append(instance.recorder.phases, "started")
+		instance.recorder.sequences = append(instance.recorder.sequences, ctx.Sequence)
+		instance.recorder.eventIDs = append(instance.recorder.eventIDs, ctx.EventID)
 		instance.recorder.started = value
 		return nil
 	})
-	binder.OnRecoveryDecided(module.SyncPolicy(), func(_ module.EventContext, value module.RecoveryDecided) error {
+	binder.OnRecoveryDecided(module.SyncPolicy(), func(ctx module.EventContext, value module.RecoveryDecided) error {
 		instance.recorder.mu.Lock()
 		defer instance.recorder.mu.Unlock()
 		instance.recorder.phases = append(instance.recorder.phases, "decided")
+		instance.recorder.sequences = append(instance.recorder.sequences, ctx.Sequence)
+		instance.recorder.eventIDs = append(instance.recorder.eventIDs, ctx.EventID)
 		instance.recorder.decided = value
 		return nil
 	})
-	binder.OnRecoveryFinished(module.SyncPolicy(), func(_ module.EventContext, value module.RecoveryFinished) error {
+	binder.OnRecoveryFinished(module.SyncPolicy(), func(ctx module.EventContext, value module.RecoveryFinished) error {
 		instance.recorder.mu.Lock()
 		defer instance.recorder.mu.Unlock()
 		instance.recorder.phases = append(instance.recorder.phases, "finished")
+		instance.recorder.sequences = append(instance.recorder.sequences, ctx.Sequence)
+		instance.recorder.eventIDs = append(instance.recorder.eventIDs, ctx.EventID)
 		instance.recorder.finished = value
 		return nil
 	})
@@ -183,6 +191,8 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	started := recorder.started
 	decided := recorder.decided
 	finished := recorder.finished
+	sequences := append([]uint64(nil), recorder.sequences...)
+	eventIDs := append([]string(nil), recorder.eventIDs...)
 	recorder.mu.Unlock()
 	if strings.Join(phases, ",") != "started,decided,finished" {
 		t.Fatalf("unexpected module recovery event sequence: %#v", phases)
@@ -198,6 +208,10 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	if finished.EventID != started.EventID || finished.Outcome != module.RecoveryOutcomeRetryRequested ||
 		finished.Action != module.RecoveryActionRetry || finished.NextAttempt != 2 {
 		t.Fatalf("unexpected recovery finished event: %#v", finished)
+	}
+	if len(sequences) != 3 || sequences[0] == 0 || sequences[0] >= sequences[1] || sequences[1] >= sequences[2] ||
+		strings.Join(eventIDs, ",") != strings.Join([]string{started.EventID, started.EventID, started.EventID}, ",") {
+		t.Fatalf("unexpected lifecycle event metadata: sequences=%#v event_ids=%#v", sequences, eventIDs)
 	}
 	current.Complete()
 }
@@ -278,6 +292,81 @@ func TestRecoveryTransportReportsControllerError(t *testing.T) {
 	if phases != "started,finished" || finished.Outcome != module.RecoveryOutcomeControllerError ||
 		finished.ErrorCode != "controller_error" || !strings.Contains(finished.Error, "controller unavailable") {
 		t.Fatalf("unexpected controller error events: phases=%s finished=%#v", phases, finished)
+	}
+}
+
+func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
+	target := mustProxyURL(t, "https://one.example")
+	policy := testRecoveryPolicy()
+	recorder := &recoveryEventRecorder{}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
+	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	current := manager.Start(inbound)
+	_ = current.ConfigureRequest(nil)
+	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
+	})
+	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+		return recovery.Decision{Action: recovery.ActionForward, AfterMS: -1}, nil
+	})
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
+	if err != nil || response == nil {
+		t.Fatalf("unexpected invalid decision fallback: response=%#v err=%v", response, err)
+	}
+	_ = response.Body.Close()
+	current.Complete()
+	recorder.mu.Lock()
+	phases := strings.Join(recorder.phases, ",")
+	finished := recorder.finished
+	recorder.mu.Unlock()
+	if phases != "started,finished" || finished.Outcome != module.RecoveryOutcomeInvalidDecision ||
+		finished.ErrorCode != module.RecoveryErrorCodeInvalidDecision {
+		t.Fatalf("unexpected invalid decision events: phases=%s finished=%#v", phases, finished)
+	}
+}
+
+func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
+	target := mustProxyURL(t, "https://one.example")
+	policy := testRecoveryPolicy()
+	policy.Budget.MaxAttempts = 1
+	recorder := &recoveryEventRecorder{}
+	prepared := &recoveryPrepared{policy: policy, plans: []*Plan{{Target: target, Modules: []module.Spec{{ID: "events", Module: "test.recovery.events"}}}}}
+	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
+	runtime, err := module.NewRuntime([]module.Definition{recoveryEventDefinition{recorder: recorder}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	current := manager.Start(inbound)
+	_ = current.ConfigureRequest(nil)
+	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
+	})
+	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+		return recovery.Decision{Action: recovery.ActionRetry}, nil
+	})
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
+	if err != nil || response == nil {
+		t.Fatalf("unexpected budget rejection fallback: response=%#v err=%v", response, err)
+	}
+	_ = response.Body.Close()
+	current.Complete()
+	recorder.mu.Lock()
+	phases := strings.Join(recorder.phases, ",")
+	finished := recorder.finished
+	recorder.mu.Unlock()
+	if phases != "started,decided,finished" || finished.Outcome != module.RecoveryOutcomeBudgetRejected ||
+		finished.ErrorCode != module.RecoveryErrorCodeRetryNotAllowed {
+		t.Fatalf("unexpected budget rejection events: phases=%s finished=%#v", phases, finished)
 	}
 }
 

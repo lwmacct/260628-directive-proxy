@@ -11,6 +11,7 @@ var (
 	ErrMaxAttempts            = errors.New("exchange maximum attempts reached")
 	ErrRecoveryBudgetExceeded = errors.New("exchange recovery time budget is exhausted")
 	ErrIdempotencyKeyRequired = errors.New("exchange idempotency key is required for retry")
+	ErrRecoveryFailed         = errors.New("exchange recovery failed")
 	ErrAttemptActive          = errors.New("exchange already has an active attempt")
 	ErrAttemptConfigured      = errors.New("exchange attempt module program is already configured")
 )

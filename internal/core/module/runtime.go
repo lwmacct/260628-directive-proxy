@@ -14,10 +14,11 @@ type Runtime struct {
 }
 
 type Run struct {
-	runtime  *Runtime
-	traceID  string
-	emission EmissionSession
-	closed   atomic.Bool
+	runtime       *Runtime
+	traceID       string
+	emission      EmissionSession
+	eventSequence atomic.Uint64
+	closed        atomic.Bool
 }
 
 type HealthStatus struct {
@@ -112,6 +113,13 @@ func (run *Run) Emitter(producer string, attempt int) Emitter {
 		return discardEmitter{}
 	}
 	return run.emission.Emitter(producer, attempt)
+}
+
+func (run *Run) NextEventSequence() uint64 {
+	if run == nil || run.closed.Load() {
+		return 0
+	}
+	return run.eventSequence.Add(1)
 }
 
 func (run *Run) ModuleFailed(name string) {

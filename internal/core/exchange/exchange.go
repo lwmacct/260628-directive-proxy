@@ -54,14 +54,12 @@ type Exchange struct {
 }
 
 type Attempt struct {
-	exchange        *Exchange
-	number          int
-	startedAt       time.Time
-	source          module.AttemptStarted
-	recoveryEventID string
-	recoveryAfterMS int64
-	cancel          context.CancelFunc
-	metadata        requestmeta.Metadata
+	exchange  *Exchange
+	number    int
+	startedAt time.Time
+	source    module.AttemptStarted
+	cancel    context.CancelFunc
+	metadata  requestmeta.Metadata
 
 	scope      *module.Scope
 	projection *module.Projection
@@ -178,13 +176,6 @@ func (current *Exchange) requestRecoveryRetry(expectedAttempt int) error {
 	current.phase = PhaseRetryRequested
 	cancel = attempt.cancel
 	current.stateMu.Unlock()
-	if attempt.recoveryEventID != "" {
-		attempt.RecoveryFinished(module.RecoveryFinished{
-			EventID: attempt.recoveryEventID, Outcome: module.RecoveryOutcomeRetryRequested,
-			Action: module.RecoveryActionRetry, AfterMS: attempt.recoveryAfterMS,
-			NextAttempt: attempt.number + 1,
-		})
-	}
 	if cancel != nil {
 		cancel()
 	}
@@ -263,10 +254,10 @@ func (current *Exchange) Complete() {
 	current.completeOnce.Do(func() {
 		current.RequestBodyEnd(0, "", false)
 		current.finishDownstream()
-		outcome := "completed"
+		outcome := module.OutcomeCompleted
 		finishCause := module.FinishCompleted
 		if current.ctx.Err() != nil {
-			outcome = "client_canceled"
+			outcome = module.OutcomeClientCanceled
 			finishCause = module.FinishCanceled
 		}
 		current.stateMu.Lock()

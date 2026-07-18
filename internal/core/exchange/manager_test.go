@@ -47,6 +47,10 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if err := first.RequestRecoveryRetry(); err != nil || !firstCanceled {
 		t.Fatalf("recovery retry was not accepted: canceled=%t err=%v", firstCanceled, err)
 	}
+	first.RecoveryFinished(module.RecoveryFinished{
+		EventID: "trace:1:unexpected_status", Outcome: module.RecoveryOutcomeRetryRequested,
+		Action: module.RecoveryActionRetry, NextAttempt: 2,
+	})
 	if decision := first.FinishRoundTrip(false, context.Canceled); decision != DecisionRetry {
 		t.Fatalf("unexpected first decision: %v", decision)
 	}

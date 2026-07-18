@@ -15,6 +15,10 @@ type ScopeRuntime interface {
 	ModuleFailed(moduleName string)
 }
 
+type eventSequencer interface {
+	NextEventSequence() uint64
+}
+
 type mountedInstance struct {
 	producer   string
 	moduleName string
@@ -178,15 +182,15 @@ func (s *Scope) AttemptFinished(ctx context.Context, value AttemptFinished) erro
 
 func (s *Scope) RecoveryStarted(ctx context.Context, value RecoveryStarted) error {
 	value = cloneRecoveryStarted(value)
-	return dispatch(s, ctx, value, func(b *Binder) []subscription[RecoveryStarted] { return b.recoveryStarted }, cloneRecoveryStarted)
+	return dispatchWithID(s, ctx, value.EventID, value, func(b *Binder) []subscription[RecoveryStarted] { return b.recoveryStarted }, cloneRecoveryStarted)
 }
 
 func (s *Scope) RecoveryDecided(ctx context.Context, value RecoveryDecided) error {
-	return dispatch(s, ctx, value, func(b *Binder) []subscription[RecoveryDecided] { return b.recoveryDecided }, nil)
+	return dispatchWithID(s, ctx, value.EventID, value, func(b *Binder) []subscription[RecoveryDecided] { return b.recoveryDecided }, nil)
 }
 
 func (s *Scope) RecoveryFinished(ctx context.Context, value RecoveryFinished) error {
-	return dispatch(s, ctx, value, func(b *Binder) []subscription[RecoveryFinished] { return b.recoveryFinished }, nil)
+	return dispatchWithID(s, ctx, value.EventID, value, func(b *Binder) []subscription[RecoveryFinished] { return b.recoveryFinished }, nil)
 }
 
 func (s *Scope) DownstreamResponseStarted(ctx context.Context, value ResponseStarted) error {
@@ -234,13 +238,22 @@ func (s *Scope) MutateUpstreamBodyChunk(ctx context.Context, draft *BodyDraft) e
 }
 
 func dispatch[T any](s *Scope, ctx context.Context, value T, selectHandlers func(*Binder) []subscription[T], clone func(T) T) error {
-	return dispatchAt(s, ctx, time.Time{}, value, selectHandlers, clone)
+	return dispatchAtWithID(s, ctx, time.Time{}, "", value, selectHandlers, clone)
 }
 
 func dispatchAt[T any](s *Scope, ctx context.Context, observedAt time.Time, value T, selectHandlers func(*Binder) []subscription[T], clone func(T) T) error {
+	return dispatchAtWithID(s, ctx, observedAt, "", value, selectHandlers, clone)
+}
+
+func dispatchWithID[T any](s *Scope, ctx context.Context, eventID string, value T, selectHandlers func(*Binder) []subscription[T], clone func(T) T) error {
+	return dispatchAtWithID(s, ctx, time.Time{}, eventID, value, selectHandlers, clone)
+}
+
+func dispatchAtWithID[T any](s *Scope, ctx context.Context, observedAt time.Time, eventID string, value T, selectHandlers func(*Binder) []subscription[T], clone func(T) T) error {
 	if s == nil || s.closed.Load() {
 		return nil
 	}
+	sequence := s.nextEventSequence()
 	var result error
 	for _, mounted := range s.mounted {
 		for _, item := range selectHandlers(&mounted.binder) {
@@ -248,7 +261,7 @@ func dispatchAt[T any](s *Scope, ctx context.Context, observedAt time.Time, valu
 			if item.policy.Executor == ExecutorOrderedLane && clone != nil {
 				current = clone(value)
 			}
-			eventCtx := s.eventContextAt(ctx, observedAt, mounted)
+			eventCtx := s.eventContextAt(ctx, observedAt, eventID, sequence, mounted)
 			task := func() error { return mounted.call(func() error { return item.handle(eventCtx, current) }) }
 			if item.policy.Executor == ExecutorCaller {
 				result = errors.Join(result, task())
@@ -316,10 +329,10 @@ func mutate[T any](s *Scope, ctx context.Context, value *T, selectHandlers func(
 }
 
 func (s *Scope) eventContext(ctx context.Context, mounted *mountedInstance) EventContext {
-	return s.eventContextAt(ctx, time.Time{}, mounted)
+	return s.eventContextAt(ctx, time.Time{}, "", s.nextEventSequence(), mounted)
 }
 
-func (s *Scope) eventContextAt(ctx context.Context, observedAt time.Time, mounted *mountedInstance) EventContext {
+func (s *Scope) eventContextAt(ctx context.Context, observedAt time.Time, eventID string, sequence uint64, mounted *mountedInstance) EventContext {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -331,7 +344,19 @@ func (s *Scope) eventContextAt(ctx context.Context, observedAt time.Time, mounte
 	if observedAt.IsZero() {
 		observedAt = nowUTC()
 	}
-	return EventContext{Context: ctx, TraceID: s.context.TraceID, Attempt: attempt, ObservedAt: observedAt, Emitter: emitter}
+	return EventContext{Context: ctx, TraceID: s.context.TraceID, Attempt: attempt, EventID: eventID, Sequence: sequence, ObservedAt: observedAt, Emitter: emitter}
+}
+
+func (s *Scope) nextEventSequence() uint64 {
+	if s == nil {
+		return 0
+	}
+	for _, mounted := range s.mounted {
+		if sequencer, ok := mounted.runtime.(eventSequencer); ok {
+			return sequencer.NextEventSequence()
+		}
+	}
+	return 0
 }
 
 func (m *mountedInstance) call(run func() error) (err error) {

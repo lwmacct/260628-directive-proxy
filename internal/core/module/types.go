@@ -88,6 +88,8 @@ type EventContext struct {
 	Context    context.Context
 	TraceID    string
 	Attempt    int
+	EventID    string
+	Sequence   uint64
 	ObservedAt time.Time
 	Emitter    Emitter
 }
@@ -190,7 +192,18 @@ type BodyChunk struct{ Data []byte }
 
 type BodyEnded struct{ Cause error }
 
-type AttemptFinished struct{ Outcome string }
+type LifecycleOutcome string
+
+const (
+	OutcomeCompleted            LifecycleOutcome = "completed"
+	OutcomeInterrupted          LifecycleOutcome = "interrupted"
+	OutcomeClientCanceled       LifecycleOutcome = "client_canceled"
+	OutcomeEndedWithoutResponse LifecycleOutcome = "ended_without_response"
+	OutcomeCanceledForRetry     LifecycleOutcome = "canceled_for_retry"
+	OutcomeTransportError       LifecycleOutcome = "transport_error"
+)
+
+type AttemptFinished struct{ Outcome LifecycleOutcome }
 
 type RecoveryAction string
 
@@ -210,6 +223,18 @@ const (
 	RecoveryOutcomeInvalidDecision RecoveryOutcome = "invalid_decision"
 	RecoveryOutcomeBudgetRejected  RecoveryOutcome = "budget_rejected"
 	RecoveryOutcomeCanceled        RecoveryOutcome = "canceled"
+)
+
+const (
+	RecoveryErrorCodeController          = "controller_error"
+	RecoveryErrorCodeInvalidDecision     = "invalid_decision"
+	RecoveryErrorCodeRetryNotAllowed     = "retry_not_allowed"
+	RecoveryErrorCodeBudgetExceeded      = "recovery_budget_exceeded"
+	RecoveryErrorCodeContextCanceled     = "context_canceled"
+	RecoveryErrorCodeMaxAttempts         = "max_attempts"
+	RecoveryErrorCodeIdempotencyRequired = "idempotency_key_required"
+	RecoveryErrorCodeRecoveryFailed      = "recovery_failed"
+	RecoveryErrorCodeControllerFail      = "controller_fail"
 )
 
 type RecoveryAttempt struct {
@@ -273,7 +298,7 @@ type RecoveryFinished struct {
 }
 
 type RequestFinished struct {
-	Outcome    string
+	Outcome    LifecycleOutcome
 	StatusCode int
 	Duration   time.Duration
 }

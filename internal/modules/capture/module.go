@@ -223,7 +223,7 @@ func (capture *instance) onUpstreamStarted(ctx module.EventContext, value module
 
 func (*instance) onAttemptFinished(ctx module.EventContext, value module.AttemptFinished) error {
 	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.attempt.finished", map[string]any{"attempt": ctx.Attempt, "outcome": value.Outcome})
+		ctx.Emitter.Emit("capture.attempt.finished", map[string]any{"attempt": ctx.Attempt, "outcome": string(value.Outcome)})
 	}
 	return nil
 }
@@ -233,7 +233,8 @@ func (capture *instance) onRecoveryStarted(ctx module.EventContext, value module
 		return nil
 	}
 	data := map[string]any{
-		"event_id": value.EventID, "trigger": value.Trigger, "trigger_code": value.TriggerCode,
+		"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
+		"trigger": value.Trigger, "trigger_code": value.TriggerCode,
 		"trigger_timeout_ms": value.TriggerTimeoutMS, "attempt": value.Attempt.Number,
 		"max_attempts": value.Attempt.MaxAttempts, "elapsed_ms": value.Attempt.ElapsedMS,
 		"remaining_ms": value.Attempt.RemainingMS, "next_attempt": value.Attempt.NextAttempt,
@@ -268,7 +269,8 @@ func (capture *instance) onRecoveryStarted(ctx module.EventContext, value module
 func (*instance) onRecoveryDecided(ctx module.EventContext, value module.RecoveryDecided) error {
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.recovery.decided", map[string]any{
-			"event_id": value.EventID, "action": string(value.Action), "after_ms": value.AfterMS,
+			"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
+			"action": string(value.Action), "after_ms": value.AfterMS,
 		})
 	}
 	return nil
@@ -277,8 +279,9 @@ func (*instance) onRecoveryDecided(ctx module.EventContext, value module.Recover
 func (*instance) onRecoveryFinished(ctx module.EventContext, value module.RecoveryFinished) error {
 	if ctx.Emitter != nil {
 		data := map[string]any{
-			"event_id": value.EventID, "outcome": string(value.Outcome),
-			"action": string(value.Action), "after_ms": value.AfterMS,
+			"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
+			"outcome": string(value.Outcome),
+			"action":  string(value.Action), "after_ms": value.AfterMS,
 			"next_attempt": value.NextAttempt, "error_code": value.ErrorCode,
 		}
 		if value.Error != "" {
@@ -366,7 +369,7 @@ func (capture *instance) onRequestFinished(ctx module.EventContext, value module
 	capture.finishResponse(ctx.Emitter)
 	if ctx.Emitter != nil {
 		ctx.Emitter.Emit("capture.request.completed", map[string]any{
-			"outcome": value.Outcome, "status_code": value.StatusCode, "duration_millis": value.Duration.Milliseconds(),
+			"outcome": string(value.Outcome), "status_code": value.StatusCode, "duration_millis": value.Duration.Milliseconds(),
 		})
 	}
 	return nil

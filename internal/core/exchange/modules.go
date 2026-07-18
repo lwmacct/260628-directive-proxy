@@ -302,13 +302,13 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	if !closeLifecycle {
 		return decision
 	}
-	outcome := "ended_without_response"
+	outcome := module.OutcomeEndedWithoutResponse
 	cause := module.FinishFailed
 	if decision == DecisionRetry {
-		outcome = "canceled_for_retry"
+		outcome = module.OutcomeCanceledForRetry
 		cause = module.FinishReplaced
 	} else if attemptErr != nil {
-		outcome = "transport_error"
+		outcome = module.OutcomeTransportError
 		if errorsIsCancellation(attemptErr) {
 			cause = module.FinishCanceled
 		}
@@ -324,7 +324,6 @@ func (attempt *Attempt) RecoveryStarted(value module.RecoveryStarted) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	attempt.recoveryEventID = value.EventID
 	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
 		return scope.RecoveryStarted(current.ctx, value)
 	})
@@ -337,7 +336,6 @@ func (attempt *Attempt) RecoveryDecided(value module.RecoveryDecided) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	attempt.recoveryAfterMS = value.AfterMS
 	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
 		return scope.RecoveryDecided(current.ctx, value)
 	})
@@ -350,15 +348,12 @@ func (attempt *Attempt) RecoveryFinished(value module.RecoveryFinished) {
 	current := attempt.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if value.EventID == "" {
-		value.EventID = attempt.recoveryEventID
-	}
 	_ = current.dispatchLocked(attempt, func(scope *module.Scope) error {
 		return scope.RecoveryFinished(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) finishLifecycle(outcome string, cause module.FinishCause, bodyCause error, emitBodyEnd bool) {
+func (attempt *Attempt) finishLifecycle(outcome module.LifecycleOutcome, cause module.FinishCause, bodyCause error, emitBodyEnd bool) {
 	if attempt == nil || attempt.exchange == nil || !attempt.closed.CompareAndSwap(false, true) {
 		return
 	}
@@ -407,12 +402,12 @@ func errorsIsCancellation(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func finishCauseForBody(cause error) (string, module.FinishCause) {
+func finishCauseForBody(cause error) (module.LifecycleOutcome, module.FinishCause) {
 	if cause == nil || errors.Is(cause, io.EOF) {
-		return "completed", module.FinishCompleted
+		return module.OutcomeCompleted, module.FinishCompleted
 	}
 	if errorsIsCancellation(cause) {
-		return "interrupted", module.FinishCanceled
+		return module.OutcomeInterrupted, module.FinishCanceled
 	}
-	return "interrupted", module.FinishFailed
+	return module.OutcomeInterrupted, module.FinishFailed
 }
