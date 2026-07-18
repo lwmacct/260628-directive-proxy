@@ -9,7 +9,7 @@ type Emitter interface {
 }
 
 type Session interface {
-	Emitter(producer string, attempt int) Emitter
+	Emitter(producer string, roundTrip int) Emitter
 	Close()
 }
 

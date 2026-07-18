@@ -23,6 +23,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmperf"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmusage"
@@ -40,7 +41,8 @@ type runtime struct {
 	sourceAccess     *directiveSourceAccess
 	tls              *tlsRuntime
 	directiveRemotes *directiveRemotes
-	recovery         *recoveryhttp.Controller
+	recoveryHTTP     *recoveryhttp.Definition
+	recoveryCompiler *recovery.Registry
 }
 
 func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
@@ -83,7 +85,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure program runtime: %w", err)
 	}
-	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: cfg.Proxy.Recovery.MaxAttemptsLimit}, programRuntime)
+	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: cfg.Proxy.Recovery.MaxRoundTripsLimit}, programRuntime)
 	bodyStore := bodystore.New(bodystore.Config{
 		MemoryMaxBytes:     cfg.Proxy.BodyStore.MemoryMaxBytes,
 		MemoryPerBodyBytes: cfg.Proxy.BodyStore.MemoryPerBodyBytes,
@@ -98,16 +100,30 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		MaxConnsPerHost:     cfg.Proxy.Transport.MaxConnsPerHost,
 		IdleConnTimeout:     cfg.Proxy.Transport.IdleConnTimeout,
 	})
-	recoveryController := recoveryhttp.New(recoveryhttp.Options{MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes})
+	recoveryHTTP := recoveryhttp.New(recoveryhttp.Options{
+		MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes,
+		MaxTimeout:       cfg.Proxy.Recovery.MaxCallbackTimeout,
+	})
+	recoveryCompiler, err := recovery.NewRegistry(recoveryHTTP)
+	if err != nil {
+		_ = recoveryHTTP.Close()
+		programRuntime.Close()
+		if eventOutput != nil {
+			_ = eventOutput.Close(context.Background())
+		}
+		if sourceAccess != nil {
+			sourceAccess.Close()
+		}
+		_ = tlsRuntime.Close()
+		return nil, fmt.Errorf("configure recovery controllers: %w", err)
+	}
 	recoveryTransport, err := proxy.NewRecoveryTransport(baseTransport, proxy.RecoveryTransportOptions{
-		RecoveryController:         recoveryController,
-		MaxRecoveryAttempts:        cfg.Proxy.Recovery.MaxAttemptsLimit,
-		MaxRecoveryElapsed:         cfg.Proxy.Recovery.MaxElapsedLimit,
-		MaxRecoveryCallbackTimeout: cfg.Proxy.Recovery.MaxCallbackTimeout,
-		MaxRecoveryBodyBytes:       cfg.Proxy.Recovery.MaxCapturedBodyBytes,
+		MaxRecoveryRoundTrips: cfg.Proxy.Recovery.MaxRoundTripsLimit,
+		MaxRecoveryElapsed:    cfg.Proxy.Recovery.MaxElapsedLimit,
+		MaxRecoveryBodyBytes:  cfg.Proxy.Recovery.MaxCapturedBodyBytes,
 	})
 	if err != nil {
-		_ = recoveryController.Close()
+		_ = recoveryHTTP.Close()
 		programRuntime.Close()
 		if eventOutput != nil {
 			_ = eventOutput.Close(context.Background())
@@ -130,7 +146,8 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		sourceAccess:     sourceAccess,
 		tls:              tlsRuntime,
 		directiveRemotes: directiveRemotes,
-		recovery:         recoveryController,
+		recoveryHTTP:     recoveryHTTP,
+		recoveryCompiler: recoveryCompiler,
 	}, nil
 }
 
@@ -176,7 +193,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, err
 	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
-func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler program.Compiler, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler program.Compiler, recoveryCompiler recovery.Compiler, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
 		BodyStore:       bodyStore,
@@ -187,10 +204,11 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler pro
 		options.TrackBeforeResolve = true
 	}
 	resolverOptions := directive.ResolverOptions{
-		LookupTimeout: remoteConfig.Timeout,
-		MaxTokenBytes: cfg.Proxy.Directive.MaxTokenBytes,
-		TokenSecret:   cfg.Proxy.Directive.TokenSecret,
-		Compiler:      compiler,
+		LookupTimeout:    remoteConfig.Timeout,
+		MaxTokenBytes:    cfg.Proxy.Directive.MaxTokenBytes,
+		TokenSecret:      cfg.Proxy.Directive.TokenSecret,
+		Compiler:         compiler,
+		RecoveryCompiler: recoveryCompiler,
 	}
 	if remotes != nil {
 		resolverOptions.HTTPReader = remotes.http
@@ -221,11 +239,12 @@ func (rt *runtime) Close(ctx context.Context) error {
 		}
 		rt.directiveRemotes = nil
 	}
-	if rt.recovery != nil {
-		if err := rt.recovery.Close(); err != nil {
+	if rt.recoveryHTTP != nil {
+		if err := rt.recoveryHTTP.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		rt.recovery = nil
+		rt.recoveryHTTP = nil
+		rt.recoveryCompiler = nil
 	}
 	if rt.programRuntime != nil {
 		rt.programRuntime.Close()

@@ -43,10 +43,9 @@ func New() *Module { return &Module{} }
 
 func (*Module) Name() string { return Name }
 
-func (*Module) Compile(ctx module.CompileContext, raw json.RawMessage) (module.Binding, error) {
-	if ctx.Scope != module.ScopeAttempt {
-		return nil, fmt.Errorf("%s requires attempt scope", Name)
-	}
+func (*Module) Lifetime() module.Lifetime { return module.LifetimeRoundTrip }
+
+func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
 	spec, err := decodeSpec(raw)
 	if err != nil {
 		return nil, err

@@ -1,13 +1,11 @@
 # LLM Performance Module
 
-`builtin.llmperf` 是 attempt-scope Module，测量上游请求、响应头、首字节和语义输出时间线。
+`builtin.llmperf` 是 round-trip-lifetime Module，测量上游请求、响应头、首字节和语义输出时间线。
 
 ```json
 {
   "program": [
     {
-      "scope": "attempt",
-      "id": "perf",
       "module": "builtin.llmperf",
       "config": {
         "protocol": "openai.responses",
@@ -21,6 +19,6 @@
 }
 ```
 
-该 Module 订阅 upstream started、response headers、raw upstream body chunk 和 body end。raw 端口保留代理实际读取切片的时间戳；处理进入 ordered async lane，并在 attempt scope 结束前 drain。
+该 Module 订阅 upstream started、response headers、raw upstream body chunk 和 body end。raw 端口保留代理实际读取切片的时间戳；处理进入 ordered async lane，并在 round-trip lifetime 结束前 drain。
 
 `protocol` 支持 `auto`（仅 SSE）、`openai.responses`、`openai.chat-completions`、`anthropic.messages` 和 `google.generate-content`。主要 topics 为 `llm.perf.first_byte`、`llm.perf.first_output`、`llm.perf.first_text`、`llm.perf.generation_completed`、`llm.perf.observed` 和 `llm.perf.failed`。

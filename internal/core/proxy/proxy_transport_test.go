@@ -119,12 +119,12 @@ func TestProxyTransportFallsBackToHTTP1(t *testing.T) {
 	}
 }
 
-func TestBuildAttemptRequestCarriesProxyToOutboundRequest(t *testing.T) {
+func TestBuildRoundTripRequestCarriesProxyToOutboundRequest(t *testing.T) {
 	target, _ := url.Parse("https://example.com/base")
 	proxyURL, _ := url.Parse("socks5://user:pass@127.0.0.1:1080")
 
 	in := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/resources", nil)
-	out := BuildAttemptRequest(NewRequestTemplate(in), &Plan{
+	out := BuildRoundTripRequest(NewRequestTemplate(in), &Plan{
 		Target: target,
 		Proxy:  proxyURL,
 	}, in.Context(), http.NoBody)

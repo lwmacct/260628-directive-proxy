@@ -70,20 +70,20 @@ func TestModuleMeasuresOpenAIResponsesSSEFromRawPort(t *testing.T) {
 }
 
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeAttempt}, []byte(`{"protocol":"auto","unknown":true}`)); err == nil {
+	if _, err := New().Compile([]byte(`{"protocol":"auto","unknown":true}`)); err == nil {
 		t.Fatal("unknown field was accepted")
 	}
 }
 
-func TestModuleRejectsExchangeScope(t *testing.T) {
-	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeExchange}, []byte(`{"protocol":"auto"}`)); err == nil {
-		t.Fatal("llmperf accepted exchange scope")
+func TestModuleDeclaresRoundTripLifetime(t *testing.T) {
+	if New().Lifetime() != module.LifetimeRoundTrip {
+		t.Fatal("llmperf did not declare round-trip lifetime")
 	}
 }
 
 func TestModuleAcceptsResourceLimits(t *testing.T) {
 	raw := []byte(`{"protocol":"auto","max-sse-metadata-bytes":1024,"max-retained-bytes":4096,"max-nesting-depth":32}`)
-	compiled, err := New().Compile(module.CompileContext{Scope: module.ScopeAttempt}, raw)
+	compiled, err := New().Compile(raw)
 	if err != nil {
 		t.Fatalf("resource limits were rejected: %v", err)
 	}
@@ -100,7 +100,7 @@ func configuredScope(t *testing.T, raw string) (*program.ScopeSet, *recordingFac
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeAttempt, ID: "perf", Module: Name, Config: []byte(raw)}})
+	executable, err := runtime.Compile(program.Program{{Module: Name, Config: []byte(raw)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func configuredScope(t *testing.T, raw string) (*program.ScopeSet, *recordingFac
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := run.OpenAttempt(module.OpenContext{Attempt: 1})
+	scope, err := run.OpenRoundTrip(module.OpenContext{RoundTrip: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

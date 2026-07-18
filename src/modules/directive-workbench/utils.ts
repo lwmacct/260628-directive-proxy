@@ -27,8 +27,6 @@ function buildHeaderMutations(items: HeaderMutation[]): DirectiveHeaderMutation[
 
 function buildProgram(items: EditorModuleSpec[]): ModuleSpec[] {
   return items.map((item) => ({
-    scope: item.scope,
-    id: item.id,
     module: item.module,
     ...(item.config === undefined ? {} : { config: item.config }),
   }));
@@ -82,12 +80,10 @@ export function buildRemoteSpec(source: Exclude<DirectiveSource, "inline">, edit
 
 export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefined {
   if (!input.enabled) return undefined;
-  const headers = buildHeaderMap(input.controllerHeaders);
   return {
     controller: {
-      url: input.controllerURL.trim(),
-      ...(Object.keys(headers).length ? { headers } : {}),
-      ...(input.controllerTimeout.trim() ? { timeout: input.controllerTimeout.trim() } : {}),
+      module: input.controllerModule.trim(),
+      ...(input.controllerConfig === undefined ? {} : { config: input.controllerConfig }),
     },
     triggers: {
       ...(input.responseHeaderTimeout.trim() ? { response_header_timeout: input.responseHeaderTimeout.trim() } : {}),
@@ -100,7 +96,7 @@ export function buildRecovery(input: RecoveryEditorState): RecoverySpec | undefi
       ...(input.transportError ? { transport_error: true } : {}),
     },
     budget: {
-      max_attempts: input.maxAttempts,
+      max_round_trips: input.maxRoundTrips,
       ...(input.maxElapsed.trim() ? { max_elapsed: input.maxElapsed.trim() } : {}),
     },
   };
@@ -122,7 +118,7 @@ function payloadToEditor(payload: DirectivePayload) {
     requestHeaderMode: payload.headers?.mode ?? "patch",
     preserveProxyDisclosure: payload.headers?.preserve_proxy_disclosure ?? false,
     headerMutations: toEditorHeaderMutations(payload.headers?.mutations ?? []),
-    program: (payload.program ?? []).map((item) => newModuleSpec(item.id, item.module, item.config ?? {}, item.scope)),
+    program: (payload.program ?? []).map((item) => newModuleSpec(item.module, item.config ?? {})),
     recovery: payload.recovery,
   };
 }
@@ -131,15 +127,16 @@ function recoveryToEditor(previous: RecoveryEditorState, recovery?: RecoverySpec
   if (!recovery) return { ...previous, enabled: false };
   return {
     enabled: true,
-    controllerURL: recovery.controller.url,
-    controllerTimeout: recovery.controller.timeout ?? "3s",
-    controllerHeaders: Object.entries(recovery.controller.headers ?? {}).map(([name, value]) => newResolverHeader(name, value)),
+    controllerModule: recovery.controller.module,
+    controllerConfig: recovery.controller.config ?? {},
+    controllerConfigText: JSON.stringify(recovery.controller.config ?? {}, null, 2),
+    controllerConfigValid: true,
     responseHeaderTimeout: recovery.triggers.response_header_timeout ?? "",
     unexpectedStatusEnabled: recovery.triggers.unexpected_status !== undefined,
     expectedStatuses: (recovery.triggers.unexpected_status?.expected ?? [{ from: 200, to: 299 }]).map((range) => newStatusRange(range.from, range.to)),
     captureBodyBytes: recovery.triggers.unexpected_status?.capture_body_bytes ?? 65536,
     transportError: recovery.triggers.transport_error ?? false,
-    maxAttempts: recovery.budget.max_attempts,
+    maxRoundTrips: recovery.budget.max_round_trips,
     maxElapsed: recovery.budget.max_elapsed ?? "30s",
   };
 }

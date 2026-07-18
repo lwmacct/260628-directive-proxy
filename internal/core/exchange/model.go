@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	ErrMaxAttempts               = errors.New("exchange maximum attempts reached")
+	ErrMaxRoundTrips             = errors.New("exchange maximum round trips reached")
 	ErrRecoveryBudgetExceeded    = errors.New("exchange recovery time budget is exhausted")
 	ErrIdempotencyKeyRequired    = errors.New("exchange idempotency key is required for retry")
 	ErrRecoveryFailed            = errors.New("exchange recovery failed")
-	ErrAttemptActive             = errors.New("exchange already has an active attempt")
-	ErrAttemptScopeOpened        = errors.New("exchange attempt scope is already open")
+	ErrRoundTripActive           = errors.New("exchange already has an active round trip")
+	ErrRoundTripScopeOpened      = errors.New("exchange round-trip scope is already open")
 	ErrExchangeNotConfigured     = errors.New("exchange is not configured")
 	ErrExchangeConfigured        = errors.New("exchange is already configured")
 	ErrProgramRuntimeUnavailable = errors.New("exchange program runtime is unavailable")
@@ -25,14 +25,14 @@ var (
 type Phase string
 
 const (
-	PhaseStartingBody      Phase = "starting_body_stream"
-	PhaseStreamingRequest  Phase = "streaming_request"
-	PhasePreparingAttempt  Phase = "preparing_attempt"
-	PhaseAwaitingResponse  Phase = "awaiting_response"
-	PhaseRecovering        Phase = "recovering"
-	PhaseRetryRequested    Phase = "retry_requested"
-	PhaseStreamingResponse Phase = "streaming_response"
-	PhaseFinished          Phase = "finished"
+	PhaseStartingBody       Phase = "starting_body_stream"
+	PhaseStreamingRequest   Phase = "streaming_request"
+	PhasePreparingRoundTrip Phase = "preparing_round_trip"
+	PhaseAwaitingResponse   Phase = "awaiting_response"
+	PhaseRecovering         Phase = "recovering"
+	PhaseRetryRequested     Phase = "retry_requested"
+	PhaseStreamingResponse  Phase = "streaming_response"
+	PhaseFinished           Phase = "finished"
 )
 
 type Decision uint8
@@ -59,17 +59,17 @@ type Configuration struct {
 }
 
 type ManagerOptions struct {
-	MaxAttempts int
+	MaxRoundTrips int
 }
 
 type RecoveryContext struct {
-	TraceID      string
-	Attempt      int
-	MaxAttempts  int
-	StartedAt    time.Time
-	Elapsed      time.Duration
-	Remaining    time.Duration
-	NextAttempt  int
-	RetryAllowed bool
-	Metadata     metadata.Set
+	TraceID       string
+	RoundTrip     int
+	MaxRoundTrips int
+	StartedAt     time.Time
+	Elapsed       time.Duration
+	Remaining     time.Duration
+	NextRoundTrip int
+	RetryAllowed  bool
+	Metadata      metadata.Set
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 )
@@ -37,7 +36,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 	var compileCalls int
 	resolver := newTestResolver(ResolverOptions{Compiler: compilerFunc(func(source program.Program) (*program.Executable, error) {
 		compileCalls++
-		if len(source) != 2 || source[0].Scope != module.ScopeExchange || source[1].Scope != module.ScopeAttempt {
+		if len(source) != 2 || source[0].Module != "builtin.capture" || source[1].Module != "builtin.llmusage" {
 			t.Fatalf("compiler received incomplete program: %#v", source)
 		}
 		return &program.Executable{}, nil
@@ -46,7 +45,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL != "http://proxy.local/v1/chat" || req.Headers.Get("X-Tenant") != "original" {
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Headers)
 		}
-		return []byte(`{"metadata":{"user_key":"uk_remote"},"target":{"base_url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"program":[{"scope":"exchange","id":"capture","module":"builtin.capture","config":{}},{"scope":"attempt","id":"usage","module":"builtin.llmusage","config":{"protocol":"openai.responses"}}],"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_attempts":3}}}`), nil
+		return []byte(`{"metadata":{"user_key":"uk_remote"},"target":{"base_url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"program":[{"module":"builtin.capture","config":{}},{"module":"builtin.llmusage","config":{"protocol":"openai.responses"}}],"recovery":{"controller":{"module":"builtin.recovery.http","config":{"url":"https://controller.example/recovery"}},"triggers":{"transport_error":true},"budget":{"max_round_trips":3}}}`), nil
 	})})
 	token, err := EncodeRemote(testTokenSecret, RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
 	if err != nil {

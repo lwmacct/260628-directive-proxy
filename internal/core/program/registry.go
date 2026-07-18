@@ -13,7 +13,6 @@ type registry struct {
 
 type compiled struct {
 	order      int
-	id         string
 	moduleName string
 	binding    module.Binding
 }
@@ -44,39 +43,41 @@ func (r *registry) compile(specs Program) ([]compiled, []compiled, error) {
 		return nil, nil, fmt.Errorf("module registry is unavailable")
 	}
 	exchange := make([]compiled, 0, len(specs))
-	attempt := make([]compiled, 0, len(specs))
+	roundTrip := make([]compiled, 0, len(specs))
 	seen := make(map[string]struct{}, len(specs))
 	for index, spec := range specs {
-		if spec.Scope != module.ScopeExchange && spec.Scope != module.ScopeAttempt {
-			return nil, nil, fmt.Errorf("module scope at index %d is invalid", index)
+		name := strings.TrimSpace(spec.Module)
+		if name == "" {
+			return nil, nil, fmt.Errorf("module name at index %d is empty", index)
 		}
-		if strings.TrimSpace(spec.ID) == "" {
-			return nil, nil, fmt.Errorf("module id at index %d is empty", index)
+		if _, exists := seen[name]; exists {
+			return nil, nil, fmt.Errorf("module %q is repeated", name)
 		}
-		if _, exists := seen[spec.ID]; exists {
-			return nil, nil, fmt.Errorf("module id %q is repeated", spec.ID)
-		}
-		seen[spec.ID] = struct{}{}
-		definition := r.definitions[spec.Module]
+		seen[name] = struct{}{}
+		definition := r.definitions[name]
 		if definition == nil {
-			return nil, nil, fmt.Errorf("module %q at index %d is not registered", spec.Module, index)
+			return nil, nil, fmt.Errorf("module %q at index %d is not registered", name, index)
 		}
-		binding, err := definition.Compile(module.CompileContext{Scope: spec.Scope}, spec.Config)
+		lifetime := definition.Lifetime()
+		if lifetime != module.LifetimeExchange && lifetime != module.LifetimeRoundTrip {
+			return nil, nil, fmt.Errorf("module %q has invalid lifetime %q", name, lifetime)
+		}
+		binding, err := definition.Compile(spec.Config)
 		if err != nil {
-			return nil, nil, fmt.Errorf("compile module %q (%s): %w", spec.Module, spec.ID, err)
+			return nil, nil, fmt.Errorf("compile module %q: %w", name, err)
 		}
 		if binding == nil {
-			return nil, nil, fmt.Errorf("compile module %q (%s): nil binding", spec.Module, spec.ID)
+			return nil, nil, fmt.Errorf("compile module %q: nil binding", name)
 		}
-		item := compiled{order: index, id: spec.ID, moduleName: spec.Module, binding: binding}
-		switch spec.Scope {
-		case module.ScopeExchange:
+		item := compiled{order: index, moduleName: name, binding: binding}
+		switch lifetime {
+		case module.LifetimeExchange:
 			exchange = append(exchange, item)
-		case module.ScopeAttempt:
-			attempt = append(attempt, item)
+		case module.LifetimeRoundTrip:
+			roundTrip = append(roundTrip, item)
 		}
 	}
-	return exchange, attempt, nil
+	return exchange, roundTrip, nil
 }
 
 func (r *registry) names() []string {

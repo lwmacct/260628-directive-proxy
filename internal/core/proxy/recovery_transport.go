@@ -24,20 +24,16 @@ var (
 )
 
 type RecoveryTransportOptions struct {
-	RecoveryController         recovery.Controller
-	MaxRecoveryAttempts        int
-	MaxRecoveryElapsed         time.Duration
-	MaxRecoveryCallbackTimeout time.Duration
-	MaxRecoveryBodyBytes       int64
+	MaxRecoveryRoundTrips int
+	MaxRecoveryElapsed    time.Duration
+	MaxRecoveryBodyBytes  int64
 }
 
 type RecoveryTransport struct {
-	base                       http.RoundTripper
-	recoveryController         recovery.Controller
-	maxRecoveryAttempts        int
-	maxRecoveryElapsed         time.Duration
-	maxRecoveryCallbackTimeout time.Duration
-	maxRecoveryBodyBytes       int64
+	base                  http.RoundTripper
+	maxRecoveryRoundTrips int
+	maxRecoveryElapsed    time.Duration
+	maxRecoveryBodyBytes  int64
 }
 
 func (*RecoveryTransport) orchestratesPreparedRequests() {}
@@ -47,9 +43,9 @@ func NewRecoveryTransport(base http.RoundTripper, options RecoveryTransportOptio
 		base = http.DefaultTransport
 	}
 	return &RecoveryTransport{
-		base: base, recoveryController: options.RecoveryController,
-		maxRecoveryAttempts: options.MaxRecoveryAttempts, maxRecoveryElapsed: options.MaxRecoveryElapsed,
-		maxRecoveryCallbackTimeout: options.MaxRecoveryCallbackTimeout, maxRecoveryBodyBytes: options.MaxRecoveryBodyBytes,
+		base:                  base,
+		maxRecoveryRoundTrips: options.MaxRecoveryRoundTrips, maxRecoveryElapsed: options.MaxRecoveryElapsed,
+		maxRecoveryBodyBytes: options.MaxRecoveryBodyBytes,
 	}, nil
 }
 
@@ -76,62 +72,62 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	source := prepared.directive.Source()
 	recoveryPolicy := t.limitRecoveryPolicy(prepared.directive.Recovery())
 	if recoveryPolicy != nil {
-		current.ConfigureRecovery(recoveryPolicy, t.maxRecoveryAttempts, t.maxRecoveryElapsed)
+		current.ConfigureRecovery(recoveryPolicy, t.maxRecoveryRoundTrips, t.maxRecoveryElapsed)
 	}
 	for {
 		if err := req.Context().Err(); err != nil {
 			return nil, err
 		}
-		attemptCtx, cancel := context.WithCancel(req.Context())
-		attempt, beginErr := current.BeginAttempt(cancel)
+		roundTripCtx, cancel := context.WithCancel(req.Context())
+		roundTrip, beginErr := current.BeginRoundTrip(cancel)
 		if beginErr != nil {
 			cancel()
 			return nil, beginErr
 		}
-		if configureErr := attempt.OpenScope(); configureErr != nil {
+		if configureErr := roundTrip.OpenScope(); configureErr != nil {
 			moduleErr := error(ErrInvalidDirective)
 			if source.Mode == "remote" {
 				moduleErr = ErrRemoteDirectiveInvalid
 			}
-			attempt.FinishRoundTrip(false, moduleErr)
+			roundTrip.FinishRoundTrip(false, moduleErr)
 			cancel()
 			return nil, moduleErr
 		}
 
-		body, bodyErr := prepared.body.Open(attemptCtx)
+		body, bodyErr := prepared.body.Open(roundTripCtx)
 		if bodyErr != nil {
-			attempt.FinishRoundTrip(false, bodyErr)
+			roundTrip.FinishRoundTrip(false, bodyErr)
 			cancel()
 			return nil, bodyErr
 		}
-		attemptRequest := BuildAttemptRequest(prepared.template, plan, attemptCtx, body)
-		if attemptRequest == nil {
+		roundTripRequest := BuildRoundTripRequest(prepared.template, plan, roundTripCtx, body)
+		if roundTripRequest == nil {
 			_ = body.Close()
-			attempt.FinishRoundTrip(false, ErrResolverFailed)
+			roundTrip.FinishRoundTrip(false, ErrResolverFailed)
 			cancel()
 			return nil, ErrResolverFailed
 		}
-		if mutationErr := attempt.MutateOutboundRequest(attemptRequest); mutationErr != nil {
+		if mutationErr := roundTrip.MutateOutboundRequest(roundTripRequest); mutationErr != nil {
 			_ = body.Close()
-			attempt.FinishRoundTrip(false, mutationErr)
+			roundTrip.FinishRoundTrip(false, mutationErr)
 			cancel()
 			return nil, fmt.Errorf("%w: outbound request: %v", ErrModuleFailed, mutationErr)
 		}
-		if attempt.HasOutboundBodyMutators() {
-			attemptRequest.Body = newMutatingBody(body, func(data []byte) ([]byte, error) {
-				mutated, err := attempt.MutateOutboundBodyChunk(data)
+		if roundTrip.HasOutboundBodyMutators() {
+			roundTripRequest.Body = newMutatingBody(body, func(data []byte) ([]byte, error) {
+				mutated, err := roundTrip.MutateOutboundBodyChunk(data)
 				if err != nil {
 					return nil, fmt.Errorf("%w: outbound body chunk: %v", ErrModuleFailed, err)
 				}
 				return mutated, nil
 			})
-			attemptRequest.ContentLength = -1
+			roundTripRequest.ContentLength = -1
 		} else {
-			attemptRequest.ContentLength = prepared.body.ContentLength()
+			roundTripRequest.ContentLength = prepared.body.ContentLength()
 		}
-		attemptRequest.GetBody = nil
-		attemptRequest.TransferEncoding = nil
-		if !attempt.BeginUpstream(attemptRequest) {
+		roundTripRequest.GetBody = nil
+		roundTripRequest.TransferEncoding = nil
+		if !roundTrip.BeginUpstream(roundTripRequest) {
 			_ = body.Close()
 			cancel()
 			if err := req.Context().Err(); err != nil {
@@ -139,7 +135,7 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			}
 			return nil, context.Canceled
 		}
-		response, roundTripErr, responseTimedOut := t.roundTrip(attemptRequest, recoveryPolicy)
+		response, roundTripErr, responseTimedOut := t.roundTrip(roundTripRequest, recoveryPolicy)
 		if roundTripErr != nil {
 			trigger := recovery.Trigger{Type: recovery.TriggerTransportError, Code: "transport_error"}
 			enabled := recoveryPolicy != nil && recoveryPolicy.Triggers.TransportError
@@ -151,14 +147,14 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 				enabled = recoveryPolicy != nil && recoveryPolicy.Triggers.ResponseHeaderTimeout > 0
 			}
 			if enabled {
-				recoveryResult, started, recoveryErr := t.recoverAttempt(req.Context(), recoveryPolicy, attempt, source, trigger, nil)
+				recoveryResult, started, recoveryErr := t.recoverRoundTrip(req.Context(), recoveryPolicy, roundTrip, source, trigger, nil)
 				if started && recoveryErr == nil && recoveryResult.Retry {
-					attempt.FinishRoundTrip(false, context.Canceled)
+					roundTrip.FinishRoundTrip(false, context.Canceled)
 					cancel()
 					continue
 				}
 				if errors.Is(recoveryErr, ErrRecoveryFailed) {
-					attempt.FinishRoundTrip(false, ErrRecoveryFailed)
+					roundTrip.FinishRoundTrip(false, ErrRecoveryFailed)
 					cancel()
 					return nil, ErrRecoveryFailed
 				}
@@ -171,36 +167,36 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 				if response.Body != nil {
 					_ = response.Body.Close()
 				}
-				attempt.FinishRoundTrip(false, captureErr)
+				roundTrip.FinishRoundTrip(false, captureErr)
 				cancel()
 				return nil, captureErr
 			}
-			recoveryResult, started, recoveryErr := t.recoverAttempt(req.Context(), recoveryPolicy, attempt, source,
+			recoveryResult, started, recoveryErr := t.recoverRoundTrip(req.Context(), recoveryPolicy, roundTrip, source,
 				recovery.Trigger{Type: recovery.TriggerUnexpectedStatus}, captured)
 			if started && recoveryErr == nil && recoveryResult.Retry {
 				_ = response.Body.Close()
-				attempt.FinishRoundTrip(false, context.Canceled)
+				roundTrip.FinishRoundTrip(false, context.Canceled)
 				cancel()
 				continue
 			}
 			if errors.Is(recoveryErr, ErrRecoveryFailed) {
 				_ = response.Body.Close()
-				attempt.FinishRoundTrip(false, ErrRecoveryFailed)
+				roundTrip.FinishRoundTrip(false, ErrRecoveryFailed)
 				cancel()
 				return nil, ErrRecoveryFailed
 			}
 		}
 		if roundTripErr == nil && response != nil {
-			if mutationErr := attempt.MutateUpstreamResponse(response); mutationErr != nil {
+			if mutationErr := roundTrip.MutateUpstreamResponse(response); mutationErr != nil {
 				if response.Body != nil {
 					_ = response.Body.Close()
 				}
-				attempt.FinishRoundTrip(false, mutationErr)
+				roundTrip.FinishRoundTrip(false, mutationErr)
 				cancel()
 				return nil, fmt.Errorf("%w: upstream response: %v", ErrModuleFailed, mutationErr)
 			}
 		}
-		decision := attempt.FinishRoundTrip(response != nil && roundTripErr == nil, roundTripErr)
+		decision := roundTrip.FinishRoundTrip(response != nil && roundTripErr == nil, roundTripErr)
 		if decision == exchange.DecisionRetry && req.Context().Err() == nil {
 			cancel()
 			if response != nil && response.Body != nil {
@@ -213,8 +209,8 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			cancel()
 			return response, roundTripErr
 		}
-		attempt.ObserveUpstreamResponse(response)
-		bindResponseHeaderPlan(response, attemptRequest, plan.Headers.Response)
+		roundTrip.ObserveUpstreamResponse(response)
+		bindResponseHeaderPlan(response, roundTripRequest, plan.Headers.Response)
 		response.Body = wrapCancelOnCloseBody(response, cancel)
 		prepared.body.Retire()
 		return response, roundTripErr
@@ -226,14 +222,11 @@ func (t *RecoveryTransport) limitRecoveryPolicy(policy *recovery.Policy) *recove
 	if policy == nil {
 		return nil
 	}
-	if t.maxRecoveryAttempts > 0 && policy.Budget.MaxAttempts > t.maxRecoveryAttempts {
-		policy.Budget.MaxAttempts = t.maxRecoveryAttempts
+	if t.maxRecoveryRoundTrips > 0 && policy.Budget.MaxRoundTrips > t.maxRecoveryRoundTrips {
+		policy.Budget.MaxRoundTrips = t.maxRecoveryRoundTrips
 	}
 	if t.maxRecoveryElapsed > 0 && policy.Budget.MaxElapsed > t.maxRecoveryElapsed {
 		policy.Budget.MaxElapsed = t.maxRecoveryElapsed
-	}
-	if t.maxRecoveryCallbackTimeout > 0 && policy.Controller.Timeout > t.maxRecoveryCallbackTimeout {
-		policy.Controller.Timeout = t.maxRecoveryCallbackTimeout
 	}
 	if policy.Triggers.UnexpectedStatus != nil && t.maxRecoveryBodyBytes > 0 &&
 		policy.Triggers.UnexpectedStatus.CaptureBodyBytes > t.maxRecoveryBodyBytes {
@@ -274,14 +267,14 @@ func (t *RecoveryTransport) roundTrip(request *http.Request, policy *recovery.Po
 	return response, err, timedOut.Load()
 }
 
-func (t *RecoveryTransport) recoverAttempt(ctx context.Context, policy *recovery.Policy, attempt *exchange.Attempt, source DirectiveSource,
+func (t *RecoveryTransport) recoverRoundTrip(ctx context.Context, policy *recovery.Policy, roundTrip *exchange.RoundTrip, source DirectiveSource,
 	trigger recovery.Trigger, response *recovery.Response,
 ) (exchange.RecoveryResult, bool, error) {
-	if t == nil || policy == nil || attempt == nil {
+	if t == nil || policy == nil || roundTrip == nil {
 		return exchange.RecoveryResult{}, false, nil
 	}
-	info := attempt.RecoveryContext()
-	cycle, err := exchange.NewRecoveryCycle(attempt, policy, t.recoveryController, exchange.RecoveryInput{
+	info := roundTrip.RecoveryContext()
+	cycle, err := exchange.NewRecoveryCycle(roundTrip, policy, exchange.RecoveryInput{
 		Trigger: trigger,
 		Directive: recovery.DirectiveInfo{
 			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint,
@@ -355,18 +348,18 @@ func (t *RecoveryTransport) roundTripOnce(req *http.Request, prepared preparedRe
 	if bodyErr != nil {
 		return nil, bodyErr
 	}
-	attemptRequest := BuildAttemptRequest(prepared.template, plan, req.Context(), body)
-	if attemptRequest == nil {
+	roundTripRequest := BuildRoundTripRequest(prepared.template, plan, req.Context(), body)
+	if roundTripRequest == nil {
 		_ = body.Close()
 		return nil, ErrResolverFailed
 	}
-	attemptRequest.GetBody = nil
-	attemptRequest.ContentLength = prepared.body.ContentLength()
-	attemptRequest.TransferEncoding = nil
-	response, roundTripErr := t.base.RoundTrip(attemptRequest)
+	roundTripRequest.GetBody = nil
+	roundTripRequest.ContentLength = prepared.body.ContentLength()
+	roundTripRequest.TransferEncoding = nil
+	response, roundTripErr := t.base.RoundTrip(roundTripRequest)
 	prepared.body.Retire()
 	if response != nil {
-		bindResponseHeaderPlan(response, attemptRequest, plan.Headers.Response)
+		bindResponseHeaderPlan(response, roundTripRequest, plan.Headers.Response)
 	}
 	return response, roundTripErr
 }

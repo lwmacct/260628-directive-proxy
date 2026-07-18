@@ -55,7 +55,7 @@ func TestAsyncBeforeCommitBarrierPreservesModuleOrder(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "ordered", moduleName: "test.ordered", binding: testBinding{open: func() module.Instance { return instance }}}})
+	scope := openTestScope(t, []compiled{{moduleName: "test.ordered", binding: testBinding{open: func() module.Instance { return instance }}}})
 	if err := scope.RequestStarted(t.Context(), lifecycle.RequestStarted{}); err != nil {
 		t.Fatal(err)
 	}
@@ -87,24 +87,24 @@ func TestMutatorsRunInDirectiveProgramOrder(t *testing.T) {
 }
 
 func TestMutatorsPreserveGlobalOrderAcrossScopes(t *testing.T) {
-	exchangeScope, err := openScope(module.OpenContext{TraceID: "trace", Scope: module.ScopeExchange}, []compiled{
+	exchangeScope, err := openScope(module.OpenContext{TraceID: "trace", Lifetime: module.LifetimeExchange}, []compiled{
 		mutationModuleAt(1, "exchange", "exchange"),
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	attemptScope, err := openScope(module.OpenContext{TraceID: "trace", Scope: module.ScopeAttempt, Attempt: 1}, []compiled{
-		mutationModuleAt(0, "attempt", "attempt"),
+	roundTripScope, err := openScope(module.OpenContext{TraceID: "trace", Lifetime: module.LifetimeRoundTrip, RoundTrip: 1}, []compiled{
+		mutationModuleAt(0, "roundTrip", "roundTrip"),
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	active := NewScopeSet(exchangeScope, attemptScope)
+	active := NewScopeSet(exchangeScope, roundTripScope)
 	request, _ := http.NewRequest(http.MethodGet, "https://example.com", nil)
 	if err := active.MutateOutboundRequest(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
-	if got := request.Header.Values("X-Module-Order"); !reflect.DeepEqual(got, []string{"attempt", "exchange"}) {
+	if got := request.Header.Values("X-Module-Order"); !reflect.DeepEqual(got, []string{"roundTrip", "exchange"}) {
 		t.Fatalf("cross-scope mutators ignored global directive order: %#v", got)
 	}
 	_ = active.Finish(context.Background(), module.FinishCompleted)
@@ -123,7 +123,7 @@ func TestStreamObserverCreatesOnlySubscribedSSEView(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "projection", moduleName: "test.projection", binding: testBinding{open: func() module.Instance { return instance }}}})
+	scope := openTestScope(t, []compiled{{moduleName: "test.projection", binding: testBinding{open: func() module.Instance { return instance }}}})
 	observer := NewUpstreamObserver("text/event-stream; charset=utf-8", 1024, scope)
 	if err := observer.Observe(t.Context(), time.Now(), []byte("event: delta\ndata: hello\n\n")); err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestAsyncBodyChunkOwnsItsQueuedView(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "copy", moduleName: "test.copy", binding: testBinding{open: func() module.Instance { return instance }}}})
+	scope := openTestScope(t, []compiled{{moduleName: "test.copy", binding: testBinding{open: func() module.Instance { return instance }}}})
 	data := []byte("original")
 	if err := scope.UpstreamBodyChunk(t.Context(), lifecycle.BodyChunk{Data: data}); err != nil {
 		t.Fatal(err)
@@ -186,7 +186,7 @@ func TestDroppedBeforeCommitHandlerDoesNotWait(t *testing.T) {
 			return nil
 		})
 	}}
-	scope := openTestScope(t, []compiled{{id: "drop", moduleName: "test.drop", binding: testBinding{
+	scope := openTestScope(t, []compiled{{moduleName: "test.drop", binding: testBinding{
 		open: func() module.Instance { return instance },
 	}}})
 	if err := scope.RequestStarted(t.Context(), lifecycle.RequestStarted{}); err != nil {
@@ -216,14 +216,14 @@ func mutationModuleAt(order int, id, value string) compiled {
 			return nil
 		})
 	}}
-	return compiled{order: order, id: id, moduleName: "test.mutation", binding: testBinding{
+	return compiled{order: order, moduleName: id, binding: testBinding{
 		open: func() module.Instance { return instance },
 	}}
 }
 
 func openTestScope(t *testing.T, entries []compiled) *ScopeSet {
 	t.Helper()
-	scope, err := openScope(module.OpenContext{TraceID: "trace", Attempt: 1}, entries, nil)
+	scope, err := openScope(module.OpenContext{TraceID: "trace", RoundTrip: 1}, entries, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

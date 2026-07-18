@@ -8,37 +8,104 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
+const (
+	Name                = "builtin.recovery.http"
+	defaultTimeout      = 3 * time.Second
+	maxTimeout          = 10 * time.Minute
+	maxHeaderCount      = 64
+	maxHeaderValueBytes = 8 << 10
+)
+
 type Options struct {
 	MaxResponseBytes int64
+	MaxTimeout       time.Duration
 }
 
-type Controller struct {
+type Config struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Timeout string            `json:"timeout,omitempty"`
+}
+
+type Definition struct {
 	client           *http.Client
 	transport        *http.Transport
 	maxResponseBytes int64
+	maxTimeout       time.Duration
 }
 
-func New(options Options) *Controller {
+type binding struct {
+	client           *http.Client
+	url              *url.URL
+	headers          http.Header
+	timeout          time.Duration
+	maxResponseBytes int64
+}
+
+func New(options Options) *Definition {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	return &Controller{
+	return &Definition{
 		client: &http.Client{
 			Transport:     transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		transport:        transport,
 		maxResponseBytes: options.MaxResponseBytes,
+		maxTimeout:       options.MaxTimeout,
 	}
 }
 
-func (controller *Controller) Decide(ctx context.Context, spec recovery.ControllerSpec, event recovery.Event) (recovery.Decision, error) {
-	if controller == nil || controller.client == nil || spec.URL == nil {
-		return recovery.Decision{}, errors.New("recovery controller is unavailable")
+func (*Definition) Name() string { return Name }
+
+func (definition *Definition) Compile(raw json.RawMessage) (recovery.ControllerBinding, error) {
+	if definition == nil || definition.client == nil {
+		return nil, errors.New("recovery HTTP controller definition is unavailable")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var config Config
+	if err := decoder.Decode(&config); err != nil {
+		return nil, errors.New("recovery HTTP controller config is invalid")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, errors.New("recovery HTTP controller config has trailing data")
+	}
+	config.URL = strings.TrimSpace(config.URL)
+	endpoint, err := url.Parse(config.URL)
+	if err != nil || endpoint.Host == "" || !isHTTPURL(endpoint) {
+		return nil, errors.New("recovery HTTP controller URL is invalid")
+	}
+	timeout := defaultTimeout
+	if strings.TrimSpace(config.Timeout) != "" {
+		timeout, err = time.ParseDuration(config.Timeout)
+		if err != nil || timeout <= 0 || timeout > maxTimeout {
+			return nil, errors.New("recovery HTTP controller timeout is invalid")
+		}
+	}
+	if definition.maxTimeout > 0 && timeout > definition.maxTimeout {
+		timeout = definition.maxTimeout
+	}
+	headers, err := compileHeaders(config.Headers)
+	if err != nil {
+		return nil, err
+	}
+	return &binding{
+		client: definition.client, url: endpoint, headers: headers, timeout: timeout,
+		maxResponseBytes: definition.maxResponseBytes,
+	}, nil
+}
+
+func (controller *binding) Decide(ctx context.Context, event recovery.Event) (recovery.Decision, error) {
+	if controller == nil || controller.client == nil || controller.url == nil {
+		return recovery.Decision{}, errors.New("recovery HTTP controller is unavailable")
 	}
 	if event.Protocol == "" {
 		event.Protocol = recovery.Protocol
@@ -50,21 +117,20 @@ func (controller *Controller) Decide(ctx context.Context, spec recovery.Controll
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if spec.Timeout > 0 {
+	if controller.timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, spec.Timeout)
+		ctx, cancel = context.WithTimeout(ctx, controller.timeout)
 		defer cancel()
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, spec.URL.String(), bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, controller.url.String(), bytes.NewReader(body))
 	if err != nil {
 		return recovery.Decision{}, err
 	}
-	request.Header = spec.Headers.Clone()
-	if request.Header == nil {
-		request.Header = make(http.Header)
-	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	for name, values := range controller.headers {
+		request.Header[name] = append([]string(nil), values...)
+	}
 	if event.EventID != "" {
 		request.Header.Set("Idempotency-Key", event.EventID)
 	}
@@ -108,9 +174,44 @@ func (controller *Controller) Decide(ctx context.Context, spec recovery.Controll
 	return decision, nil
 }
 
-func (controller *Controller) Close() error {
-	if controller != nil && controller.transport != nil {
-		controller.transport.CloseIdleConnections()
+func (controller *binding) Observation() recovery.ControllerObservation {
+	if controller == nil {
+		return recovery.ControllerObservation{}
+	}
+	endpoint := ""
+	if controller.url != nil {
+		endpoint = controller.url.String()
+	}
+	return recovery.ControllerObservation{
+		Endpoint: endpoint, Headers: controller.headers.Clone(), Timeout: controller.timeout,
+	}
+}
+
+func (definition *Definition) Close() error {
+	if definition != nil && definition.transport != nil {
+		definition.transport.CloseIdleConnections()
 	}
 	return nil
+}
+
+func compileHeaders(source map[string]string) (http.Header, error) {
+	if len(source) > maxHeaderCount {
+		return nil, errors.New("recovery HTTP controller has too many headers")
+	}
+	result := make(http.Header, len(source))
+	for name, value := range source {
+		name = http.CanonicalHeaderKey(strings.TrimSpace(name))
+		if name == "" || strings.ContainsAny(name, " \t\r\n:") || strings.ContainsAny(value, "\r\n") || len(value) > maxHeaderValueBytes {
+			return nil, errors.New("recovery HTTP controller header is invalid")
+		}
+		if _, exists := result[name]; exists {
+			return nil, errors.New("recovery HTTP controller header is repeated")
+		}
+		result.Set(name, value)
+	}
+	return result, nil
+}
+
+func isHTTPURL(value *url.URL) bool {
+	return value != nil && (strings.EqualFold(value.Scheme, "http") || strings.EqualFold(value.Scheme, "https"))
 }

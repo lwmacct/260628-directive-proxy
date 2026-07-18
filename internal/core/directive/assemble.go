@@ -12,8 +12,9 @@ import (
 )
 
 type AssembleOptions struct {
-	StripHeaders []string
-	InboundURL   *url.URL
+	StripHeaders     []string
+	InboundURL       *url.URL
+	RecoveryCompiler recovery.Compiler
 }
 
 const (
@@ -63,7 +64,7 @@ func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, err
 	if _, err := normalizeProgram(payload.Program); err != nil {
 		return CompiledPayload{}, err
 	}
-	recoveryPolicy, err := CompileRecovery(payload.Recovery)
+	recoveryPolicy, err := CompileRecovery(payload.Recovery, opts.RecoveryCompiler)
 	if err != nil {
 		return CompiledPayload{}, err
 	}

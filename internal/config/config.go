@@ -58,7 +58,7 @@ type Proxy struct {
 }
 
 type ProxyRecovery struct {
-	MaxAttemptsLimit         int           `json:"max-attempts-limit"         desc:"Directive 可声明的最大 Attempt 数上限"`
+	MaxRoundTripsLimit       int           `json:"max-round-trips-limit"      desc:"Directive 可声明的最大 RoundTrip 数上限"`
 	MaxElapsedLimit          time.Duration `json:"max-elapsed-limit"          desc:"Directive 可声明的最大 Recovery 总时长"`
 	MaxCallbackTimeout       time.Duration `json:"max-callback-timeout"       desc:"单次 Recovery Controller 回调超时上限"`
 	MaxCapturedBodyBytes     int64         `json:"max-captured-body-bytes"    desc:"异常上游响应允许捕获的最大正文大小"`
@@ -153,7 +153,7 @@ func DefaultConfig() Config {
 			},
 			Proxy: Proxy{
 				Recovery: ProxyRecovery{
-					MaxAttemptsLimit:         10,
+					MaxRoundTripsLimit:       10,
 					MaxElapsedLimit:          2 * time.Minute,
 					MaxCallbackTimeout:       5 * time.Second,
 					MaxCapturedBodyBytes:     1 << 20,

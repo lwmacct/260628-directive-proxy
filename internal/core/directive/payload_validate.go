@@ -16,7 +16,7 @@ var (
 )
 
 func Validate(payload Payload) error {
-	_, err := CompilePayload(payload, AssembleOptions{})
+	_, err := normalizePayload(payload)
 	return err
 }
 

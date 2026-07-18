@@ -8,8 +8,8 @@ import (
 )
 
 // RequestTemplate is an immutable snapshot of the original inbound request
-// metadata. Bodies are replayed separately; every attempt is rebuilt from this
-// snapshot so routing and header mutations cannot leak between attempts.
+// metadata. Bodies are replayed separately; every round trip is rebuilt from this
+// snapshot so routing and header mutations cannot leak between round trips.
 type RequestTemplate struct {
 	Method           string
 	URL              *url.URL
@@ -45,7 +45,7 @@ func NewRequestTemplate(req *http.Request) *RequestTemplate {
 	}
 }
 
-func BuildAttemptRequest(template *RequestTemplate, plan *Plan, ctx context.Context, body io.ReadCloser) *http.Request {
+func BuildRoundTripRequest(template *RequestTemplate, plan *Plan, ctx context.Context, body io.ReadCloser) *http.Request {
 	if template == nil || plan == nil || plan.Target == nil {
 		return nil
 	}

@@ -16,23 +16,23 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
-func TestExchangeRejectsAttemptAfterTerminalRoundTrip(t *testing.T) {
-	manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
+func TestExchangeRejectsRoundTripAfterTerminalRoundTrip(t *testing.T) {
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 3}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	prepareInlineExchange(t, current)
-	attempt, err := current.BeginAttempt(func() {})
+	roundTrip, err := current.BeginRoundTrip(func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt.FinishRoundTrip(false, errors.New("upstream failed"))
-	if _, err := current.BeginAttempt(func() {}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("terminal exchange accepted another attempt: %v", err)
+	roundTrip.FinishRoundTrip(false, errors.New("upstream failed"))
+	if _, err := current.BeginRoundTrip(func() {}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("terminal exchange accepted another roundTrip: %v", err)
 	}
 	current.Complete()
 }
 
 func TestWrapResponseWriterUsesDPTraceHeader(t *testing.T) {
-	manager := NewManager(ManagerOptions{MaxAttempts: 1}, nil)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 1}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	recorder := httptest.NewRecorder()
 	current.WrapResponseWriter(recorder)
@@ -45,28 +45,28 @@ func TestWrapResponseWriterUsesDPTraceHeader(t *testing.T) {
 	current.Complete()
 }
 
-func TestAttemptScopeCanOnlyBeOpenedOnce(t *testing.T) {
-	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
+func TestRoundTripScopeCanOnlyBeOpenedOnce(t *testing.T) {
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	prepareInlineExchange(t, current)
-	attempt, err := current.BeginAttempt(func() {})
+	roundTrip, err := current.BeginRoundTrip(func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := attempt.OpenScope(); err != nil {
+	if err := roundTrip.OpenScope(); err != nil {
 		t.Fatal(err)
 	}
-	if err := attempt.OpenScope(); !errors.Is(err, ErrAttemptScopeOpened) {
+	if err := roundTrip.OpenScope(); !errors.Is(err, ErrRoundTripScopeOpened) {
 		t.Fatalf("duplicate module program was accepted: %v", err)
 	}
 	current.Complete()
 }
 
 func TestExchangeEnforcesDirectivePreparationOrder(t *testing.T) {
-	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	if _, err := current.BeginAttempt(func() {}); !errors.Is(err, ErrExchangeNotConfigured) {
-		t.Fatalf("attempt started before exchange configuration: %v", err)
+	if _, err := current.BeginRoundTrip(func() {}); !errors.Is(err, ErrExchangeNotConfigured) {
+		t.Fatalf("roundTrip started before exchange configuration: %v", err)
 	}
 	configuration := Configuration{
 		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
@@ -82,7 +82,7 @@ func TestExchangeEnforcesDirectivePreparationOrder(t *testing.T) {
 }
 
 func TestExchangeFailsClosedWhenProgramRuntimeIsUnavailable(t *testing.T) {
-	manager := NewManager(ManagerOptions{MaxAttempts: 2}, nil)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 2}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	if err := current.Configure(Configuration{
 		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
@@ -94,19 +94,19 @@ func TestExchangeFailsClosedWhenProgramRuntimeIsUnavailable(t *testing.T) {
 }
 
 func TestConcurrentRecoveryRetryIsIdempotent(t *testing.T) {
-	manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 3}, nil)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
 	prepareInlineExchange(t, current)
 	var cancelCount atomic.Int32
-	attempt, err := current.BeginAttempt(func() { cancelCount.Add(1) })
+	roundTrip, err := current.BeginRoundTrip(func() { cancelCount.Add(1) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !attempt.BeginUpstream(nil) {
-		t.Fatal("attempt did not enter upstream state")
+	if !roundTrip.BeginUpstream(nil) {
+		t.Fatal("roundTrip did not enter upstream state")
 	}
-	if !attempt.BeginRecovery() {
-		t.Fatal("attempt did not enter recovery state")
+	if !roundTrip.BeginRecovery() {
+		t.Fatal("roundTrip did not enter recovery state")
 	}
 
 	const callers = 32
@@ -116,7 +116,7 @@ func TestConcurrentRecoveryRetryIsIdempotent(t *testing.T) {
 	for range callers {
 		go func() {
 			defer wait.Done()
-			retryErr := attempt.RequestRecoveryRetry()
+			retryErr := roundTrip.RequestRecoveryRetry()
 			if retryErr != nil {
 				errorsSeen <- retryErr
 				return
@@ -129,7 +129,7 @@ func TestConcurrentRecoveryRetryIsIdempotent(t *testing.T) {
 		t.Error(retryErr)
 	}
 	if cancelCount.Load() != 1 {
-		t.Fatalf("attempt cancel ran %d times", cancelCount.Load())
+		t.Fatalf("roundTrip cancel ran %d times", cancelCount.Load())
 	}
 	current.Complete()
 }
@@ -146,11 +146,11 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeExchange, ID: "drain", Module: "test.drain"}})
+	executable, err := runtime.Compile(program.Program{{Module: "test.drain"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 2}, runtime)
 	requestContext, cancel := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil).WithContext(requestContext)
 	current := manager.Start(request)
@@ -198,12 +198,10 @@ type drainDefinition struct {
 	handled chan struct{}
 }
 
-func (drainDefinition) Name() string { return "test.drain" }
+func (drainDefinition) Name() string              { return "test.drain" }
+func (drainDefinition) Lifetime() module.Lifetime { return module.LifetimeExchange }
 
-func (definition drainDefinition) Compile(ctx module.CompileContext, _ json.RawMessage) (module.Binding, error) {
-	if ctx.Scope != module.ScopeExchange {
-		return nil, errors.New("test.drain requires exchange scope")
-	}
+func (definition drainDefinition) Compile(_ json.RawMessage) (module.Binding, error) {
 	return drainBinding(definition), nil
 }
 

@@ -8,15 +8,15 @@ import (
 )
 
 type Manager struct {
-	maxAttempts    int
+	maxRoundTrips  int
 	programRuntime *program.Runtime
 }
 
 func NewManager(options ManagerOptions, programRuntime *program.Runtime) *Manager {
-	if options.MaxAttempts < 1 {
-		options.MaxAttempts = 1
+	if options.MaxRoundTrips < 1 {
+		options.MaxRoundTrips = 1
 	}
-	return &Manager{maxAttempts: options.MaxAttempts, programRuntime: programRuntime}
+	return &Manager{maxRoundTrips: options.MaxRoundTrips, programRuntime: programRuntime}
 }
 
 func (manager *Manager) Start(req *http.Request) *Exchange {

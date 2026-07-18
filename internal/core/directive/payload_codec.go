@@ -139,7 +139,9 @@ func normalizePayload(payload Payload) (Payload, error) {
 	payload.Metadata = compiledMetadata.Map()
 	payload.Program = program
 	payload.Recovery = recoverySpec
-	if _, err := CompilePayload(payload, AssembleOptions{}); err != nil {
+	planOnly := payload
+	planOnly.Recovery = nil
+	if _, err := CompilePayload(planOnly, AssembleOptions{}); err != nil {
 		return Payload{}, err
 	}
 	return payload, nil

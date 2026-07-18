@@ -106,14 +106,14 @@ func TestResponseCaptureReportsOutputQueueDropsWithoutBlocking(t *testing.T) {
 }
 
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeExchange}, []byte(`{"unknown":true}`)); err == nil {
+	if _, err := New().Compile([]byte(`{"unknown":true}`)); err == nil {
 		t.Fatal("unknown config field was accepted")
 	}
 }
 
-func TestModuleRejectsAttemptScope(t *testing.T) {
-	if _, err := New().Compile(module.CompileContext{Scope: module.ScopeAttempt}, []byte(`{}`)); err == nil {
-		t.Fatal("capture accepted attempt scope")
+func TestModuleDeclaresExchangeLifetime(t *testing.T) {
+	if New().Lifetime() != module.LifetimeExchange {
+		t.Fatal("capture did not declare exchange lifetime")
 	}
 }
 
@@ -143,7 +143,7 @@ func configuredScope(t *testing.T, raw string, output *captureOutput) *program.S
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: Name, Config: []byte(raw)}})
+	executable, err := runtime.Compile(program.Program{{Module: Name, Config: []byte(raw)}})
 	if err != nil {
 		t.Fatal(err)
 	}

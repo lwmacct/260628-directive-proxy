@@ -20,7 +20,7 @@ type responseWriter struct {
 
 type observedResponseBody struct {
 	source      io.ReadCloser
-	attempt     *Attempt
+	roundTrip   *RoundTrip
 	pending     []byte
 	terminalErr error
 	done        atomic.Bool
@@ -34,64 +34,64 @@ func (current *Exchange) WrapResponseWriter(writer http.ResponseWriter) http.Res
 	return &responseWriter{ResponseWriter: writer, exchange: current}
 }
 
-func (attempt *Attempt) ObserveUpstreamResponse(response *http.Response) {
-	if attempt == nil || attempt.exchange == nil || response == nil || response.Body == nil || attempt.closed.Load() {
+func (roundTrip *RoundTrip) ObserveUpstreamResponse(response *http.Response) {
+	if roundTrip == nil || roundTrip.exchange == nil || response == nil || response.Body == nil || roundTrip.closed.Load() {
 		return
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
-	attempt.projection = program.NewUpstreamObserver(
-		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(attempt),
+	roundTrip.projection = program.NewUpstreamObserver(
+		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(roundTrip),
 	)
-	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.UpstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{
 			StatusCode: response.StatusCode, Header: response.Header.Clone(),
 		})
 	})
 	current.lifecycleMu.Unlock()
 	if response.StatusCode != http.StatusSwitchingProtocols {
-		response.Body = &observedResponseBody{source: response.Body, attempt: attempt}
+		response.Body = &observedResponseBody{source: response.Body, roundTrip: roundTrip}
 	}
 }
 
-func (attempt *Attempt) processUpstreamBodyChunk(data []byte) ([]byte, error) {
-	if attempt == nil || attempt.exchange == nil || attempt.closed.Load() {
+func (roundTrip *RoundTrip) processUpstreamBodyChunk(data []byte) ([]byte, error) {
+	if roundTrip == nil || roundTrip.exchange == nil || roundTrip.closed.Load() {
 		return nil, context.Canceled
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	draft := lifecycle.BodyDraft{Data: append([]byte(nil), data...)}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if attempt.closed.Load() {
+	if roundTrip.closed.Load() {
 		return nil, context.Canceled
 	}
-	if err := current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	if err := current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.UpstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	}); err != nil {
 		return nil, err
 	}
-	if active := current.activeProgram(attempt); active != nil {
+	if active := current.activeProgram(roundTrip); active != nil {
 		if err := active.MutateUpstreamBodyChunk(current.ctx, &draft); err != nil {
 			return nil, err
 		}
 	}
-	if attempt.projection != nil {
-		if err := attempt.projection.Observe(current.ctx, time.Now().UTC(), draft.Data); err != nil {
+	if roundTrip.projection != nil {
+		if err := roundTrip.projection.Observe(current.ctx, time.Now().UTC(), draft.Data); err != nil {
 			return nil, err
 		}
 	}
 	return draft.Data, nil
 }
 
-func (attempt *Attempt) finishUpstream(cause error) {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) finishUpstream(cause error) {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return
 	}
 	outcome, finishCause := finishCauseForBody(cause)
-	attempt.finishLifecycle(outcome, finishCause, cause, true)
-	current := attempt.exchange
+	roundTrip.finishLifecycle(outcome, finishCause, cause, true)
+	current := roundTrip.exchange
 	current.stateMu.Lock()
-	if current.current == attempt {
+	if current.current == roundTrip {
 		current.current = nil
 	}
 	current.stateMu.Unlock()
@@ -102,15 +102,15 @@ func (current *Exchange) responseHeaders(status int, headers http.Header) {
 		return
 	}
 	current.stateMu.Lock()
-	attempt := current.current
+	roundTrip := current.current
 	current.stateMu.Unlock()
 	current.lifecycleMu.Lock()
 	current.responseStatus = status
-	current.downstreamAttempt = attempt
+	current.downstreamRoundTrip = roundTrip
 	current.downstreamProjection = program.NewDownstreamObserver(
-		headers.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(attempt),
+		headers.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(roundTrip),
 	)
-	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.DownstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{StatusCode: status, Header: headers.Clone()})
 	})
 	current.lifecycleMu.Unlock()
@@ -122,7 +122,7 @@ func (current *Exchange) responseBodyChunk(data []byte) {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(current.downstreamAttempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(current.downstreamRoundTrip, func(active *program.ScopeSet) error {
 		return active.DownstreamBodyChunk(current.ctx, lifecycle.BodyChunk{Data: data})
 	})
 	if current.downstreamProjection != nil {
@@ -144,7 +144,7 @@ func (current *Exchange) finishDownstream() {
 		_ = current.downstreamProjection.Finish(current.ctx, time.Now().UTC())
 		current.downstreamProjection = nil
 	}
-	_ = current.dispatchLocked(current.downstreamAttempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(current.downstreamRoundTrip, func(active *program.ScopeSet) error {
 		return active.DownstreamBodyEnded(current.ctx, lifecycle.BodyEnded{})
 	})
 }
@@ -192,7 +192,7 @@ func (body *observedResponseBody) Read(target []byte) (int, error) {
 		buffer := make([]byte, max(len(target), 32<<10))
 		n, readErr := body.source.Read(buffer)
 		if n > 0 {
-			processed, err := body.attempt.processUpstreamBodyChunk(buffer[:n])
+			processed, err := body.roundTrip.processUpstreamBodyChunk(buffer[:n])
 			if err != nil {
 				body.finish(err)
 				return 0, err
@@ -218,6 +218,6 @@ func (body *observedResponseBody) Close() error {
 
 func (body *observedResponseBody) finish(err error) {
 	if body != nil && body.done.CompareAndSwap(false, true) {
-		body.attempt.finishUpstream(err)
+		body.roundTrip.finishUpstream(err)
 	}
 }

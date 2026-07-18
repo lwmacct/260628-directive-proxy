@@ -9,20 +9,17 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 )
 
-type ScopeKind string
+type Lifetime string
 
 const (
-	ScopeExchange ScopeKind = "exchange"
-	ScopeAttempt  ScopeKind = "attempt"
+	LifetimeExchange  Lifetime = "exchange"
+	LifetimeRoundTrip Lifetime = "round_trip"
 )
-
-type CompileContext struct {
-	Scope ScopeKind
-}
 
 type Definition interface {
 	Name() string
-	Compile(CompileContext, json.RawMessage) (Binding, error)
+	Lifetime() Lifetime
+	Compile(json.RawMessage) (Binding, error)
 }
 
 // Binding is immutable and safe for concurrent Open calls after Compile returns.
@@ -43,8 +40,8 @@ func (NopInstance) Finish(FinishContext) error { return nil }
 type OpenContext struct {
 	TraceID   string
 	Metadata  metadata.Set
-	Scope     ScopeKind
-	Attempt   int
+	Lifetime  Lifetime
+	RoundTrip int
 	StartedAt time.Time
 }
 
@@ -61,7 +58,7 @@ type Context struct {
 	Context    context.Context
 	TraceID    string
 	Metadata   metadata.Set
-	Attempt    int
+	RoundTrip  int
 	EventID    string
 	Sequence   uint64
 	ObservedAt time.Time

@@ -60,7 +60,7 @@ func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
 	}
 }
 
-func TestInlinePreparedPlanIsImmutableAcrossAttempts(t *testing.T) {
+func TestInlinePreparedPlanIsImmutableAcrossRoundTrips(t *testing.T) {
 	raw, err := Encode(testTokenSecret, Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com"},

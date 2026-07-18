@@ -28,8 +28,8 @@ export function newResolverHeader(name: string, value: string): ResolverHeader {
   return { key: nextKey("header"), name, value };
 }
 
-export function newModuleSpec(id = "", module = "", config: unknown = {}, scope: EditorModuleSpec["scope"] = "exchange"): EditorModuleSpec {
-  return { key: nextKey("module"), scope, id, module, config, configText: JSON.stringify(config, null, 2), configValid: true };
+export function newModuleSpec(module = "", config: unknown = {}): EditorModuleSpec {
+  return { key: nextKey("module"), module, config, configText: JSON.stringify(config, null, 2), configValid: true };
 }
 
 export function newStatusRange(from = 200, to = 299): StatusRange {
@@ -39,15 +39,16 @@ export function newStatusRange(from = 200, to = 299): StatusRange {
 export function initialRecovery(): RecoveryEditorState {
   return {
     enabled: false,
-    controllerURL: "https://controller.example.com/recovery",
-    controllerTimeout: "3s",
-    controllerHeaders: [],
+    controllerModule: "builtin.recovery.http",
+    controllerConfig: { url: "https://controller.example.com/recovery", timeout: "3s" },
+    controllerConfigText: JSON.stringify({ url: "https://controller.example.com/recovery", timeout: "3s" }, null, 2),
+    controllerConfigValid: true,
     responseHeaderTimeout: "",
     unexpectedStatusEnabled: true,
     expectedStatuses: [newStatusRange()],
     captureBodyBytes: 65536,
     transportError: true,
-    maxAttempts: 3,
+    maxRoundTrips: 3,
     maxElapsed: "30s",
   };
 }
@@ -71,7 +72,7 @@ export function createInitialEditor(): EditorState {
       newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
       newHeaderMutation("set", "name", "X-Api-Key", ["demo-api-key"]),
     ],
-    program: [newModuleSpec("capture", "builtin.capture")],
+    program: [newModuleSpec("builtin.capture")],
     recovery: initialRecovery(),
   };
 }

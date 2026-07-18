@@ -47,8 +47,8 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 	proxy := &httputil.ReverseProxy{
 		// Flush every write so SSE/NDJSON style responses are forwarded promptly.
 		FlushInterval: -1,
-		// RecoveryTransport rebuilds every outbound attempt from the immutable
-		// inbound template after resolving that attempt's directive.
+		// RecoveryTransport rebuilds every outbound round trip from the immutable
+		// inbound template after resolving the directive once.
 		Rewrite:        func(*httputil.ProxyRequest) {},
 		ModifyResponse: modifyResponse,
 		ErrorHandler:   handleProxyError,
@@ -93,7 +93,7 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	if errors.Is(err, ErrRecoveryFailed) {
-		WriteProxyErrorJSON(w, http.StatusBadGateway, "recovery_failed", "recovery: controller failed the upstream attempt")
+		WriteProxyErrorJSON(w, http.StatusBadGateway, "recovery_failed", "recovery: controller failed the upstream round trip")
 		return
 	}
 	if writeDirectiveError(w, err) {

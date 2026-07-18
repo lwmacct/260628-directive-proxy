@@ -21,7 +21,7 @@ func applyRewrite(r *httputil.ProxyRequest, plan *Plan) {
 			}
 		}
 	}
-	r.Out = BuildAttemptRequest(template, plan, r.Out.Context(), r.Out.Body)
+	r.Out = BuildRoundTripRequest(template, plan, r.Out.Context(), r.Out.Body)
 }
 
 func TestApplyHeaderOps(t *testing.T) {

@@ -1,8 +1,10 @@
 package directive
 
 import (
-	"net/http"
-	"net/url"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -11,11 +13,8 @@ import (
 )
 
 const (
-	defaultRecoveryCallbackTimeout  = 3 * time.Second
 	defaultRecoveryMaxElapsed       = 30 * time.Second
 	defaultRecoveryCaptureBodyBytes = int64(64 << 10)
-	maxRecoveryHeaderCount          = 64
-	maxRecoveryHeaderValueBytes     = 8 << 10
 	maxRecoveryCaptureBodyBytes     = int64(16 << 20)
 	maxRecoveryDuration             = 10 * time.Minute
 )
@@ -25,21 +24,21 @@ func normalizeRecoverySpec(spec *RecoverySpec) (*RecoverySpec, error) {
 		return nil, nil
 	}
 	out := *spec
-	out.Controller.URL = strings.TrimSpace(out.Controller.URL)
-	parsed, err := url.Parse(out.Controller.URL)
-	if err != nil || parsed.Host == "" || parsed.User != nil || !isHTTPURL(parsed) {
+	out.Controller.Module = strings.TrimSpace(out.Controller.Module)
+	if out.Controller.Module == "" || len(out.Controller.Module) > maxModuleNameBytes || !isModuleName(out.Controller.Module) {
 		return nil, ErrInvalidPayload
 	}
-	callbackTimeout, err := parseRecoveryDuration(out.Controller.Timeout, defaultRecoveryCallbackTimeout)
-	if err != nil {
-		return nil, err
+	if len(out.Controller.Config) == 0 {
+		out.Controller.Config = json.RawMessage(`{}`)
 	}
-	out.Controller.Timeout = callbackTimeout.String()
-	headers, err := normalizeRecoveryHeaders(out.Controller.Headers)
-	if err != nil {
-		return nil, err
+	if len(out.Controller.Config) > maxModuleSpecBytes || !json.Valid(out.Controller.Config) {
+		return nil, ErrInvalidPayload
 	}
-	out.Controller.Headers = headers
+	compact := bytes.NewBuffer(make([]byte, 0, len(out.Controller.Config)))
+	if err := json.Compact(compact, out.Controller.Config); err != nil {
+		return nil, ErrInvalidPayload
+	}
+	out.Controller.Config = append(json.RawMessage(nil), compact.Bytes()...)
 
 	responseTimeout, err := parseOptionalRecoveryDuration(out.Triggers.ResponseHeaderTimeout)
 	if err != nil {
@@ -75,11 +74,10 @@ func normalizeRecoverySpec(spec *RecoverySpec) (*RecoverySpec, error) {
 		}
 		out.Triggers.UnexpectedStatus = &status
 	}
-	if out.Triggers.ResponseHeaderTimeout == "" && out.Triggers.UnexpectedStatus == nil &&
-		!out.Triggers.TransportError {
+	if out.Triggers.ResponseHeaderTimeout == "" && out.Triggers.UnexpectedStatus == nil && !out.Triggers.TransportError {
 		return nil, ErrInvalidPayload
 	}
-	if out.Budget.MaxAttempts < 1 || out.Budget.MaxAttempts > 100 {
+	if out.Budget.MaxRoundTrips < 1 || out.Budget.MaxRoundTrips > 100 {
 		return nil, ErrInvalidPayload
 	}
 	maxElapsed, err := parseRecoveryDuration(out.Budget.MaxElapsed, defaultRecoveryMaxElapsed)
@@ -90,24 +88,34 @@ func normalizeRecoverySpec(spec *RecoverySpec) (*RecoverySpec, error) {
 	return &out, nil
 }
 
-func CompileRecovery(spec *RecoverySpec) (*recovery.Policy, error) {
+func CompileRecovery(spec *RecoverySpec, compiler recovery.Compiler) (*recovery.Policy, error) {
 	normalized, err := normalizeRecoverySpec(spec)
 	if err != nil || normalized == nil {
 		return nil, err
 	}
-	controllerURL, _ := url.Parse(normalized.Controller.URL)
-	callbackTimeout, _ := time.ParseDuration(normalized.Controller.Timeout)
+	if compiler == nil {
+		return nil, errors.New("recovery controller compiler is unavailable")
+	}
+	binding, err := compiler.Compile(recovery.ControllerSpec{
+		Module: normalized.Controller.Module,
+		Config: append(json.RawMessage(nil), normalized.Controller.Config...),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("compile recovery controller %q: %w", normalized.Controller.Module, err)
+	}
+	if binding == nil {
+		return nil, fmt.Errorf("compile recovery controller %q: nil binding", normalized.Controller.Module)
+	}
 	maxElapsed, _ := time.ParseDuration(normalized.Budget.MaxElapsed)
 	responseTimeout, _ := time.ParseDuration(normalized.Triggers.ResponseHeaderTimeout)
 	policy := &recovery.Policy{
-		Controller: recovery.ControllerSpec{
-			URL: controllerURL, Headers: headerFromStringMap(normalized.Controller.Headers), Timeout: callbackTimeout,
-		},
+		ControllerModule: normalized.Controller.Module,
+		Controller:       binding,
 		Triggers: recovery.TriggerPolicy{
 			ResponseHeaderTimeout: responseTimeout,
 			TransportError:        normalized.Triggers.TransportError,
 		},
-		Budget: recovery.Budget{MaxAttempts: normalized.Budget.MaxAttempts, MaxElapsed: maxElapsed},
+		Budget: recovery.Budget{MaxRoundTrips: normalized.Budget.MaxRoundTrips, MaxElapsed: maxElapsed},
 	}
 	if normalized.Triggers.UnexpectedStatus != nil {
 		status := normalized.Triggers.UnexpectedStatus
@@ -137,33 +145,4 @@ func parseOptionalRecoveryDuration(raw string) (time.Duration, error) {
 		return 0, nil
 	}
 	return parseRecoveryDuration(raw, 0)
-}
-
-func normalizeRecoveryHeaders(in map[string]string) (map[string]string, error) {
-	if len(in) > maxRecoveryHeaderCount {
-		return nil, ErrInvalidPayload
-	}
-	out := make(map[string]string, len(in))
-	for name, value := range in {
-		name = http.CanonicalHeaderKey(strings.TrimSpace(name))
-		if !isValidHeaderName(name) || isForbiddenResolverHeader(name) || strings.ContainsAny(value, "\r\n") || len(value) > maxRecoveryHeaderValueBytes {
-			return nil, ErrInvalidPayload
-		}
-		if _, exists := out[name]; exists {
-			return nil, ErrInvalidPayload
-		}
-		out[name] = value
-	}
-	if len(out) == 0 {
-		return nil, nil
-	}
-	return out, nil
-}
-
-func headerFromStringMap(in map[string]string) http.Header {
-	out := make(http.Header, len(in))
-	for name, value := range in {
-		out.Set(name, value)
-	}
-	return out
 }

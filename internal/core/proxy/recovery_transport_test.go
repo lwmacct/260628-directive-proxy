@@ -41,10 +41,10 @@ func (prepared *recoveryPrepared) Prepared(t *testing.T) *PreparedDirective {
 	return value
 }
 
-type recoveryControllerFunc func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error)
+type recoveryControllerFunc func(context.Context, recovery.Event) (recovery.Decision, error)
 
-func (controller recoveryControllerFunc) Decide(ctx context.Context, spec recovery.ControllerSpec, event recovery.Event) (recovery.Decision, error) {
-	return controller(ctx, spec, event)
+func (controller recoveryControllerFunc) Decide(ctx context.Context, event recovery.Event) (recovery.Decision, error) {
+	return controller(ctx, event)
 }
 
 type recoveryEventRecorder struct {
@@ -63,12 +63,10 @@ type recoveryEventBinding struct{ recorder *recoveryEventRecorder }
 
 type recoveryEventInstance struct{ recorder *recoveryEventRecorder }
 
-func (definition recoveryEventDefinition) Name() string { return "test.recovery.events" }
+func (definition recoveryEventDefinition) Name() string              { return "test.recovery.events" }
+func (definition recoveryEventDefinition) Lifetime() module.Lifetime { return module.LifetimeRoundTrip }
 
-func (definition recoveryEventDefinition) Compile(ctx module.CompileContext, _ json.RawMessage) (module.Binding, error) {
-	if ctx.Scope != module.ScopeAttempt {
-		return nil, errors.New("test.recovery.events requires attempt scope")
-	}
+func (definition recoveryEventDefinition) Compile(_ json.RawMessage) (module.Binding, error) {
 	return recoveryEventBinding{recorder: definition.recorder}, nil
 }
 
@@ -121,7 +119,7 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	}
 	defer runtime.Close()
 	prepared.program = compileRecoveryProgram(t, runtime)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, runtime)
 	current := manager.Start(inbound)
 	var calls int
 	var seenBodies []string
@@ -144,13 +142,14 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("ok")), Request: request}, nil
 	})
 	var callbackEvent recovery.Event
-	controller := recoveryControllerFunc(func(_ context.Context, _ recovery.ControllerSpec, event recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(_ context.Context, event recovery.Event) (recovery.Decision, error) {
 		callbackEvent = event
 		return recovery.Decision{Action: recovery.ActionRetry}, nil
 	})
+	policy.Controller = controller
 	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{
-		RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute,
-		MaxRecoveryCallbackTimeout: time.Second, MaxRecoveryBodyBytes: 1 << 20,
+		MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute,
+		MaxRecoveryBodyBytes: 1 << 20,
 	})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if err != nil {
@@ -171,7 +170,7 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 	if err != nil || string(decoded) != `{"error":"expired"}` || callbackEvent.Response.Headers.Get("X-Reason") != "expired" {
 		t.Fatalf("unexpected callback response capture: event=%#v decoded=%q err=%v", callbackEvent, decoded, err)
 	}
-	if callbackEvent.TraceID != current.TraceID() || callbackEvent.Attempt.Number != 1 || callbackEvent.Trigger.Type != recovery.TriggerUnexpectedStatus {
+	if callbackEvent.TraceID != current.TraceID() || callbackEvent.RoundTrip.Number != 1 || callbackEvent.Trigger.Type != recovery.TriggerUnexpectedStatus {
 		t.Fatalf("unexpected callback identity: %#v", callbackEvent)
 	}
 	if callbackEvent.Directive.Endpoint != "redis://redis.example/1" || callbackEvent.Directive.Resource != "routing" {
@@ -189,6 +188,7 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 		t.Fatalf("unexpected module recovery event sequence: %#v", phases)
 	}
 	if started.EventID != callbackEvent.EventID || started.Trigger != string(callbackEvent.Trigger.Type) ||
+		started.ControllerModule != "test.recovery.controller" ||
 		started.Response == nil || started.Response.StatusCode != http.StatusUnauthorized ||
 		started.Response.Body == nil || started.Response.Body.Data != callbackEvent.Response.Body.Data {
 		t.Fatalf("unexpected recovery started event: %#v", started)
@@ -197,7 +197,7 @@ func TestRecoveryTransportRetriesAfterUnexpectedStatus(t *testing.T) {
 		t.Fatalf("unexpected recovery decided event: %#v", decided)
 	}
 	if finished.EventID != started.EventID || finished.Outcome != lifecycle.RecoveryOutcomeRetryRequested ||
-		finished.Action != lifecycle.RecoveryActionRetry || finished.NextAttempt != 2 {
+		finished.Action != lifecycle.RecoveryActionRetry || finished.NextRoundTrip != 2 {
 		t.Fatalf("unexpected recovery finished event: %#v", finished)
 	}
 	if len(sequences) != 3 || sequences[0] == 0 || sequences[0] >= sequences[1] || sequences[1] >= sequences[2] ||
@@ -219,15 +219,16 @@ func TestRecoveryTransportForwardsCapturedResponseWhenControllerSaysForward(t *t
 	}
 	defer runtime.Close()
 	prepared.program = compileRecoveryProgram(t, runtime)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, runtime)
 	current := manager.Start(inbound)
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"X-Test": {"one"}}, Body: io.NopCloser(strings.NewReader("small-error")), Request: request}, nil
 	})
-	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 		return recovery.Decision{Action: recovery.ActionForward}, nil
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if err != nil {
 		t.Fatal(err)
@@ -260,15 +261,16 @@ func TestRecoveryTransportReportsControllerError(t *testing.T) {
 	}
 	defer runtime.Close()
 	prepared.program = compileRecoveryProgram(t, runtime)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, runtime)
 	current := manager.Start(inbound)
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
-	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 		return recovery.Decision{}, errors.New("controller unavailable")
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if err != nil || response == nil {
 		t.Fatalf("unexpected controller error fallback: response=%#v err=%v", response, err)
@@ -298,15 +300,16 @@ func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
 	}
 	defer runtime.Close()
 	prepared.program = compileRecoveryProgram(t, runtime)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, runtime)
 	current := manager.Start(inbound)
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
-	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 		return recovery.Decision{Action: recovery.ActionForward, AfterMS: -1}, nil
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if err != nil || response == nil {
 		t.Fatalf("unexpected invalid decision fallback: response=%#v err=%v", response, err)
@@ -326,7 +329,7 @@ func TestRecoveryTransportReportsInvalidDecision(t *testing.T) {
 func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
 	target := mustProxyURL(t, "https://one.example")
 	policy := testRecoveryPolicy()
-	policy.Budget.MaxAttempts = 1
+	policy.Budget.MaxRoundTrips = 1
 	recorder := &recoveryEventRecorder{}
 	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
@@ -336,15 +339,16 @@ func TestRecoveryTransportReportsBudgetRejection(t *testing.T) {
 	}
 	defer runtime.Close()
 	prepared.program = compileRecoveryProgram(t, runtime)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, runtime)
 	current := manager.Start(inbound)
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("fallback")), Request: request}, nil
 	})
-	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 		return recovery.Decision{Action: recovery.ActionRetry}, nil
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if err != nil || response == nil {
 		t.Fatalf("unexpected budget rejection fallback: response=%#v err=%v", response, err)
@@ -373,15 +377,16 @@ func TestRecoveryTransportFailsUnexpectedResponseWhenControllerSaysFail(t *testi
 	}
 	defer runtime.Close()
 	prepared.program = compileRecoveryProgram(t, runtime)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, runtime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, runtime)
 	current := manager.Start(inbound)
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("upstream failed")), Request: request}, nil
 	})
-	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 		return recovery.Decision{Action: recovery.ActionFail}, nil
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if response != nil || !errors.Is(err, ErrRecoveryFailed) {
 		t.Fatalf("unexpected fail decision result: response=%#v err=%v", response, err)
@@ -404,15 +409,16 @@ func TestRecoveryTransportFailsTransportErrorWhenControllerSaysFail(t *testing.T
 	policy.Triggers.TransportError = true
 	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, nil)
 	current := manager.Start(inbound)
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("dial failed")
 	})
-	controller := recoveryControllerFunc(func(context.Context, recovery.ControllerSpec, recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
 		return recovery.Decision{Action: recovery.ActionFail}, nil
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if response != nil || !errors.Is(err, ErrRecoveryFailed) {
 		t.Fatalf("unexpected fail decision result: response=%#v err=%v", response, err)
@@ -427,7 +433,7 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 	policy.Triggers.ResponseHeaderTimeout = 20 * time.Millisecond
 	prepared := &recoveryPrepared{policy: policy, plan: &Plan{Target: target}}
 	inbound, _ := http.NewRequest(http.MethodGet, "http://proxy.local/chat", nil)
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 5}, nil)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 5}, nil)
 	current := manager.Start(inbound)
 	var calls int
 	base := roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -442,11 +448,12 @@ func TestRecoveryTransportRecoversAfterResponseHeaderTimeout(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: request}, nil
 	})
 	var trigger recovery.TriggerType
-	controller := recoveryControllerFunc(func(_ context.Context, _ recovery.ControllerSpec, event recovery.Event) (recovery.Decision, error) {
+	controller := recoveryControllerFunc(func(_ context.Context, event recovery.Event) (recovery.Decision, error) {
 		trigger = event.Trigger.Type
 		return recovery.Decision{Action: recovery.ActionRetry}, nil
 	})
-	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{RecoveryController: controller, MaxRecoveryAttempts: 5, MaxRecoveryElapsed: time.Minute})
+	policy.Controller = controller
+	transport, _ := NewRecoveryTransport(base, RecoveryTransportOptions{MaxRecoveryRoundTrips: 5, MaxRecoveryElapsed: time.Minute})
 	response, err := transport.RoundTrip(inbound.Clone(recoveryTestContext(t, inbound, current, prepared)))
 	if err != nil {
 		t.Fatal(err)
@@ -467,26 +474,28 @@ func TestPreparedDirectiveClonesPlanAndRecovery(t *testing.T) {
 	plan := prepared.Plan()
 	policy := prepared.Recovery()
 	plan.Target.Host = "mutated.example"
-	policy.Budget.MaxAttempts++
-	if prepared.Plan().Target.Host != "upstream.example" || prepared.Recovery().Budget.MaxAttempts == policy.Budget.MaxAttempts {
+	policy.Budget.MaxRoundTrips++
+	if prepared.Plan().Target.Host != "upstream.example" || prepared.Recovery().Budget.MaxRoundTrips == policy.Budget.MaxRoundTrips {
 		t.Fatal("prepared plan or recovery policy exposed mutable state")
 	}
 }
 
 func testRecoveryPolicy() *recovery.Policy {
-	controllerURL, _ := url.Parse("https://controller.example/recovery")
 	return &recovery.Policy{
-		Controller: recovery.ControllerSpec{URL: controllerURL, Timeout: time.Second},
+		ControllerModule: "test.recovery.controller",
+		Controller: recoveryControllerFunc(func(context.Context, recovery.Event) (recovery.Decision, error) {
+			return recovery.Decision{Action: recovery.ActionFail}, nil
+		}),
 		Triggers: recovery.TriggerPolicy{UnexpectedStatus: &recovery.UnexpectedStatusPolicy{
 			Expected: []recovery.StatusRange{{From: 200, To: 299}}, CaptureBodyBytes: 64 << 10,
 		}},
-		Budget: recovery.Budget{MaxAttempts: 3, MaxElapsed: time.Minute},
+		Budget: recovery.Budget{MaxRoundTrips: 3, MaxElapsed: time.Minute},
 	}
 }
 
 func compileRecoveryProgram(t *testing.T, runtime *program.Runtime) *program.Executable {
 	t.Helper()
-	executable, err := runtime.Compile(program.Program{{Scope: module.ScopeAttempt, ID: "events", Module: "test.recovery.events"}})
+	executable, err := runtime.Compile(program.Program{{Module: "test.recovery.events"}})
 	if err != nil {
 		t.Fatal(err)
 	}

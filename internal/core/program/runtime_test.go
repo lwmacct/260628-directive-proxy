@@ -11,17 +11,19 @@ import (
 )
 
 type runtimeDefinition struct {
-	name    string
-	compile func() module.Binding
+	name     string
+	lifetime module.Lifetime
+	compile  func() module.Binding
 }
 
-func (definition runtimeDefinition) Name() string { return definition.name }
-func (definition runtimeDefinition) Compile(module.CompileContext, json.RawMessage) (module.Binding, error) {
+func (definition runtimeDefinition) Name() string              { return definition.name }
+func (definition runtimeDefinition) Lifetime() module.Lifetime { return definition.lifetime }
+func (definition runtimeDefinition) Compile(json.RawMessage) (module.Binding, error) {
 	return definition.compile(), nil
 }
 
 func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
-	definition := runtimeDefinition{name: "panic.module", compile: func() module.Binding {
+	definition := runtimeDefinition{name: "panic.module", lifetime: module.LifetimeExchange, compile: func() module.Binding {
 		return testBinding{open: func() module.Instance {
 			return testInstance{bind: func(registrar module.Registrar) {
 				registrar.OnRequestStarted(module.SyncPolicy(), func(module.Context, lifecycle.RequestStarted) error { panic("boom") })
@@ -32,7 +34,7 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{{Scope: module.ScopeExchange, ID: "panic", Module: "panic.module", Config: []byte(`{}`)}})
+	executable, err := runtime.Compile(Program{{Module: "panic.module", Config: []byte(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,10 +55,10 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	}
 }
 
-func TestExecutableCompilesOnceAndOpensEachAttempt(t *testing.T) {
+func TestExecutableCompilesOnceAndOpensEachRoundTrip(t *testing.T) {
 	compileCalls := 0
 	openCalls := 0
-	definition := runtimeDefinition{name: "attempt.module", compile: func() module.Binding {
+	definition := runtimeDefinition{name: "round_trip.module", lifetime: module.LifetimeRoundTrip, compile: func() module.Binding {
 		compileCalls++
 		return testBinding{open: func() module.Instance {
 			openCalls++
@@ -67,7 +69,7 @@ func TestExecutableCompilesOnceAndOpensEachAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{{Scope: module.ScopeAttempt, ID: "attempt", Module: "attempt.module", Config: []byte(`{}`)}})
+	executable, err := runtime.Compile(Program{{Module: "round_trip.module", Config: []byte(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +77,8 @@ func TestExecutableCompilesOnceAndOpensEachAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for attempt := 1; attempt <= 2; attempt++ {
-		scope, openErr := run.OpenAttempt(module.OpenContext{Attempt: attempt})
+	for roundTrip := 1; roundTrip <= 2; roundTrip++ {
+		scope, openErr := run.OpenRoundTrip(module.OpenContext{RoundTrip: roundTrip})
 		if openErr != nil {
 			t.Fatal(openErr)
 		}
@@ -104,6 +106,30 @@ func TestRuntimeFailsClosedAfterClose(t *testing.T) {
 	}
 	if _, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace")); !errors.Is(err, ErrRuntimeClosed) {
 		t.Fatalf("closed runtime started a run: %v", err)
+	}
+}
+
+func TestRuntimeRejectsDuplicateModulesAndInvalidDefinitionLifetime(t *testing.T) {
+	definition := runtimeDefinition{name: "test.module", lifetime: module.LifetimeExchange, compile: func() module.Binding {
+		return testBinding{open: func() module.Instance { return testInstance{} }}
+	}}
+	runtime, err := NewRuntime([]module.Definition{definition}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Compile(Program{{Module: "test.module"}, {Module: "test.module"}}); err == nil {
+		t.Fatal("duplicate module was accepted")
+	}
+
+	invalid, err := NewRuntime([]module.Definition{runtimeDefinition{
+		name: "invalid.module", lifetime: module.Lifetime("request"),
+		compile: func() module.Binding { return testBinding{open: func() module.Instance { return testInstance{} }} },
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := invalid.Compile(Program{{Module: "invalid.module"}}); err == nil {
+		t.Fatal("invalid definition lifetime was accepted")
 	}
 }
 

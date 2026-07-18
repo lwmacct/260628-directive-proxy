@@ -60,10 +60,9 @@ func New() *Module { return &Module{} }
 
 func (*Module) Name() string { return Name }
 
-func (*Module) Compile(ctx module.CompileContext, raw json.RawMessage) (module.Binding, error) {
-	if ctx.Scope != module.ScopeExchange {
-		return nil, fmt.Errorf("%s requires exchange scope", Name)
-	}
+func (*Module) Lifetime() module.Lifetime { return module.LifetimeExchange }
+
+func (*Module) Compile(raw json.RawMessage) (module.Binding, error) {
 	spec, err := decodeSpec(raw)
 	if err != nil {
 		return nil, err
@@ -81,9 +80,9 @@ func (capture *instance) Bind(binder module.Registrar) {
 	binder.OnRequestBodyChunk(module.AsyncBarrierPolicy(module.OverflowBlock), capture.onRequestBodyChunk)
 	binder.OnRequestBodyEnded(async, capture.onRequestBodyEnded)
 	binder.OnDirectivePrepared(async, capture.onDirectivePrepared)
-	binder.OnAttemptStarted(async, capture.onAttemptStarted)
+	binder.OnRoundTripStarted(async, capture.onRoundTripStarted)
 	binder.OnUpstreamStarted(async, capture.onUpstreamStarted)
-	binder.OnAttemptFinished(async, capture.onAttemptFinished)
+	binder.OnRoundTripFinished(async, capture.onRoundTripFinished)
 	binder.OnRecoveryStarted(async, capture.onRecoveryStarted)
 	binder.OnRecoveryDecided(async, capture.onRecoveryDecided)
 	binder.OnRecoveryFinished(async, capture.onRecoveryFinished)
@@ -168,7 +167,7 @@ func (capture *instance) onDirectivePrepared(ctx module.Context, value lifecycle
 	return nil
 }
 
-func (capture *instance) onAttemptStarted(ctx module.Context, value lifecycle.AttemptStarted) error {
+func (capture *instance) onRoundTripStarted(ctx module.Context, value lifecycle.RoundTripStarted) error {
 	if ctx.Emitter == nil {
 		return nil
 	}
@@ -176,8 +175,8 @@ func (capture *instance) onAttemptStarted(ctx module.Context, value lifecycle.At
 	if value.Target != nil {
 		target = redactURL(value.Target.String(), capture.spec.RedactQuery)
 	}
-	ctx.Emitter.Emit("capture.attempt.started", map[string]any{
-		"attempt": ctx.Attempt, "mode": value.Mode, "backend": value.Backend,
+	ctx.Emitter.Emit("capture.round_trip.started", map[string]any{
+		"round_trip": ctx.RoundTrip, "mode": value.Mode, "backend": value.Backend,
 		"endpoint": value.Endpoint, "resource": value.Resource, "payload_sha256": value.PayloadSHA256,
 		"target_url": target,
 	})
@@ -186,7 +185,7 @@ func (capture *instance) onAttemptStarted(ctx module.Context, value lifecycle.At
 
 func (capture *instance) onUpstreamStarted(ctx module.Context, value lifecycle.UpstreamStarted) error {
 	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.attempt.upstream.started", map[string]any{
+		ctx.Emitter.Emit("capture.round_trip.upstream.started", map[string]any{
 			"target_url": redactURL(value.TargetURL, capture.spec.RedactQuery),
 			"headers":    redactHTTPHeaders(value.Header, capture.spec.RedactHeaders),
 		})
@@ -194,9 +193,9 @@ func (capture *instance) onUpstreamStarted(ctx module.Context, value lifecycle.U
 	return nil
 }
 
-func (*instance) onAttemptFinished(ctx module.Context, value lifecycle.AttemptFinished) error {
+func (*instance) onRoundTripFinished(ctx module.Context, value lifecycle.RoundTripFinished) error {
 	if ctx.Emitter != nil {
-		ctx.Emitter.Emit("capture.attempt.finished", map[string]any{"attempt": ctx.Attempt, "outcome": string(value.Outcome)})
+		ctx.Emitter.Emit("capture.round_trip.finished", map[string]any{"round_trip": ctx.RoundTrip, "outcome": string(value.Outcome)})
 	}
 	return nil
 }
@@ -208,16 +207,17 @@ func (capture *instance) onRecoveryStarted(ctx module.Context, value lifecycle.R
 	data := map[string]any{
 		"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
 		"trigger": value.Trigger, "trigger_code": value.TriggerCode,
-		"trigger_timeout_ms": value.TriggerTimeoutMS, "attempt": value.Attempt.Number,
-		"max_attempts": value.Attempt.MaxAttempts, "elapsed_ms": value.Attempt.ElapsedMS,
-		"remaining_ms": value.Attempt.RemainingMS, "next_attempt": value.Attempt.NextAttempt,
-		"retry_allowed": value.Attempt.RetryAllowed,
+		"trigger_timeout_ms": value.TriggerTimeoutMS, "round_trip": value.RoundTrip.Number,
+		"max_round_trips": value.RoundTrip.MaxRoundTrips, "elapsed_ms": value.RoundTrip.ElapsedMS,
+		"remaining_ms": value.RoundTrip.RemainingMS, "next_round_trip": value.RoundTrip.NextRoundTrip,
+		"retry_allowed": value.RoundTrip.RetryAllowed,
 		"directive": map[string]any{
 			"mode": value.Directive.Mode, "backend": value.Directive.Backend,
 			"endpoint": value.Directive.Endpoint, "resource": value.Directive.Resource,
 			"payload_sha256": value.Directive.PayloadSHA256,
 		},
-		"controller_url":        value.ControllerURL,
+		"controller_module":     value.ControllerModule,
+		"controller_endpoint":   value.ControllerEndpoint,
 		"controller_timeout_ms": value.ControllerTimeoutMS,
 		"controller_headers":    redactHTTPHeaders(value.ControllerHeaders, capture.spec.RedactHeaders),
 	}
@@ -254,7 +254,7 @@ func (*instance) onRecoveryFinished(ctx module.Context, value lifecycle.Recovery
 			"event_id": value.EventID, "lifecycle_sequence": ctx.Sequence,
 			"outcome": string(value.Outcome),
 			"action":  string(value.Action), "after_ms": value.AfterMS,
-			"next_attempt": value.NextAttempt, "error_code": value.ErrorCode,
+			"next_round_trip": value.NextRoundTrip, "error_code": value.ErrorCode,
 		}
 		if value.Error != "" {
 			data["error"] = value.Error

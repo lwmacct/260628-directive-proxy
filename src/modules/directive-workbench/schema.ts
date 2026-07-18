@@ -179,18 +179,15 @@ function parseHeaderMutation(value: unknown, label: string, text: Text["authCons
 
 function parseModule(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec {
   const input = record(value, label, text);
-  knownKeys(input, ["scope", "id", "module", "config"], label, text);
-  if (input.scope !== "exchange" && input.scope !== "attempt") throw new Error(text.onlyValues(`${label}.scope`, "exchange, attempt"));
-  if (typeof input.id !== "string" || input.id === "" || input.id !== input.id.trim()) throw new Error(text.nonEmptyString(`${label}.id`));
+  knownKeys(input, ["module", "config"], label, text);
   if (typeof input.module !== "string" || input.module === "" || input.module !== input.module.trim()) throw new Error(text.nonEmptyString(`${label}.module`));
-  const id = input.id;
   const module = input.module;
   const moduleName = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
-  if (!moduleName.test(id) || !moduleName.test(module) || new TextEncoder().encode(id).length > 64 || new TextEncoder().encode(module).length > 64) {
+  if (!moduleName.test(module) || new TextEncoder().encode(module).length > 64) {
     throw new Error(text.mustBe(label, "module names using lowercase letters, digits, dots, or hyphens"));
   }
   if (input.config !== undefined && new TextEncoder().encode(JSON.stringify(input.config)).length > 65536) throw new Error(text.mustBe(`${label}.config`, "JSON <= 64 KiB"));
-  return { scope: input.scope, id, module, ...(input.config === undefined ? {} : { config: input.config }) };
+  return { module, ...(input.config === undefined ? {} : { config: input.config }) };
 }
 
 function parseProgram(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec[] | undefined {
@@ -198,7 +195,7 @@ function parseProgram(value: unknown, label: string, text: Text["authConsole"]):
   const values = arrayValue(value, label, text);
   if (values.length > 16) throw new Error(text.mustBe(label, "array with at most 16 modules"));
   const modules = values.map((item, index) => parseModule(item, `${label}[${index}]`, text));
-  if (new Set(modules.map((item) => item.id)).size !== modules.length) throw new Error(text.mustBe(label, "modules with globally unique ids"));
+  if (new Set(modules.map((item) => item.module)).size !== modules.length) throw new Error(text.mustBe(label, "globally unique module names"));
   return modules.length ? modules : undefined;
 }
 
@@ -289,12 +286,17 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
   const input = record(value, "recovery", text);
   knownKeys(input, ["controller", "triggers", "budget"], "recovery", text);
   const controllerInput = record(input.controller, "recovery.controller", text);
-  knownKeys(controllerInput, ["url", "headers", "timeout"], "recovery.controller", text);
-  const controllerHeaders = parseHeaderMap(controllerInput.headers, "recovery.controller.headers", text, 64, 8192);
+  knownKeys(controllerInput, ["module", "config"], "recovery.controller", text);
+  const controllerModule = stringValue(controllerInput.module, "recovery.controller.module", text);
+  const moduleName = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
+  if (!moduleName.test(controllerModule) || new TextEncoder().encode(controllerModule).length > 64) {
+    throw new Error(text.mustBe("recovery.controller.module", "module name using lowercase letters, digits, dots, or hyphens"));
+  }
+  const controllerConfig = controllerInput.config ?? {};
+  if (new TextEncoder().encode(JSON.stringify(controllerConfig)).length > 65536) throw new Error(text.mustBe("recovery.controller.config", "JSON <= 64 KiB"));
   const controller = {
-    url: parseURL(controllerInput.url, "recovery.controller.url", ["http", "https"], text, false),
-    ...(controllerHeaders ? { headers: controllerHeaders } : {}),
-    timeout: parseDuration(controllerInput.timeout, "recovery.controller.timeout", text, "3s"),
+    module: controllerModule,
+    config: controllerConfig,
   };
   const triggersInput = record(input.triggers, "recovery.triggers", text);
   knownKeys(triggersInput, ["response_header_timeout", "unexpected_status", "transport_error"], "recovery.triggers", text);
@@ -322,7 +324,7 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
   const transportError = triggersInput.transport_error === undefined ? false : booleanValue(triggersInput.transport_error, "recovery.triggers.transport_error", text);
   if (!responseHeaderTimeout && !unexpectedStatus && !transportError) throw new Error(text.mustBe("recovery.triggers", "object with at least one enabled trigger"));
   const budgetInput = record(input.budget, "recovery.budget", text);
-  knownKeys(budgetInput, ["max_attempts", "max_elapsed"], "recovery.budget", text);
+  knownKeys(budgetInput, ["max_round_trips", "max_elapsed"], "recovery.budget", text);
   return {
     controller,
     triggers: {
@@ -331,7 +333,7 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
       ...(transportError ? { transport_error: true } : {}),
     },
     budget: {
-      max_attempts: integerValue(budgetInput.max_attempts, "recovery.budget.max_attempts", text, 1, 100),
+      max_round_trips: integerValue(budgetInput.max_round_trips, "recovery.budget.max_round_trips", text, 1, 100),
       max_elapsed: parseDuration(budgetInput.max_elapsed, "recovery.budget.max_elapsed", text, "30s"),
     },
   };

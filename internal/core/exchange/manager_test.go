@@ -21,13 +21,13 @@ import (
 
 func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
-	manager := NewManager(ManagerOptions{MaxAttempts: 10}, runtime)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 10}, runtime)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
 	current := manager.Start(req)
-	current.ConfigureRecovery(&recovery.Policy{Budget: recovery.Budget{MaxAttempts: 3, MaxElapsed: time.Minute}}, 10, time.Minute)
-	executable := compileProgram(t, runtime, program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}})
+	current.ConfigureRecovery(&recovery.Policy{Budget: recovery.Budget{MaxRoundTrips: 3, MaxElapsed: time.Minute}}, 10, time.Minute)
+	executable := compileProgram(t, runtime, program.Program{{Module: capture.Name, Config: []byte(`{"redact-query":["token"]}`)}})
 	target := mustURL(t, "https://upstream.example/v1/chat?token=upstream-secret")
 	if err := current.Configure(Configuration{
 		Directive: DirectiveInfo{Mode: "remote", Backend: "redis", Resource: "routing", PayloadSHA256: "digest-1", Target: target},
@@ -36,7 +36,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstCanceled := false
-	first, err := current.BeginAttempt(func() { firstCanceled = true })
+	first, err := current.BeginRoundTrip(func() { firstCanceled = true })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !first.BeginUpstream(req) || !first.BeginRecovery() {
-		t.Fatal("first attempt did not enter recovery")
+		t.Fatal("first roundTrip did not enter recovery")
 	}
 	first.RecoveryStarted(lifecycle.RecoveryStarted{EventID: "trace:1:unexpected_status", Trigger: "unexpected_status"})
 	first.RecoveryDecided(lifecycle.RecoveryDecided{EventID: "trace:1:unexpected_status", Action: lifecycle.RecoveryActionRetry})
@@ -53,18 +53,18 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	}
 	first.RecoveryFinished(lifecycle.RecoveryFinished{
 		EventID: "trace:1:unexpected_status", Outcome: lifecycle.RecoveryOutcomeRetryRequested,
-		Action: lifecycle.RecoveryActionRetry, NextAttempt: 2,
+		Action: lifecycle.RecoveryActionRetry, NextRoundTrip: 2,
 	})
 	if decision := first.FinishRoundTrip(false, context.Canceled); decision != DecisionRetry {
 		t.Fatalf("unexpected first decision: %v", decision)
 	}
-	second, err := current.BeginAttempt(func() {})
+	second, err := current.BeginRoundTrip(func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = second.OpenScope()
 	if !second.BeginUpstream(req) {
-		t.Fatal("second attempt did not enter upstream state")
+		t.Fatal("second roundTrip did not enter upstream state")
 	}
 	if decision := second.FinishRoundTrip(true, nil); decision != DecisionReturn {
 		t.Fatalf("unexpected second decision: %v", decision)
@@ -76,7 +76,7 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	}
 	var recoveryTopics []string
 	preparedCount := 0
-	attemptStartedCount := 0
+	roundTripStartedCount := 0
 	for _, record := range output.Records() {
 		if record.Topic == "capture.directive.prepared" {
 			preparedCount++
@@ -84,10 +84,11 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 				t.Fatalf("unexpected prepared directive: %#v", record.Data)
 			}
 		}
-		if record.Topic == "capture.attempt.started" {
-			attemptStartedCount++
-			if record.Data["payload_sha256"] != "digest-1" || record.Metadata["request_id"] != "request-1" {
-				t.Fatalf("attempt did not reuse prepared directive: %#v", record.Data)
+		if record.Topic == "capture.round_trip.started" {
+			roundTripStartedCount++
+			if record.Producer != capture.Name || record.RoundTrip == 0 || record.Data["round_trip"] != record.RoundTrip ||
+				record.Data["payload_sha256"] != "digest-1" || record.Metadata["request_id"] != "request-1" {
+				t.Fatalf("roundTrip did not reuse prepared directive: %#v", record.Data)
 			}
 		}
 		if record.Metadata["user_key"] != "uk_user_1" || record.Metadata["trace_id"] != current.TraceID() || record.TraceID != current.TraceID() {
@@ -103,21 +104,21 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	if got := strings.Join(recoveryTopics, ","); got != "capture.recovery.started,capture.recovery.decided,capture.recovery.finished" {
 		t.Fatalf("unexpected recovery event sequence: %s", got)
 	}
-	if preparedCount != 1 || attemptStartedCount != 2 {
-		t.Fatalf("unexpected directive lifecycle counts: prepared=%d attempts=%d", preparedCount, attemptStartedCount)
+	if preparedCount != 1 || roundTripStartedCount != 2 {
+		t.Fatalf("unexpected directive lifecycle counts: prepared=%d roundTrips=%d", preparedCount, roundTripStartedCount)
 	}
 }
 
 func TestRecoveryRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
-			manager := NewManager(ManagerOptions{MaxAttempts: 3}, nil)
+			manager := NewManager(ManagerOptions{MaxRoundTrips: 3}, nil)
 			current := manager.Start(httptest.NewRequest(method, "http://proxy.local/resource", nil))
 			prepareInlineExchange(t, current)
-			attempt, _ := current.BeginAttempt(func() {})
-			attempt.BeginUpstream(nil)
-			attempt.BeginRecovery()
-			if err := attempt.RequestRecoveryRetry(); err != ErrIdempotencyKeyRequired {
+			roundTrip, _ := current.BeginRoundTrip(func() {})
+			roundTrip.BeginUpstream(nil)
+			roundTrip.BeginRecovery()
+			if err := roundTrip.RequestRecoveryRetry(); err != ErrIdempotencyKeyRequired {
 				t.Fatalf("unexpected retry result: %v", err)
 			}
 			current.Complete()
@@ -127,17 +128,17 @@ func TestRecoveryRetryRequiresIdempotencyKeyForPostAndPatch(t *testing.T) {
 
 func TestExchangeMetadataIsAttachedToEveryRecord(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
-	manager := NewManager(ManagerOptions{MaxAttempts: 2}, runtime)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 2}, runtime)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	executable := compileProgram(t, runtime, program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{}`)}})
+	executable := compileProgram(t, runtime, program.Program{{Module: capture.Name, Config: []byte(`{}`)}})
 	if err := current.Configure(Configuration{
 		Directive: DirectiveInfo{Mode: "inline", Target: mustURL(t, "https://upstream.example")},
 		Metadata:  exchangeMetadata(t, map[string]string{"user_key": "uk_user_1", "tenant_id": "tenant-a"}), Program: executable,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	attempt, _ := current.BeginAttempt(func() {})
-	_ = attempt.OpenScope()
+	roundTrip, _ := current.BeginRoundTrip(func() {})
+	_ = roundTrip.OpenScope()
 	current.Complete()
 	runtime.Close()
 	_ = dispatcher.Close(context.Background())
@@ -154,9 +155,9 @@ func TestExchangeMetadataIsAttachedToEveryRecord(t *testing.T) {
 
 func TestExchangeInjectsTraceIntoEmptyDirectiveMetadata(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
-	manager := NewManager(ManagerOptions{MaxAttempts: 1}, runtime)
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 1}, runtime)
 	current := manager.Start(httptest.NewRequest(http.MethodGet, "http://proxy.local/", nil))
-	executable := compileProgram(t, runtime, program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{}`)}})
+	executable := compileProgram(t, runtime, program.Program{{Module: capture.Name, Config: []byte(`{}`)}})
 	fields, err := metadata.Compile(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +187,7 @@ func TestExchangeInjectsTraceIntoEmptyDirectiveMetadata(t *testing.T) {
 
 func TestModuleRuntimeRejectsUnknownModules(t *testing.T) {
 	runtime, dispatcher, _ := newCaptureRuntime(t)
-	if _, err := runtime.Compile(program.Program{{Scope: module.ScopeExchange, ID: "missing", Module: "missing.module", Config: []byte(`{}`)}}); err == nil {
+	if _, err := runtime.Compile(program.Program{{Module: "missing.module", Config: []byte(`{}`)}}); err == nil {
 		t.Fatal("unknown module was accepted")
 	}
 	runtime.Close()

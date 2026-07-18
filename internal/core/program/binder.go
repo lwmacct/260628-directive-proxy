@@ -21,7 +21,7 @@ type binder struct {
 	requestStarted       []subscription[lifecycle.RequestStarted]
 	requestBodyChunk     []subscription[lifecycle.BodyChunk]
 	requestBodyEnded     []subscription[lifecycle.RequestBodyEnded]
-	attemptStarted       []subscription[lifecycle.AttemptStarted]
+	roundTripStarted     []subscription[lifecycle.RoundTripStarted]
 	directivePrepared    []subscription[lifecycle.DirectivePrepared]
 	upstreamStarted      []subscription[lifecycle.UpstreamStarted]
 	upstreamResponse     []subscription[lifecycle.ResponseStarted]
@@ -29,7 +29,7 @@ type binder struct {
 	upstreamJSONChunk    []subscription[lifecycle.BodyChunk]
 	upstreamSSEData      []subscription[lifecycle.SSEData]
 	upstreamBodyEnded    []subscription[lifecycle.BodyEnded]
-	attemptFinished      []subscription[lifecycle.AttemptFinished]
+	roundTripFinished    []subscription[lifecycle.RoundTripFinished]
 	recoveryStarted      []subscription[lifecycle.RecoveryStarted]
 	recoveryDecided      []subscription[lifecycle.RecoveryDecided]
 	recoveryFinished     []subscription[lifecycle.RecoveryFinished]
@@ -68,8 +68,8 @@ func (b *binder) OnRequestBodyChunk(policy module.Policy, handle module.Handler[
 func (b *binder) OnRequestBodyEnded(policy module.Policy, handle module.Handler[lifecycle.RequestBodyEnded]) {
 	appendSubscription(&b.requestBodyEnded, policy, handle)
 }
-func (b *binder) OnAttemptStarted(policy module.Policy, handle module.Handler[lifecycle.AttemptStarted]) {
-	appendSubscription(&b.attemptStarted, policy, handle)
+func (b *binder) OnRoundTripStarted(policy module.Policy, handle module.Handler[lifecycle.RoundTripStarted]) {
+	appendSubscription(&b.roundTripStarted, policy, handle)
 }
 func (b *binder) OnDirectivePrepared(policy module.Policy, handle module.Handler[lifecycle.DirectivePrepared]) {
 	appendSubscription(&b.directivePrepared, policy, handle)
@@ -92,8 +92,8 @@ func (b *binder) OnUpstreamSSEData(policy module.Policy, handle module.Handler[l
 func (b *binder) OnUpstreamBodyEnded(policy module.Policy, handle module.Handler[lifecycle.BodyEnded]) {
 	appendSubscription(&b.upstreamBodyEnded, policy, handle)
 }
-func (b *binder) OnAttemptFinished(policy module.Policy, handle module.Handler[lifecycle.AttemptFinished]) {
-	appendSubscription(&b.attemptFinished, policy, handle)
+func (b *binder) OnRoundTripFinished(policy module.Policy, handle module.Handler[lifecycle.RoundTripFinished]) {
+	appendSubscription(&b.roundTripFinished, policy, handle)
 }
 func (b *binder) OnRecoveryStarted(policy module.Policy, handle module.Handler[lifecycle.RecoveryStarted]) {
 	appendSubscription(&b.recoveryStarted, policy, handle)

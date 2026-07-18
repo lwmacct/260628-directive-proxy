@@ -75,11 +75,11 @@ func (runtime *Runtime) Compile(source Program) (*Executable, error) {
 	if runtime.closed.Load() {
 		return nil, ErrRuntimeClosed
 	}
-	exchange, attempt, err := runtime.registry.compile(source)
+	exchange, roundTrip, err := runtime.registry.compile(source)
 	if err != nil {
 		return nil, fmt.Errorf("compile program: %w", err)
 	}
-	return &Executable{exchange: exchange, attempt: attempt}, nil
+	return &Executable{exchange: exchange, roundTrip: roundTrip}, nil
 }
 
 func (runtime *Runtime) StartRun(traceID string, executable *Executable, fields metadata.Set) (*Run, error) {
@@ -138,25 +138,25 @@ func (run *Run) OpenExchange(ctx module.OpenContext) (*Scope, error) {
 	}
 	ctx.TraceID = run.traceID
 	ctx.Metadata = run.metadata
-	ctx.Scope = module.ScopeExchange
+	ctx.Lifetime = module.LifetimeExchange
 	return openScope(ctx, run.executable.exchange, run)
 }
 
-func (run *Run) OpenAttempt(ctx module.OpenContext) (*Scope, error) {
+func (run *Run) OpenRoundTrip(ctx module.OpenContext) (*Scope, error) {
 	if run == nil || run.closed.Load() {
 		return nil, ErrRunClosed
 	}
 	ctx.TraceID = run.traceID
 	ctx.Metadata = run.metadata
-	ctx.Scope = module.ScopeAttempt
-	return openScope(ctx, run.executable.attempt, run)
+	ctx.Lifetime = module.LifetimeRoundTrip
+	return openScope(ctx, run.executable.roundTrip, run)
 }
 
-func (run *Run) emitter(producer string, attempt int) event.Emitter {
+func (run *Run) emitter(producer string, roundTrip int) event.Emitter {
 	if run == nil || run.closed.Load() || run.emission == nil {
 		return discardEmitter{}
 	}
-	return run.emission.Emitter(producer, attempt)
+	return run.emission.Emitter(producer, roundTrip)
 }
 
 func (run *Run) nextEventSequence() uint64 {

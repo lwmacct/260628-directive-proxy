@@ -72,7 +72,7 @@ func Validate(cfg Server) (Server, error) {
 		return cfg, ErrInvalidTransport
 	}
 	recoveryConfig := cfg.Proxy.Recovery
-	if recoveryConfig.MaxAttemptsLimit < 1 || recoveryConfig.MaxElapsedLimit <= 0 ||
+	if recoveryConfig.MaxRoundTripsLimit < 1 || recoveryConfig.MaxElapsedLimit <= 0 ||
 		recoveryConfig.MaxCallbackTimeout <= 0 || recoveryConfig.MaxCapturedBodyBytes <= 0 ||
 		recoveryConfig.MaxCallbackResponseBytes <= 0 {
 		return cfg, ErrInvalidRecovery

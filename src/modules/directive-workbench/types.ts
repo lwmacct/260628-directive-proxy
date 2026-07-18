@@ -20,8 +20,6 @@ export type HeaderMutation = {
 
 export type EditorModuleSpec = {
   key: string;
-  scope: "exchange" | "attempt";
-  id: string;
   module: string;
   config?: unknown;
   configText: string;
@@ -36,15 +34,16 @@ export type StatusRange = {
 
 export type RecoveryEditorState = {
   enabled: boolean;
-  controllerURL: string;
-  controllerTimeout: string;
-  controllerHeaders: ResolverHeader[];
+  controllerModule: string;
+  controllerConfig?: unknown;
+  controllerConfigText: string;
+  controllerConfigValid: boolean;
   responseHeaderTimeout: string;
   unexpectedStatusEnabled: boolean;
   expectedStatuses: StatusRange[];
   captureBodyBytes?: number;
   transportError: boolean;
-  maxAttempts: number;
+  maxRoundTrips: number;
   maxElapsed: string;
 };
 
@@ -68,8 +67,6 @@ export type EditorState = {
 };
 
 export type ModuleSpec = {
-  scope: "exchange" | "attempt";
-  id: string;
   module: string;
   config?: unknown;
 };
@@ -104,9 +101,8 @@ export type RemoteSpec =
 
 export type RecoverySpec = {
   controller: {
-    url: string;
-    headers?: Record<string, string>;
-    timeout?: string;
+    module: string;
+    config?: unknown;
   };
   triggers: {
     response_header_timeout?: string;
@@ -117,7 +113,7 @@ export type RecoverySpec = {
     transport_error?: boolean;
   };
   budget: {
-    max_attempts: number;
+    max_round_trips: number;
     max_elapsed?: string;
   };
 };

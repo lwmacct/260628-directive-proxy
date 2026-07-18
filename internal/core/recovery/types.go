@@ -3,12 +3,12 @@ package recovery
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
-	"net/url"
 	"time"
 )
 
-const Protocol = "dproxy.recovery.v1"
+const Protocol = "dproxy.recovery.v2"
 
 type TriggerType string
 
@@ -32,9 +32,31 @@ type StatusRange struct {
 }
 
 type ControllerSpec struct {
-	URL     *url.URL
-	Headers http.Header
-	Timeout time.Duration
+	Module string          `json:"module"`
+	Config json.RawMessage `json:"config,omitempty"`
+}
+
+type ControllerDefinition interface {
+	Name() string
+	Compile(json.RawMessage) (ControllerBinding, error)
+}
+
+type ControllerBinding interface {
+	Decide(context.Context, Event) (Decision, error)
+}
+
+type Compiler interface {
+	Compile(ControllerSpec) (ControllerBinding, error)
+}
+
+type ControllerObservation struct {
+	Endpoint string
+	Headers  http.Header
+	Timeout  time.Duration
+}
+
+type ObservableControllerBinding interface {
+	Observation() ControllerObservation
 }
 
 type UnexpectedStatusPolicy struct {
@@ -49,14 +71,15 @@ type TriggerPolicy struct {
 }
 
 type Budget struct {
-	MaxAttempts int
-	MaxElapsed  time.Duration
+	MaxRoundTrips int
+	MaxElapsed    time.Duration
 }
 
 type Policy struct {
-	Controller ControllerSpec
-	Triggers   TriggerPolicy
-	Budget     Budget
+	ControllerModule string
+	Controller       ControllerBinding
+	Triggers         TriggerPolicy
+	Budget           Budget
 }
 
 func ClonePolicy(in *Policy) *Policy {
@@ -64,11 +87,6 @@ func ClonePolicy(in *Policy) *Policy {
 		return nil
 	}
 	out := *in
-	if in.Controller.URL != nil {
-		value := *in.Controller.URL
-		out.Controller.URL = &value
-	}
-	out.Controller.Headers = in.Controller.Headers.Clone()
 	if in.Triggers.UnexpectedStatus != nil {
 		status := *in.Triggers.UnexpectedStatus
 		status.Expected = append([]StatusRange(nil), status.Expected...)
@@ -89,13 +107,13 @@ func (policy *UnexpectedStatusPolicy) Matches(status int) bool {
 	return true
 }
 
-type AttemptInfo struct {
-	Number       int   `json:"number"`
-	MaxAttempts  int   `json:"max_attempts"`
-	ElapsedMS    int64 `json:"elapsed_ms"`
-	RemainingMS  int64 `json:"remaining_ms,omitempty"`
-	NextAttempt  int   `json:"next_attempt,omitempty"`
-	RetryAllowed bool  `json:"retry_allowed"`
+type RoundTripInfo struct {
+	Number        int   `json:"number"`
+	MaxRoundTrips int   `json:"max_round_trips"`
+	ElapsedMS     int64 `json:"elapsed_ms"`
+	RemainingMS   int64 `json:"remaining_ms,omitempty"`
+	NextRoundTrip int   `json:"next_round_trip,omitempty"`
+	RetryAllowed  bool  `json:"retry_allowed"`
 }
 
 type Trigger struct {
@@ -139,7 +157,7 @@ type Event struct {
 	EventID    string            `json:"event_id"`
 	TraceID    string            `json:"trace_id"`
 	ObservedAt time.Time         `json:"observed_at"`
-	Attempt    AttemptInfo       `json:"attempt"`
+	RoundTrip  RoundTripInfo     `json:"round_trip"`
 	Trigger    Trigger           `json:"trigger"`
 	Directive  DirectiveInfo     `json:"directive"`
 	Metadata   map[string]string `json:"metadata"`
@@ -149,8 +167,4 @@ type Event struct {
 type Decision struct {
 	Action  Action `json:"action"`
 	AfterMS int64  `json:"after_ms,omitempty"`
-}
-
-type Controller interface {
-	Decide(context.Context, ControllerSpec, Event) (Decision, error)
 }

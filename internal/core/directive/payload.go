@@ -1,6 +1,10 @@
 package directive
 
-import "github.com/lwmacct/260628-directive-proxy/internal/core/program"
+import (
+	"encoding/json"
+
+	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
+)
 
 const (
 	TokenFamily  = "dp"
@@ -27,9 +31,8 @@ type RecoverySpec struct {
 }
 
 type RecoveryControllerSpec struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Timeout string            `json:"timeout,omitempty"`
+	Module string          `json:"module"`
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 type RecoveryTriggerSpec struct {
@@ -49,8 +52,8 @@ type RecoveryStatusRangeSpec struct {
 }
 
 type RecoveryBudgetSpec struct {
-	MaxAttempts int    `json:"max_attempts"`
-	MaxElapsed  string `json:"max_elapsed,omitempty"`
+	MaxRoundTrips int    `json:"max_round_trips"`
+	MaxElapsed    string `json:"max_elapsed,omitempty"`
 }
 
 const (

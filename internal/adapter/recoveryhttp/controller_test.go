@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
@@ -26,17 +25,38 @@ func TestControllerSendsRecoveryEventAndReadsDecision(t *testing.T) {
 		_, _ = w.Write([]byte(`{"action":"retry","after_ms":25}`))
 	}))
 	defer server.Close()
-	controller := New(Options{MaxResponseBytes: 1024})
-	defer func() { _ = controller.Close() }()
-	callbackURL, _ := url.Parse(server.URL)
-	decision, err := controller.Decide(context.Background(), recovery.ControllerSpec{
-		URL: callbackURL, Headers: http.Header{"Authorization": {"Bearer secret"}}, Timeout: time.Second,
-	}, recovery.Event{Protocol: recovery.Protocol, EventID: "event-1", TraceID: "trace-1"})
+	definition := New(Options{MaxResponseBytes: 1024})
+	defer func() { _ = definition.Close() }()
+	controller, err := definition.Compile(json.RawMessage(`{"url":"` + server.URL + `","headers":{"Authorization":"Bearer secret"},"timeout":"1s"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Action != recovery.ActionRetry || decision.AfterMS != 25 || received.TraceID != "trace-1" {
+	decision, err := controller.Decide(context.Background(), recovery.Event{
+		Protocol: recovery.Protocol, EventID: "event-1", TraceID: "trace-1",
+		RoundTrip: recovery.RoundTripInfo{Number: 1, MaxRoundTrips: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != recovery.ActionRetry || decision.AfterMS != 25 || received.TraceID != "trace-1" ||
+		received.Protocol != "dproxy.recovery.v2" || received.RoundTrip.Number != 1 {
 		t.Fatalf("unexpected callback result: decision=%#v event=%#v", decision, received)
+	}
+}
+
+func TestDefinitionValidatesConfigAndClampsTimeout(t *testing.T) {
+	definition := New(Options{MaxTimeout: 250 * time.Millisecond})
+	defer func() { _ = definition.Close() }()
+	if _, err := definition.Compile(json.RawMessage(`{"url":"https://control.example.com","unknown":true}`)); err == nil {
+		t.Fatal("unknown controller config field was accepted")
+	}
+	compiled, err := definition.Compile(json.RawMessage(`{"url":"https://user:secret@control.example.com/recovery?tenant=a","timeout":"2s"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := compiled.(recovery.ObservableControllerBinding).Observation()
+	if observation.Timeout != 250*time.Millisecond || observation.Endpoint != "https://user:secret@control.example.com/recovery?tenant=a" {
+		t.Fatalf("unexpected normalized controller config: %#v", observation)
 	}
 }
 
@@ -45,10 +65,13 @@ func TestControllerRejectsInvalidDecision(t *testing.T) {
 		_, _ = w.Write([]byte(`{"action":"unknown"}`))
 	}))
 	defer server.Close()
-	controller := New(Options{MaxResponseBytes: 1024})
-	defer func() { _ = controller.Close() }()
-	callbackURL, _ := url.Parse(server.URL)
-	if _, err := controller.Decide(context.Background(), recovery.ControllerSpec{URL: callbackURL, Timeout: time.Second}, recovery.Event{}); err == nil {
+	definition := New(Options{MaxResponseBytes: 1024})
+	defer func() { _ = definition.Close() }()
+	controller, err := definition.Compile(json.RawMessage(`{"url":"` + server.URL + `","timeout":"1s"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Decide(context.Background(), recovery.Event{}); err == nil {
 		t.Fatal("invalid recovery decision was accepted")
 	}
 }

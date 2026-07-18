@@ -1,13 +1,11 @@
 # LLM Usage Module
 
-`builtin.llmusage` 是 attempt-scope Module，从 LLM JSON/SSE 响应中提取供应方报告的 token usage。
+`builtin.llmusage` 是 round-trip-lifetime Module，从 LLM JSON/SSE 响应中提取供应方报告的 token usage。
 
 ```json
 {
   "program": [
     {
-      "scope": "attempt",
-      "id": "usage",
       "module": "builtin.llmusage",
       "config": {
         "protocol": "openai.responses",
@@ -30,6 +28,6 @@
 - `UpstreamJSONChunk`；
 - upstream body end。
 
-它不订阅 raw upstream chunk。SSE 解析由当前活跃的 exchange/attempt scope 共享投影完成，Module 只接收语义 data event。处理运行在 ordered async lane，并在 attempt scope 结束前 drain。
+它不订阅 raw upstream chunk。SSE 解析由当前活跃的 exchange/round-trip lifetime 共享投影完成，Module 只接收语义 data event。处理运行在 ordered async lane，并在 round-trip lifetime 结束前 drain。
 
 输出 topics：`llm.usage.observed`、`llm.usage.not_observed`、`llm.usage.failed`。

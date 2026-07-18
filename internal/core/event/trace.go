@@ -20,9 +20,9 @@ type Trace struct {
 }
 
 type traceEmitter struct {
-	trace    *Trace
-	producer string
-	attempt  int
+	trace     *Trace
+	producer  string
+	roundTrip int
 }
 
 func (dispatcher *Dispatcher) Open(traceID string, fields metadata.Set) Session {
@@ -32,8 +32,8 @@ func (dispatcher *Dispatcher) Open(traceID string, fields metadata.Set) Session 
 	return &Trace{dispatcher: dispatcher, traceID: traceID, metadata: fields}
 }
 
-func (trace *Trace) Emitter(producer string, attempt int) Emitter {
-	return traceEmitter{trace: trace, producer: producer, attempt: attempt}
+func (trace *Trace) Emitter(producer string, roundTrip int) Emitter {
+	return traceEmitter{trace: trace, producer: producer, roundTrip: roundTrip}
 }
 
 func (trace *Trace) Close() {
@@ -43,18 +43,18 @@ func (trace *Trace) Close() {
 }
 
 func (emitter traceEmitter) Emit(topic string, data map[string]any) bool {
-	return emitter.trace.emit(emitter.producer, topic, emitter.attempt, data, nil, false)
+	return emitter.trace.emit(emitter.producer, topic, emitter.roundTrip, data, nil, false)
 }
 
 func (emitter traceEmitter) EmitOwned(topic string, data map[string]any, release func()) bool {
-	return emitter.trace.emit(emitter.producer, topic, emitter.attempt, data, release, false)
+	return emitter.trace.emit(emitter.producer, topic, emitter.roundTrip, data, release, false)
 }
 
 func (emitter traceEmitter) EmitBorrowed(topic string, data map[string]any) bool {
-	return emitter.trace.emit(emitter.producer, topic, emitter.attempt, data, nil, true)
+	return emitter.trace.emit(emitter.producer, topic, emitter.roundTrip, data, nil, true)
 }
 
-func (trace *Trace) emit(producer, topic string, attempt int, data map[string]any, release func(), copyBorrowed bool) bool {
+func (trace *Trace) emit(producer, topic string, roundTrip int, data map[string]any, release func(), copyBorrowed bool) bool {
 	if trace == nil || trace.dispatcher == nil || trace.closed.Load() {
 		if release != nil {
 			release()
@@ -72,7 +72,7 @@ func (trace *Trace) emit(producer, topic string, attempt int, data map[string]an
 		RecordID:      fmt.Sprintf("%s:%08d", trace.traceID, trace.sequence),
 		TraceID:       trace.traceID,
 		Metadata:      trace.metadata.Map(),
-		Attempt:       attempt,
+		RoundTrip:     roundTrip,
 		Sequence:      trace.sequence,
 		OccurredAt:    now.Format(time.RFC3339Nano),
 		Data:          data,

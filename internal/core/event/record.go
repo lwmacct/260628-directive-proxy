@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const SchemaVersion = "dp.event.v3"
+const SchemaVersion = "dp.event.v4"
 
 type Record struct {
 	SchemaVersion string            `msg:"schema_version"`
@@ -15,7 +15,7 @@ type Record struct {
 	RecordID      string            `msg:"record_id"`
 	TraceID       string            `msg:"trace_id"`
 	Metadata      map[string]string `msg:"metadata"`
-	Attempt       int               `msg:"attempt,omitempty"`
+	RoundTrip     int               `msg:"round_trip,omitempty"`
 	Sequence      uint64            `msg:"sequence"`
 	OccurredAt    string            `msg:"occurred_at"`
 	Data          map[string]any    `msg:"data"`
@@ -63,8 +63,8 @@ func (r Record) Map() map[string]any {
 		"occurred_at":    r.OccurredAt,
 		"data":           r.Data,
 	}
-	if r.Attempt > 0 {
-		record["attempt"] = r.Attempt
+	if r.RoundTrip > 0 {
+		record["round_trip"] = r.RoundTrip
 	}
 	return record
 }

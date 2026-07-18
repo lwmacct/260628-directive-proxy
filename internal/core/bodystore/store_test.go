@@ -199,7 +199,7 @@ func TestReaderCancellationDoesNotStopIngestForFutureRetry(t *testing.T) {
 	}
 	body, err := io.ReadAll(second)
 	if err != nil || string(body) != "retry" {
-		t.Fatalf("ingest did not survive attempt cancellation: body=%q err=%v", body, err)
+		t.Fatalf("ingest did not survive round-trip cancellation: body=%q err=%v", body, err)
 	}
 	store.Retire()
 }

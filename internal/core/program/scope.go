@@ -16,7 +16,7 @@ import (
 )
 
 type scopeRuntime interface {
-	emitter(producer string, attempt int) event.Emitter
+	emitter(producer string, roundTrip int) event.Emitter
 	moduleFailed(moduleName string)
 }
 
@@ -39,7 +39,7 @@ type Scope struct {
 	context   module.OpenContext
 	mounted   []*mountedInstance
 	closed    atomic.Bool
-	attempt   atomic.Int64
+	roundTrip atomic.Int64
 	closeOnce sync.Once
 }
 
@@ -49,7 +49,7 @@ type scopedInstance struct {
 }
 
 // ScopeSet is the globally ordered view of all currently active module scopes.
-// It keeps directive program order across exchange- and attempt-scoped modules.
+// It keeps directive program order across exchange- and round-trip-scoped modules.
 type ScopeSet struct {
 	scopes  []*Scope
 	mounted []scopedInstance
@@ -68,18 +68,18 @@ func openScope(ctx module.OpenContext, compiled []compiled, runtime scopeRuntime
 		return nil, nil
 	}
 	scope := &Scope{context: ctx}
-	scope.attempt.Store(int64(ctx.Attempt))
+	scope.roundTrip.Store(int64(ctx.RoundTrip))
 	for _, item := range compiled {
 		instance, err := item.binding.Open(ctx)
 		if err != nil {
 			_ = scope.Finish(context.Background(), module.FinishFailed)
-			return nil, fmt.Errorf("open module %q (%s): %w", item.moduleName, item.id, err)
+			return nil, fmt.Errorf("open module %q: %w", item.moduleName, err)
 		}
 		if instance == nil {
 			_ = scope.Finish(context.Background(), module.FinishFailed)
-			return nil, fmt.Errorf("open module %q (%s): nil instance", item.moduleName, item.id)
+			return nil, fmt.Errorf("open module %q: nil instance", item.moduleName)
 		}
-		mounted := &mountedInstance{order: item.order, producer: item.id, moduleName: item.moduleName, instance: instance}
+		mounted := &mountedInstance{order: item.order, producer: item.moduleName, moduleName: item.moduleName, instance: instance}
 		mounted.runtime = runtime
 		scope.mounted = append(scope.mounted, mounted)
 		if err := mounted.call(func() error {
@@ -87,7 +87,7 @@ func openScope(ctx module.OpenContext, compiled []compiled, runtime scopeRuntime
 			return nil
 		}); err != nil {
 			_ = scope.Finish(context.Background(), module.FinishFailed)
-			return nil, fmt.Errorf("bind module %q (%s): %w", item.moduleName, item.id, err)
+			return nil, fmt.Errorf("bind module %q: %w", item.moduleName, err)
 		}
 		if mounted.binder.needsLane() {
 			mounted.lane = newOrderedLane(mounted.binder.laneCapacity())
@@ -121,13 +121,13 @@ func NewScopeSet(scopes ...*Scope) *ScopeSet {
 	return result
 }
 
-func (s *ScopeSet) SetAttempt(attempt int) {
+func (s *ScopeSet) SetRoundTrip(roundTrip int) {
 	if s == nil {
 		return
 	}
 	for _, scope := range s.scopes {
 		if scope != nil {
-			scope.attempt.Store(int64(attempt))
+			scope.roundTrip.Store(int64(roundTrip))
 		}
 	}
 }
@@ -198,8 +198,8 @@ func (s *ScopeSet) RequestBodyEnded(ctx context.Context, value lifecycle.Request
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.RequestBodyEnded] { return b.requestBodyEnded }, nil)
 }
 
-func (s *ScopeSet) AttemptStarted(ctx context.Context, value lifecycle.AttemptStarted) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.AttemptStarted] { return b.attemptStarted }, cloneAttemptStarted)
+func (s *ScopeSet) RoundTripStarted(ctx context.Context, value lifecycle.RoundTripStarted) error {
+	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.RoundTripStarted] { return b.roundTripStarted }, cloneRoundTripStarted)
 }
 
 func (s *ScopeSet) DirectivePrepared(ctx context.Context, value lifecycle.DirectivePrepared) error {
@@ -232,8 +232,8 @@ func (s *ScopeSet) UpstreamBodyEnded(ctx context.Context, value lifecycle.BodyEn
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyEnded] { return b.upstreamBodyEnded }, nil)
 }
 
-func (s *ScopeSet) AttemptFinished(ctx context.Context, value lifecycle.AttemptFinished) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.AttemptFinished] { return b.attemptFinished }, nil)
+func (s *ScopeSet) RoundTripFinished(ctx context.Context, value lifecycle.RoundTripFinished) error {
+	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.RoundTripFinished] { return b.roundTripFinished }, nil)
 }
 
 func (s *ScopeSet) RecoveryStarted(ctx context.Context, value lifecycle.RecoveryStarted) error {
@@ -405,15 +405,15 @@ func (s *Scope) eventContextAt(ctx context.Context, observedAt time.Time, eventI
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	attempt := int(s.attempt.Load())
+	roundTrip := int(s.roundTrip.Load())
 	var emitter event.Emitter
 	if mounted.runtime != nil {
-		emitter = mounted.runtime.emitter(mounted.producer, attempt)
+		emitter = mounted.runtime.emitter(mounted.producer, roundTrip)
 	}
 	if observedAt.IsZero() {
 		observedAt = nowUTC()
 	}
-	return module.Context{Context: ctx, TraceID: s.context.TraceID, Metadata: s.context.Metadata, Attempt: attempt, EventID: eventID, Sequence: sequence, ObservedAt: observedAt, Emitter: emitter}
+	return module.Context{Context: ctx, TraceID: s.context.TraceID, Metadata: s.context.Metadata, RoundTrip: roundTrip, EventID: eventID, Sequence: sequence, ObservedAt: observedAt, Emitter: emitter}
 }
 
 func (s *Scope) nextEventSequence() uint64 {
@@ -585,7 +585,7 @@ func (b *binder) allPolicies() []module.Policy {
 		policies(len(b.requestStarted), func(i int) module.Policy { return b.requestStarted[i].policy }),
 		policies(len(b.requestBodyChunk), func(i int) module.Policy { return b.requestBodyChunk[i].policy }),
 		policies(len(b.requestBodyEnded), func(i int) module.Policy { return b.requestBodyEnded[i].policy }),
-		policies(len(b.attemptStarted), func(i int) module.Policy { return b.attemptStarted[i].policy }),
+		policies(len(b.roundTripStarted), func(i int) module.Policy { return b.roundTripStarted[i].policy }),
 		policies(len(b.directivePrepared), func(i int) module.Policy { return b.directivePrepared[i].policy }),
 		policies(len(b.upstreamStarted), func(i int) module.Policy { return b.upstreamStarted[i].policy }),
 		policies(len(b.upstreamResponse), func(i int) module.Policy { return b.upstreamResponse[i].policy }),
@@ -593,7 +593,7 @@ func (b *binder) allPolicies() []module.Policy {
 		policies(len(b.upstreamJSONChunk), func(i int) module.Policy { return b.upstreamJSONChunk[i].policy }),
 		policies(len(b.upstreamSSEData), func(i int) module.Policy { return b.upstreamSSEData[i].policy }),
 		policies(len(b.upstreamBodyEnded), func(i int) module.Policy { return b.upstreamBodyEnded[i].policy }),
-		policies(len(b.attemptFinished), func(i int) module.Policy { return b.attemptFinished[i].policy }),
+		policies(len(b.roundTripFinished), func(i int) module.Policy { return b.roundTripFinished[i].policy }),
 		policies(len(b.recoveryStarted), func(i int) module.Policy { return b.recoveryStarted[i].policy }),
 		policies(len(b.recoveryDecided), func(i int) module.Policy { return b.recoveryDecided[i].policy }),
 		policies(len(b.recoveryFinished), func(i int) module.Policy { return b.recoveryFinished[i].policy }),
@@ -616,7 +616,7 @@ func cloneRequestStarted(value lifecycle.RequestStarted) lifecycle.RequestStarte
 	return value
 }
 
-func cloneAttemptStarted(value lifecycle.AttemptStarted) lifecycle.AttemptStarted {
+func cloneRoundTripStarted(value lifecycle.RoundTripStarted) lifecycle.RoundTripStarted {
 	if value.Target != nil {
 		target := *value.Target
 		value.Target = &target

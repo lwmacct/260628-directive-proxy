@@ -28,9 +28,9 @@ type RecoveryResult struct {
 }
 
 type RecoveryCycle struct {
-	attempt    *Attempt
+	roundTrip  *RoundTrip
 	policy     *recovery.Policy
-	controller recovery.Controller
+	controller recovery.ControllerBinding
 	event      recovery.Event
 	eventID    string
 	decision   recovery.Decision
@@ -40,23 +40,23 @@ type RecoveryCycle struct {
 	mu         sync.Mutex
 }
 
-func NewRecoveryCycle(attempt *Attempt, policy *recovery.Policy, controller recovery.Controller, input RecoveryInput) (*RecoveryCycle, error) {
-	if attempt == nil || policy == nil || controller == nil {
+func NewRecoveryCycle(roundTrip *RoundTrip, policy *recovery.Policy, input RecoveryInput) (*RecoveryCycle, error) {
+	if roundTrip == nil || policy == nil || policy.Controller == nil {
 		return nil, ErrRecoveryFailed
 	}
-	if !attempt.BeginRecovery() {
+	if !roundTrip.BeginRecovery() {
 		return nil, ErrRecoveryNotStarted
 	}
-	info := attempt.RecoveryContext()
-	eventID := fmt.Sprintf("%s:%d:%s", info.TraceID, info.Attempt, input.Trigger.Type)
+	info := roundTrip.RecoveryContext()
+	eventID := fmt.Sprintf("%s:%d:%s", info.TraceID, info.RoundTrip, input.Trigger.Type)
 	event := recovery.Event{
 		Protocol:   recovery.Protocol,
 		EventID:    eventID,
 		TraceID:    info.TraceID,
 		ObservedAt: time.Now().UTC(),
-		Attempt: recovery.AttemptInfo{
-			Number: info.Attempt, MaxAttempts: info.MaxAttempts, ElapsedMS: info.Elapsed.Milliseconds(),
-			RemainingMS: info.Remaining.Milliseconds(), NextAttempt: info.NextAttempt, RetryAllowed: info.RetryAllowed,
+		RoundTrip: recovery.RoundTripInfo{
+			Number: info.RoundTrip, MaxRoundTrips: info.MaxRoundTrips, ElapsedMS: info.Elapsed.Milliseconds(),
+			RemainingMS: info.Remaining.Milliseconds(), NextRoundTrip: info.NextRoundTrip, RetryAllowed: info.RetryAllowed,
 		},
 		Trigger:   input.Trigger,
 		Directive: input.Directive,
@@ -64,15 +64,15 @@ func NewRecoveryCycle(attempt *Attempt, policy *recovery.Policy, controller reco
 		Response:  cloneRecoveryResponse(input.Response),
 	}
 	cycle := &RecoveryCycle{
-		attempt: attempt, policy: policy, controller: controller,
+		roundTrip: roundTrip, policy: policy, controller: policy.Controller,
 		event: event, eventID: eventID,
 	}
-	attempt.RecoveryStarted(moduleRecoveryStarted(event, policy))
+	roundTrip.RecoveryStarted(moduleRecoveryStarted(event, policy))
 	return cycle, nil
 }
 
 func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, error) {
-	if cycle == nil || cycle.attempt == nil || cycle.controller == nil || cycle.policy == nil {
+	if cycle == nil || cycle.roundTrip == nil || cycle.controller == nil || cycle.policy == nil {
 		return recovery.Decision{}, ErrRecoveryFailed
 	}
 	cycle.mu.Lock()
@@ -90,7 +90,7 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	decision, err := cycle.controller.Decide(ctx, cycle.policy.Controller, cycle.event)
+	decision, err := cycle.controller.Decide(ctx, cycle.event)
 	if err != nil {
 		cycle.finish(lifecycle.RecoveryFinished{
 			Outcome:   lifecycle.RecoveryOutcomeControllerError,
@@ -110,17 +110,17 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 	cycle.decision = decision
 	cycle.decided = true
 	cycle.mu.Unlock()
-	cycle.attempt.RecoveryDecided(lifecycle.RecoveryDecided{
+	cycle.roundTrip.RecoveryDecided(lifecycle.RecoveryDecided{
 		EventID: cycle.eventID, Action: lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
 	})
-	info := cycle.attempt.RecoveryContext()
+	info := cycle.roundTrip.RecoveryContext()
 	if decision.Action == recovery.ActionRetry && !info.RetryAllowed {
 		cycle.finish(lifecycle.RecoveryFinished{
 			Outcome: lifecycle.RecoveryOutcomeBudgetRejected,
 			Action:  lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
-			NextAttempt: info.NextAttempt, ErrorCode: lifecycle.RecoveryErrorCodeRetryNotAllowed,
+			NextRoundTrip: info.NextRoundTrip, ErrorCode: lifecycle.RecoveryErrorCodeRetryNotAllowed,
 		})
-		return recovery.Decision{}, ErrMaxAttempts
+		return recovery.Decision{}, ErrMaxRoundTrips
 	}
 	if decision.AfterMS > 0 {
 		delay := time.Duration(decision.AfterMS) * time.Millisecond
@@ -128,7 +128,7 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 			cycle.finish(lifecycle.RecoveryFinished{
 				Outcome: lifecycle.RecoveryOutcomeBudgetRejected,
 				Action:  lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
-				NextAttempt: info.NextAttempt, ErrorCode: lifecycle.RecoveryErrorCodeBudgetExceeded,
+				NextRoundTrip: info.NextRoundTrip, ErrorCode: lifecycle.RecoveryErrorCodeBudgetExceeded,
 			})
 			return recovery.Decision{}, ErrRecoveryBudgetExceeded
 		}
@@ -140,7 +140,7 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 			cycle.finish(lifecycle.RecoveryFinished{
 				Outcome: lifecycle.RecoveryOutcomeCanceled,
 				Action:  lifecycle.RecoveryAction(decision.Action), AfterMS: decision.AfterMS,
-				NextAttempt: info.NextAttempt, ErrorCode: lifecycle.RecoveryErrorCodeContextCanceled, Error: ctx.Err().Error(),
+				NextRoundTrip: info.NextRoundTrip, ErrorCode: lifecycle.RecoveryErrorCodeContextCanceled, Error: ctx.Err().Error(),
 			})
 			return recovery.Decision{}, ctx.Err()
 		}
@@ -149,7 +149,7 @@ func (cycle *RecoveryCycle) Decide(ctx context.Context) (recovery.Decision, erro
 }
 
 func (cycle *RecoveryCycle) Apply() (RecoveryResult, error) {
-	if cycle == nil || cycle.attempt == nil {
+	if cycle == nil || cycle.roundTrip == nil {
 		return RecoveryResult{}, ErrRecoveryFailed
 	}
 	cycle.mu.Lock()
@@ -162,7 +162,7 @@ func (cycle *RecoveryCycle) Apply() (RecoveryResult, error) {
 	result := RecoveryResult{Decision: decision}
 	switch decision.Action {
 	case recovery.ActionRetry:
-		retryErr := cycle.attempt.RequestRecoveryRetry()
+		retryErr := cycle.roundTrip.RequestRecoveryRetry()
 		if retryErr != nil {
 			result.Outcome = recoveryOutcomeForError(retryErr)
 			cycle.finish(lifecycle.RecoveryFinished{
@@ -173,10 +173,10 @@ func (cycle *RecoveryCycle) Apply() (RecoveryResult, error) {
 		}
 		result.Outcome = lifecycle.RecoveryOutcomeRetryRequested
 		result.Retry = true
-		info := cycle.attempt.RecoveryContext()
+		info := cycle.roundTrip.RecoveryContext()
 		cycle.finish(lifecycle.RecoveryFinished{
 			Outcome: result.Outcome, Action: lifecycle.RecoveryActionRetry,
-			AfterMS: decision.AfterMS, NextAttempt: info.NextAttempt,
+			AfterMS: decision.AfterMS, NextRoundTrip: info.NextRoundTrip,
 		})
 		return result, nil
 	case recovery.ActionForward:
@@ -209,30 +209,32 @@ func (cycle *RecoveryCycle) finish(value lifecycle.RecoveryFinished) {
 	cycle.finished = true
 	cycle.mu.Unlock()
 	value.EventID = cycle.eventID
-	cycle.attempt.RecoveryFinished(value)
+	cycle.roundTrip.RecoveryFinished(value)
 }
 
 func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) lifecycle.RecoveryStarted {
-	controllerURL := ""
-	if policy.Controller.URL != nil {
-		controllerURL = policy.Controller.URL.String()
+	var observation recovery.ControllerObservation
+	if observable, ok := policy.Controller.(recovery.ObservableControllerBinding); ok {
+		observation = observable.Observation()
 	}
 	return lifecycle.RecoveryStarted{
 		EventID: event.EventID, Trigger: string(event.Trigger.Type), TriggerCode: event.Trigger.Code,
 		TriggerTimeoutMS: event.Trigger.TimeoutMS,
-		Attempt: lifecycle.RecoveryAttempt{
-			Number: event.Attempt.Number, MaxAttempts: event.Attempt.MaxAttempts,
-			ElapsedMS: event.Attempt.ElapsedMS, RemainingMS: event.Attempt.RemainingMS,
-			NextAttempt: event.Attempt.NextAttempt, RetryAllowed: event.Attempt.RetryAllowed,
+		RoundTrip: lifecycle.RecoveryRoundTrip{
+			Number: event.RoundTrip.Number, MaxRoundTrips: event.RoundTrip.MaxRoundTrips,
+			ElapsedMS: event.RoundTrip.ElapsedMS, RemainingMS: event.RoundTrip.RemainingMS,
+			NextRoundTrip: event.RoundTrip.NextRoundTrip, RetryAllowed: event.RoundTrip.RetryAllowed,
 		},
 		Directive: lifecycle.RecoveryDirective{
 			Mode: event.Directive.Mode, Backend: event.Directive.Backend,
 			Endpoint: event.Directive.Endpoint, Resource: event.Directive.Resource,
 			PayloadSHA256: event.Directive.PayloadSHA256,
 		},
-		Response:      moduleRecoveryResponse(event.Response),
-		ControllerURL: controllerURL, ControllerTimeoutMS: policy.Controller.Timeout.Milliseconds(),
-		ControllerHeaders: policy.Controller.Headers.Clone(),
+		Response:            moduleRecoveryResponse(event.Response),
+		ControllerModule:    policy.ControllerModule,
+		ControllerEndpoint:  observation.Endpoint,
+		ControllerTimeoutMS: observation.Timeout.Milliseconds(),
+		ControllerHeaders:   observation.Headers.Clone(),
 	}
 }
 
@@ -272,7 +274,7 @@ func recoveryOutcomeForError(err error) lifecycle.RecoveryOutcome {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return lifecycle.RecoveryOutcomeCanceled
-	case errors.Is(err, ErrMaxAttempts), errors.Is(err, ErrRecoveryBudgetExceeded), errors.Is(err, ErrIdempotencyKeyRequired):
+	case errors.Is(err, ErrMaxRoundTrips), errors.Is(err, ErrRecoveryBudgetExceeded), errors.Is(err, ErrIdempotencyKeyRequired):
 		return lifecycle.RecoveryOutcomeBudgetRejected
 	default:
 		return lifecycle.RecoveryOutcomeFailed
@@ -281,8 +283,8 @@ func recoveryOutcomeForError(err error) lifecycle.RecoveryOutcome {
 
 func recoveryErrorCode(err error) string {
 	switch {
-	case errors.Is(err, ErrMaxAttempts):
-		return lifecycle.RecoveryErrorCodeMaxAttempts
+	case errors.Is(err, ErrMaxRoundTrips):
+		return lifecycle.RecoveryErrorCodeMaxRoundTrips
 	case errors.Is(err, ErrRecoveryBudgetExceeded):
 		return lifecycle.RecoveryErrorCodeBudgetExceeded
 	case errors.Is(err, ErrIdempotencyKeyRequired):

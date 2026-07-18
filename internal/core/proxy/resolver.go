@@ -25,7 +25,7 @@ type Resolver interface {
 
 // PreparedDirective is one immutable compilation result. Remote dereference,
 // Payload validation and Program compilation are complete before this value is
-// constructed; every Attempt consumes the same Plan and Recovery policy.
+// constructed; every RoundTrip consumes the same Plan and Recovery policy.
 type PreparedDirective struct {
 	source   DirectiveSource
 	plan     *Plan
@@ -35,7 +35,8 @@ type PreparedDirective struct {
 }
 
 func NewPreparedDirective(source DirectiveSource, plan *Plan, executable *program.Executable, policy *recovery.Policy, fields metadata.Set) (*PreparedDirective, error) {
-	if plan == nil || plan.Target == nil || fields.TraceID() != "" {
+	if plan == nil || plan.Target == nil || fields.TraceID() != "" ||
+		policy != nil && (policy.Controller == nil || policy.ControllerModule == "") {
 		return nil, ErrInvalidDirective
 	}
 	cloned := ClonePlan(plan)

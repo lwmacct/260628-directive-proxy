@@ -12,6 +12,7 @@ import (
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
 var (
@@ -21,23 +22,25 @@ var (
 )
 
 type ResolverOptions struct {
-	HTTPReader    HTTPRemoteReader
-	RedisReader   RedisRemoteReader
-	FileReader    FileRemoteReader
-	LookupTimeout time.Duration
-	MaxTokenBytes int64
-	TokenSecret   string
-	Compiler      program.Compiler
+	HTTPReader       HTTPRemoteReader
+	RedisReader      RedisRemoteReader
+	FileReader       FileRemoteReader
+	LookupTimeout    time.Duration
+	MaxTokenBytes    int64
+	TokenSecret      string
+	Compiler         program.Compiler
+	RecoveryCompiler recovery.Compiler
 }
 
 type Resolver struct {
-	httpReader    HTTPRemoteReader
-	redisReader   RedisRemoteReader
-	fileReader    FileRemoteReader
-	lookupTimeout time.Duration
-	maxTokenBytes int64
-	tokenSecret   string
-	compiler      program.Compiler
+	httpReader       HTTPRemoteReader
+	redisReader      RedisRemoteReader
+	fileReader       FileRemoteReader
+	lookupTimeout    time.Duration
+	maxTokenBytes    int64
+	tokenSecret      string
+	compiler         program.Compiler
+	recoveryCompiler recovery.Compiler
 }
 
 func NewResolver(opts ...ResolverOptions) proxy.Resolver {
@@ -46,13 +49,14 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 		configured = opts[0]
 	}
 	return &Resolver{
-		httpReader:    configured.HTTPReader,
-		redisReader:   configured.RedisReader,
-		fileReader:    configured.FileReader,
-		lookupTimeout: configured.LookupTimeout,
-		maxTokenBytes: configured.MaxTokenBytes,
-		tokenSecret:   configured.TokenSecret,
-		compiler:      configured.Compiler,
+		httpReader:       configured.HTTPReader,
+		redisReader:      configured.RedisReader,
+		fileReader:       configured.FileReader,
+		lookupTimeout:    configured.LookupTimeout,
+		maxTokenBytes:    configured.MaxTokenBytes,
+		tokenSecret:      configured.TokenSecret,
+		compiler:         configured.Compiler,
+		recoveryCompiler: configured.RecoveryCompiler,
 	}
 }
 
@@ -92,8 +96,11 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 	if payload == nil {
 		return nil, proxy.ErrInvalidDirective
 	}
-	compiled, err := CompilePayload(*payload, AssembleOptions{StripHeaders: []string{"Authorization"}, InboundURL: req.URL})
+	compiled, err := CompilePayload(*payload, AssembleOptions{
+		StripHeaders: []string{"Authorization"}, InboundURL: req.URL, RecoveryCompiler: r.recoveryCompiler,
+	})
 	if err != nil {
+		slog.Error("compile directive payload", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid
 		}

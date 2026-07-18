@@ -19,7 +19,7 @@ type RequestBodyEnded struct {
 	Complete bool
 }
 
-type AttemptStarted struct {
+type RoundTripStarted struct {
 	Mode          string
 	Backend       string
 	Endpoint      string
@@ -63,7 +63,7 @@ const (
 	OutcomeTransportError       Outcome = "transport_error"
 )
 
-type AttemptFinished struct{ Outcome Outcome }
+type RoundTripFinished struct{ Outcome Outcome }
 
 type RecoveryAction string
 
@@ -91,19 +91,19 @@ const (
 	RecoveryErrorCodeRetryNotAllowed     = "retry_not_allowed"
 	RecoveryErrorCodeBudgetExceeded      = "recovery_budget_exceeded"
 	RecoveryErrorCodeContextCanceled     = "context_canceled"
-	RecoveryErrorCodeMaxAttempts         = "max_attempts"
+	RecoveryErrorCodeMaxRoundTrips       = "max_round_trips"
 	RecoveryErrorCodeIdempotencyRequired = "idempotency_key_required"
 	RecoveryErrorCodeRecoveryFailed      = "recovery_failed"
 	RecoveryErrorCodeControllerFail      = "controller_fail"
 )
 
-type RecoveryAttempt struct {
-	Number       int
-	MaxAttempts  int
-	ElapsedMS    int64
-	RemainingMS  int64
-	NextAttempt  int
-	RetryAllowed bool
+type RecoveryRoundTrip struct {
+	Number        int
+	MaxRoundTrips int
+	ElapsedMS     int64
+	RemainingMS   int64
+	NextRoundTrip int
+	RetryAllowed  bool
 }
 
 type RecoveryDirective struct {
@@ -132,10 +132,11 @@ type RecoveryStarted struct {
 	Trigger             string
 	TriggerCode         string
 	TriggerTimeoutMS    int64
-	Attempt             RecoveryAttempt
+	RoundTrip           RecoveryRoundTrip
 	Directive           RecoveryDirective
 	Response            *RecoveryResponse
-	ControllerURL       string
+	ControllerModule    string
+	ControllerEndpoint  string
 	ControllerTimeoutMS int64
 	ControllerHeaders   http.Header
 }
@@ -147,13 +148,13 @@ type RecoveryDecided struct {
 }
 
 type RecoveryFinished struct {
-	EventID     string
-	Outcome     RecoveryOutcome
-	Action      RecoveryAction
-	AfterMS     int64
-	NextAttempt int
-	ErrorCode   string
-	Error       string
+	EventID       string
+	Outcome       RecoveryOutcome
+	Action        RecoveryAction
+	AfterMS       int64
+	NextRoundTrip int
+	ErrorCode     string
+	Error         string
 }
 
 type RequestFinished struct {

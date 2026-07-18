@@ -33,7 +33,7 @@
 - RemoteSpec 顶层必须且只能包含 `http`、`redis`、`file` 之一，不使用共享 `type` 和跨 backend 可选字段。
 - HTTP RemoteSpec 的直接请求头复用 Inline request header policy；默认 patch 原请求头，Authorization、Content-Length 和代理披露头在 mutations 前清理，`x-dp-*` 与 hop-by-hop header 在 mutations 后统一清理。
 - HTTP 返回体、Redis 8+ JSON 根文档和 File 文件必须是完整 payload；program 与 recovery 只属于 Payload。
-- remote Payload 每个请求只读取一次，不做字段合并、Attempt 重读、回退、value 缓存或递归引用。
+- remote Payload 每个请求只读取一次，不做字段合并、per-RoundTrip 重读、回退、value 缓存或递归引用。
 - Redis directive 只使用 `JSON.GET key` 读取根文档；String key 不兼容，由写入方使用 `JSON.SET key $` 管理。
 - File directive 只使用 slash 相对 `path`，由配置 root 限定读取范围；支持子目录，只读取普通文件。
 - `headers` 是单一 HeaderPolicy；每条 mutation 必须显式声明 `side: request|response`，action 只允许 `set|remove|append`，并且只能使用 `name` 或 `glob` selector；Glob 使用大小写不敏感的 `path.Match` 全名匹配。

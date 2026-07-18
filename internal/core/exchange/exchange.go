@@ -31,15 +31,15 @@ type Exchange struct {
 	method         string
 	idempotencyKey string
 
-	stateMu      sync.Mutex
-	phase        Phase
-	current      *Attempt
-	attemptCount int
-	directive    lifecycle.DirectivePrepared
-	metadata     metadata.Set
-	configured   bool
-	maxAttempts  int
-	maxElapsed   time.Duration
+	stateMu        sync.Mutex
+	phase          Phase
+	current        *RoundTrip
+	roundTripCount int
+	directive      lifecycle.DirectivePrepared
+	metadata       metadata.Set
+	configured     bool
+	maxRoundTrips  int
+	maxElapsed     time.Duration
 
 	lifecycleMu          sync.Mutex
 	exchangeScope        *program.Scope
@@ -48,18 +48,18 @@ type Exchange struct {
 	requestBodyEnded     bool
 	responseStatus       int
 	downstreamEnded      bool
-	downstreamAttempt    *Attempt
+	downstreamRoundTrip  *RoundTrip
 	downstreamProjection program.StreamObserver
 
 	completeOnce sync.Once
 	completed    atomic.Bool
 }
 
-type Attempt struct {
+type RoundTrip struct {
 	exchange  *Exchange
 	number    int
 	startedAt time.Time
-	source    lifecycle.AttemptStarted
+	source    lifecycle.RoundTripStarted
 	cancel    context.CancelFunc
 
 	scope       *program.Scope
@@ -78,7 +78,7 @@ func newExchange(manager *Manager, req *http.Request, startedAt time.Time) *Exch
 		method:         req.Method,
 		idempotencyKey: strings.TrimSpace(req.Header.Get("Idempotency-Key")),
 		phase:          PhaseStartingBody,
-		maxAttempts:    manager.maxAttempts,
+		maxRoundTrips:  manager.maxRoundTrips,
 		requestStarted: lifecycle.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
 	if manager != nil && manager.programRuntime != nil {
@@ -105,7 +105,7 @@ func (current *Exchange) BeginBodyStream() {
 	current.stateMu.Unlock()
 }
 
-func (current *Exchange) BeginAttempt(cancel context.CancelFunc) (*Attempt, error) {
+func (current *Exchange) BeginRoundTrip(cancel context.CancelFunc) (*RoundTrip, error) {
 	if current == nil || current.completed.Load() {
 		return nil, context.Canceled
 	}
@@ -120,39 +120,39 @@ func (current *Exchange) BeginAttempt(cancel context.CancelFunc) (*Attempt, erro
 	}
 	if current.current != nil && !current.current.closed.Load() {
 		current.stateMu.Unlock()
-		return nil, ErrAttemptActive
+		return nil, ErrRoundTripActive
 	}
-	if current.attemptCount >= current.maxAttempts {
+	if current.roundTripCount >= current.maxRoundTrips {
 		current.stateMu.Unlock()
-		return nil, ErrMaxAttempts
+		return nil, ErrMaxRoundTrips
 	}
 	if !current.configured {
 		current.stateMu.Unlock()
 		return nil, ErrExchangeNotConfigured
 	}
-	current.attemptCount++
-	attempt := &Attempt{
+	current.roundTripCount++
+	roundTrip := &RoundTrip{
 		exchange:  current,
-		number:    current.attemptCount,
+		number:    current.roundTripCount,
 		startedAt: startedAt,
 		cancel:    cancel,
-		source:    attemptStartedFromDirective(current.directive),
+		source:    roundTripStartedFromDirective(current.directive),
 	}
-	current.current = attempt
-	current.phase = PhasePreparingAttempt
+	current.current = roundTrip
+	current.phase = PhasePreparingRoundTrip
 	current.stateMu.Unlock()
-	return attempt, nil
+	return roundTrip, nil
 }
 
-func (current *Exchange) requestRecoveryRetry(expectedAttempt int) error {
+func (current *Exchange) requestRecoveryRetry(expectedRoundTrip int) error {
 	if current == nil || current.completed.Load() {
 		return context.Canceled
 	}
 	var cancel context.CancelFunc
-	var attempt *Attempt
+	var roundTrip *RoundTrip
 	current.stateMu.Lock()
-	attempt = current.current
-	if attempt == nil || attempt.number != expectedAttempt {
+	roundTrip = current.current
+	if roundTrip == nil || roundTrip.number != expectedRoundTrip {
 		current.stateMu.Unlock()
 		return context.Canceled
 	}
@@ -168,16 +168,16 @@ func (current *Exchange) requestRecoveryRetry(expectedAttempt int) error {
 		current.stateMu.Unlock()
 		return ErrIdempotencyKeyRequired
 	}
-	if attempt.number >= current.maxAttempts {
+	if roundTrip.number >= current.maxRoundTrips {
 		current.stateMu.Unlock()
-		return ErrMaxAttempts
+		return ErrMaxRoundTrips
 	}
 	if current.maxElapsed > 0 && time.Since(current.startedAt) >= current.maxElapsed {
 		current.stateMu.Unlock()
 		return ErrRecoveryBudgetExceeded
 	}
 	current.phase = PhaseRetryRequested
-	cancel = attempt.cancel
+	cancel = roundTrip.cancel
 	current.stateMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -185,53 +185,53 @@ func (current *Exchange) requestRecoveryRetry(expectedAttempt int) error {
 	return nil
 }
 
-func (current *Exchange) ConfigureRecovery(policy *recovery.Policy, maxAttempts int, maxElapsed time.Duration) {
+func (current *Exchange) ConfigureRecovery(policy *recovery.Policy, maxRoundTrips int, maxElapsed time.Duration) {
 	if current == nil || policy == nil {
 		return
 	}
 	current.stateMu.Lock()
-	attempts := policy.Budget.MaxAttempts
-	if maxAttempts > 0 && (attempts == 0 || attempts > maxAttempts) {
-		attempts = maxAttempts
+	roundTrips := policy.Budget.MaxRoundTrips
+	if maxRoundTrips > 0 && (roundTrips == 0 || roundTrips > maxRoundTrips) {
+		roundTrips = maxRoundTrips
 	}
-	if attempts < 1 {
-		attempts = 1
+	if roundTrips < 1 {
+		roundTrips = 1
 	}
 	elapsed := policy.Budget.MaxElapsed
 	if maxElapsed > 0 && (elapsed == 0 || elapsed > maxElapsed) {
 		elapsed = maxElapsed
 	}
-	current.maxAttempts = attempts
+	current.maxRoundTrips = roundTrips
 	current.maxElapsed = elapsed
 	current.stateMu.Unlock()
 }
 
-func (attempt *Attempt) BeginRecovery() bool {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) BeginRecovery() bool {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return false
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.stateMu.Lock()
 	defer current.stateMu.Unlock()
-	if current.current != attempt || current.completed.Load() || current.phase == PhaseStreamingResponse || current.phase == PhaseFinished {
+	if current.current != roundTrip || current.completed.Load() || current.phase == PhaseStreamingResponse || current.phase == PhaseFinished {
 		return false
 	}
 	current.phase = PhaseRecovering
 	return true
 }
 
-func (attempt *Attempt) RequestRecoveryRetry() error {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) RequestRecoveryRetry() error {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return context.Canceled
 	}
-	return attempt.exchange.requestRecoveryRetry(attempt.number)
+	return roundTrip.exchange.requestRecoveryRetry(roundTrip.number)
 }
 
-func (attempt *Attempt) RecoveryContext() RecoveryContext {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) RecoveryContext() RecoveryContext {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return RecoveryContext{}
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.stateMu.Lock()
 	defer current.stateMu.Unlock()
 	elapsed := time.Since(current.startedAt)
@@ -239,14 +239,14 @@ func (attempt *Attempt) RecoveryContext() RecoveryContext {
 	if current.maxElapsed > 0 && elapsed < current.maxElapsed {
 		remaining = current.maxElapsed - elapsed
 	}
-	retryAllowed := attempt.number < current.maxAttempts && (current.maxElapsed == 0 || elapsed < current.maxElapsed)
+	retryAllowed := roundTrip.number < current.maxRoundTrips && (current.maxElapsed == 0 || elapsed < current.maxElapsed)
 	if (current.method == http.MethodPost || current.method == http.MethodPatch) && current.idempotencyKey == "" {
 		retryAllowed = false
 	}
 	return RecoveryContext{
-		TraceID: current.traceID, Attempt: attempt.number,
-		MaxAttempts: current.maxAttempts, StartedAt: current.startedAt, Elapsed: elapsed, Remaining: remaining,
-		NextAttempt: attempt.number + 1, RetryAllowed: retryAllowed, Metadata: current.metadata,
+		TraceID: current.traceID, RoundTrip: roundTrip.number,
+		MaxRoundTrips: current.maxRoundTrips, StartedAt: current.startedAt, Elapsed: elapsed, Remaining: remaining,
+		NextRoundTrip: roundTrip.number + 1, RetryAllowed: retryAllowed, Metadata: current.metadata,
 	}
 }
 
@@ -264,12 +264,12 @@ func (current *Exchange) Complete() {
 			finishCause = module.FinishCanceled
 		}
 		current.stateMu.Lock()
-		attempt := current.current
+		roundTrip := current.current
 		current.current = nil
 		current.phase = PhaseFinished
 		current.stateMu.Unlock()
-		if attempt != nil {
-			attempt.finishLifecycle(outcome, finishCause, nil, false)
+		if roundTrip != nil {
+			roundTrip.finishLifecycle(outcome, finishCause, nil, false)
 		}
 		current.lifecycleMu.Lock()
 		status := current.responseStatus
@@ -295,12 +295,12 @@ func (current *Exchange) closeRun() {
 	}
 }
 
-func (current *Exchange) isCurrent(attempt *Attempt) bool {
-	if current == nil || attempt == nil || current.completed.Load() {
+func (current *Exchange) isCurrent(roundTrip *RoundTrip) bool {
+	if current == nil || roundTrip == nil || current.completed.Load() {
 		return false
 	}
 	current.stateMu.Lock()
-	ok := current.current == attempt
+	ok := current.current == roundTrip
 	current.stateMu.Unlock()
 	return ok
 }
@@ -335,8 +335,8 @@ func cloneURL(in *url.URL) *url.URL {
 	return &out
 }
 
-func attemptStartedFromDirective(value lifecycle.DirectivePrepared) lifecycle.AttemptStarted {
-	return lifecycle.AttemptStarted{
+func roundTripStartedFromDirective(value lifecycle.DirectivePrepared) lifecycle.RoundTripStarted {
+	return lifecycle.RoundTripStarted{
 		Mode: value.Mode, Backend: value.Backend, Endpoint: value.Endpoint, Resource: value.Resource,
 		PayloadSHA256: value.PayloadSHA256, Target: cloneURL(value.Target),
 	}

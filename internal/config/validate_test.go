@@ -280,7 +280,7 @@ func TestValidateRejectsInvalidProxyTransport(t *testing.T) {
 
 func TestValidateRecoveryConfiguration(t *testing.T) {
 	for _, mutate := range []func(*ProxyRecovery){
-		func(cfg *ProxyRecovery) { cfg.MaxAttemptsLimit = 0 },
+		func(cfg *ProxyRecovery) { cfg.MaxRoundTripsLimit = 0 },
 		func(cfg *ProxyRecovery) { cfg.MaxElapsedLimit = 0 },
 		func(cfg *ProxyRecovery) { cfg.MaxCallbackTimeout = 0 },
 		func(cfg *ProxyRecovery) { cfg.MaxCapturedBodyBytes = 0 },

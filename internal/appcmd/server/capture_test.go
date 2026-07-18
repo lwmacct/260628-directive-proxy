@@ -51,7 +51,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	}
 	t.Cleanup(func() { programRuntime.Close(); _ = dispatcher.Close(context.Background()) })
 	manager := exchange.NewManager(exchange.ManagerOptions{
-		MaxAttempts: 3,
+		MaxRoundTrips: 3,
 	}, programRuntime)
 	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 		Metadata: map[string]string{"user_key": "uk_capture", "request_id": "capture-request"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Program: program.Program{{
-			Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
+			Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
 			{Side: directive.HeaderSideResponse, Action: directive.HeaderActionRemove, Name: "X-Upstream"},
@@ -148,7 +148,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 3}, programRuntime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 3}, programRuntime)
 	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_disabled"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program:  program.Program{{Scope: module.ScopeExchange, ID: "capture", Module: capture.Name, Config: []byte(`{}`)}},
+		Program:  program.Program{{Module: capture.Name, Config: []byte(`{}`)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { programRuntime.Close(); _ = dispatcher.Close(context.Background()) })
-	manager := exchange.NewManager(exchange.ManagerOptions{MaxAttempts: 2}, programRuntime)
+	manager := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 2}, programRuntime)
 	transport, err := proxy.NewRecoveryTransport(http.DefaultTransport, proxy.RecoveryTransportOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Program: program.Program{{
-			Scope: module.ScopeAttempt, ID: "usage", Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
+			Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
 		}},
 	})
 	if err != nil {

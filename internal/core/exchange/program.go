@@ -30,7 +30,7 @@ func (current *Exchange) Configure(configuration Configuration) error {
 		current.stateMu.Unlock()
 		return ErrExchangeConfigured
 	}
-	if current.completed.Load() || current.phase == PhaseFinished || current.attemptCount > 0 {
+	if current.completed.Load() || current.phase == PhaseFinished || current.roundTripCount > 0 {
 		current.stateMu.Unlock()
 		return context.Canceled
 	}
@@ -95,65 +95,65 @@ func (current *Exchange) RequestBodyEnd(total int64, digest string, complete boo
 	}
 }
 
-func (attempt *Attempt) Number() int {
-	if attempt == nil {
+func (roundTrip *RoundTrip) Number() int {
+	if roundTrip == nil {
 		return 0
 	}
-	return attempt.number
+	return roundTrip.number
 }
 
-func (attempt *Attempt) OpenScope() error {
-	if attempt == nil || attempt.exchange == nil || !attempt.exchange.isCurrent(attempt) {
+func (roundTrip *RoundTrip) OpenScope() error {
+	if roundTrip == nil || roundTrip.exchange == nil || !roundTrip.exchange.isCurrent(roundTrip) {
 		return context.Canceled
 	}
-	if !attempt.scopeOpened.CompareAndSwap(false, true) {
-		return ErrAttemptScopeOpened
+	if !roundTrip.scopeOpened.CompareAndSwap(false, true) {
+		return ErrRoundTripScopeOpened
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	if current.run == nil {
 		return nil
 	}
-	scope, err := current.run.OpenAttempt(module.OpenContext{Attempt: attempt.number, StartedAt: attempt.startedAt})
+	scope, err := current.run.OpenRoundTrip(module.OpenContext{RoundTrip: roundTrip.number, StartedAt: roundTrip.startedAt})
 	if err != nil {
 		return err
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if attempt.closed.Load() || !current.isCurrent(attempt) {
+	if roundTrip.closed.Load() || !current.isCurrent(roundTrip) {
 		_ = scope.Finish(context.Background(), module.FinishCanceled)
 		return context.Canceled
 	}
-	attempt.scope = scope
-	attempt.program = program.NewScopeSet(current.exchangeScope, scope)
-	if attempt.program == nil {
+	roundTrip.scope = scope
+	roundTrip.program = program.NewScopeSet(current.exchangeScope, scope)
+	if roundTrip.program == nil {
 		return nil
 	}
-	attempt.program.SetAttempt(attempt.number)
-	return attempt.program.AttemptStarted(current.ctx, attempt.source)
+	roundTrip.program.SetRoundTrip(roundTrip.number)
+	return roundTrip.program.RoundTripStarted(current.ctx, roundTrip.source)
 }
 
-func (attempt *Attempt) MutateOutboundRequest(request *http.Request) error {
-	if attempt == nil || attempt.exchange == nil || request == nil || attempt.closed.Load() || !attempt.exchange.isCurrent(attempt) {
+func (roundTrip *RoundTrip) MutateOutboundRequest(request *http.Request) error {
+	if roundTrip == nil || roundTrip.exchange == nil || request == nil || roundTrip.closed.Load() || !roundTrip.exchange.isCurrent(roundTrip) {
 		return context.Canceled
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if active := current.activeProgram(attempt); active != nil {
+	if active := current.activeProgram(roundTrip); active != nil {
 		return active.MutateOutboundRequest(request.Context(), request)
 	}
 	return nil
 }
 
-func (attempt *Attempt) MutateOutboundBodyChunk(data []byte) ([]byte, error) {
-	if attempt == nil || attempt.exchange == nil || attempt.closed.Load() || !attempt.exchange.isCurrent(attempt) {
+func (roundTrip *RoundTrip) MutateOutboundBodyChunk(data []byte) ([]byte, error) {
+	if roundTrip == nil || roundTrip.exchange == nil || roundTrip.closed.Load() || !roundTrip.exchange.isCurrent(roundTrip) {
 		return nil, context.Canceled
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	draft := lifecycle.BodyDraft{Data: append([]byte(nil), data...)}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if active := current.activeProgram(attempt); active != nil {
+	if active := current.activeProgram(roundTrip); active != nil {
 		if err := active.MutateOutboundBodyChunk(current.ctx, &draft); err != nil {
 			return nil, err
 		}
@@ -161,38 +161,38 @@ func (attempt *Attempt) MutateOutboundBodyChunk(data []byte) ([]byte, error) {
 	return draft.Data, nil
 }
 
-func (attempt *Attempt) HasOutboundBodyMutators() bool {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) HasOutboundBodyMutators() bool {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return false
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	active := current.activeProgram(attempt)
+	active := current.activeProgram(roundTrip)
 	return active != nil && active.HasOutboundBodyMutators()
 }
 
-func (attempt *Attempt) MutateUpstreamResponse(response *http.Response) error {
-	if attempt == nil || attempt.exchange == nil || response == nil || attempt.closed.Load() || !attempt.exchange.isCurrent(attempt) {
+func (roundTrip *RoundTrip) MutateUpstreamResponse(response *http.Response) error {
+	if roundTrip == nil || roundTrip.exchange == nil || response == nil || roundTrip.closed.Load() || !roundTrip.exchange.isCurrent(roundTrip) {
 		return context.Canceled
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	draft := lifecycle.ResponseDraft{Response: response}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if active := current.activeProgram(attempt); active != nil {
+	if active := current.activeProgram(roundTrip); active != nil {
 		return active.MutateUpstreamResponse(current.ctx, &draft)
 	}
 	return nil
 }
 
-func (attempt *Attempt) BeginUpstream(req *http.Request) bool {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) BeginUpstream(req *http.Request) bool {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return false
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.stateMu.Lock()
-	if current.current != attempt || current.ctx.Err() != nil {
+	if current.current != roundTrip || current.ctx.Err() != nil {
 		current.stateMu.Unlock()
 		return false
 	}
@@ -208,35 +208,35 @@ func (attempt *Attempt) BeginUpstream(req *http.Request) bool {
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.UpstreamStarted(current.ctx, lifecycle.UpstreamStarted{TargetURL: targetURL, Header: headers})
 	})
 	return true
 }
 
-func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) Decision {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) FinishRoundTrip(responseStarted bool, roundTripErr error) Decision {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return DecisionReturn
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	decision := DecisionReturn
 	closeLifecycle := true
 	current.stateMu.Lock()
-	if current.current != attempt {
+	if current.current != roundTrip {
 		current.stateMu.Unlock()
 		return DecisionReturn
 	}
 	if current.phase == PhaseRetryRequested && current.ctx.Err() == nil {
 		decision = DecisionRetry
 		current.current = nil
-	} else if responseStarted && attemptErr == nil {
+	} else if responseStarted && roundTripErr == nil {
 		current.phase = PhaseStreamingResponse
 		closeLifecycle = false
 	} else {
 		current.current = nil
 		current.phase = PhaseFinished
 	}
-	attempt.cancel = nil
+	roundTrip.cancel = nil
 	current.stateMu.Unlock()
 	if !closeLifecycle {
 		return decision
@@ -246,93 +246,93 @@ func (attempt *Attempt) FinishRoundTrip(responseStarted bool, attemptErr error) 
 	if decision == DecisionRetry {
 		outcome = lifecycle.OutcomeCanceledForRetry
 		cause = module.FinishReplaced
-	} else if attemptErr != nil {
+	} else if roundTripErr != nil {
 		outcome = lifecycle.OutcomeTransportError
-		if errorsIsCancellation(attemptErr) {
+		if errorsIsCancellation(roundTripErr) {
 			cause = module.FinishCanceled
 		}
 	}
-	attempt.finishLifecycle(outcome, cause, nil, false)
+	roundTrip.finishLifecycle(outcome, cause, nil, false)
 	return decision
 }
 
-func (attempt *Attempt) RecoveryStarted(value lifecycle.RecoveryStarted) {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) RecoveryStarted(value lifecycle.RecoveryStarted) {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.RecoveryStarted(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) RecoveryDecided(value lifecycle.RecoveryDecided) {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) RecoveryDecided(value lifecycle.RecoveryDecided) {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.RecoveryDecided(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) RecoveryFinished(value lifecycle.RecoveryFinished) {
-	if attempt == nil || attempt.exchange == nil {
+func (roundTrip *RoundTrip) RecoveryFinished(value lifecycle.RecoveryFinished) {
+	if roundTrip == nil || roundTrip.exchange == nil {
 		return
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.RecoveryFinished(current.ctx, value)
 	})
 }
 
-func (attempt *Attempt) finishLifecycle(outcome lifecycle.Outcome, cause module.FinishCause, bodyCause error, emitBodyEnd bool) {
-	if attempt == nil || attempt.exchange == nil || !attempt.closed.CompareAndSwap(false, true) {
+func (roundTrip *RoundTrip) finishLifecycle(outcome lifecycle.Outcome, cause module.FinishCause, bodyCause error, emitBodyEnd bool) {
+	if roundTrip == nil || roundTrip.exchange == nil || !roundTrip.closed.CompareAndSwap(false, true) {
 		return
 	}
-	current := attempt.exchange
+	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if attempt.projection != nil {
-		_ = attempt.projection.Finish(current.ctx, time.Now().UTC())
-		attempt.projection = nil
+	if roundTrip.projection != nil {
+		_ = roundTrip.projection.Finish(current.ctx, time.Now().UTC())
+		roundTrip.projection = nil
 	}
 	if emitBodyEnd {
-		_ = current.dispatchLocked(attempt, func(active *program.ScopeSet) error {
+		_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 			return active.UpstreamBodyEnded(current.ctx, lifecycle.BodyEnded{Cause: bodyCause})
 		})
 	}
-	if active := current.activeProgram(attempt); active != nil {
-		_ = active.AttemptFinished(current.ctx, lifecycle.AttemptFinished{Outcome: outcome})
+	if active := current.activeProgram(roundTrip); active != nil {
+		_ = active.RoundTripFinished(current.ctx, lifecycle.RoundTripFinished{Outcome: outcome})
 	}
-	if attempt.scope != nil {
-		_ = attempt.scope.Finish(context.WithoutCancel(current.ctx), cause)
-		attempt.scope = nil
+	if roundTrip.scope != nil {
+		_ = roundTrip.scope.Finish(context.WithoutCancel(current.ctx), cause)
+		roundTrip.scope = nil
 	}
 }
 
-func (current *Exchange) activeProgram(attempt *Attempt) *program.ScopeSet {
-	if attempt != nil && attempt.program != nil {
-		attempt.program.SetAttempt(attempt.number)
-		return attempt.program
+func (current *Exchange) activeProgram(roundTrip *RoundTrip) *program.ScopeSet {
+	if roundTrip != nil && roundTrip.program != nil {
+		roundTrip.program.SetRoundTrip(roundTrip.number)
+		return roundTrip.program
 	}
-	if current.exchangeProgram != nil && attempt != nil {
-		current.exchangeProgram.SetAttempt(attempt.number)
+	if current.exchangeProgram != nil && roundTrip != nil {
+		current.exchangeProgram.SetRoundTrip(roundTrip.number)
 	}
 	return current.exchangeProgram
 }
 
-func (current *Exchange) dispatchLocked(attempt *Attempt, run func(*program.ScopeSet) error) error {
+func (current *Exchange) dispatchLocked(roundTrip *RoundTrip, run func(*program.ScopeSet) error) error {
 	if run == nil {
 		return nil
 	}
-	if active := current.activeProgram(attempt); active != nil {
+	if active := current.activeProgram(roundTrip); active != nil {
 		return run(active)
 	}
 	return nil
