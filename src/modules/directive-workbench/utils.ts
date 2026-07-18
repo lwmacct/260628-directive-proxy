@@ -26,10 +26,14 @@ function buildHeaderMutations(items: HeaderMutation[]): DirectiveHeaderMutation[
 }
 
 function buildModules(items: EditorModuleSpec[]): ModuleSpec[] {
-  return items.map((item) => ({
-    module: item.module,
-    ...(item.config === undefined ? {} : { config: item.config }),
-  }));
+  return items.map((item) => {
+    const config = item.config;
+    const hasConfig = config !== undefined && (config === null || typeof config !== "object" || Array.isArray(config) || Object.keys(config).length > 0);
+    return {
+      module: item.module,
+      ...(hasConfig ? { config } : {}),
+    };
+  });
 }
 
 export function buildPayload(input: EditorState): DirectivePayload {
