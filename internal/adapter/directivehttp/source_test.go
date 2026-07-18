@@ -126,7 +126,7 @@ func TestSourceCallsResolverWithRequestMetadata(t *testing.T) {
 	if err != nil || string(raw) != `{"target":{"base_url":"https://api.example.com/v1"}}` {
 		t.Fatalf("unexpected response: raw=%s err=%v", raw, err)
 	}
-	if got.Protocol != "dproxy.resolve.v1" || got.Request.Method != http.MethodPost ||
+	if got.Protocol != Protocol || got.Request.Method != http.MethodPost ||
 		got.Request.URL != "https://gateway.example.com/v1/resources?region=cn" || got.Request.Host != "gateway.example.com" {
 		t.Fatalf("unexpected metadata: %#v", got)
 	}

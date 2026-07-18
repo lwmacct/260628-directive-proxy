@@ -19,6 +19,7 @@ import (
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
 	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directivehttp"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
@@ -189,7 +190,7 @@ func TestHTTPServerResolvesHTTPDirectiveEndToEnd(t *testing.T) {
 			Protocol string `json:"protocol"`
 		}
 		if r.Header.Get("Authorization") != "Bearer policy-token" || json.NewDecoder(r.Body).Decode(&body) != nil ||
-			body.Protocol != "dproxy.resolve.v1" || r.URL.Path != "/team-a/service-a" {
+			body.Protocol != directivehttp.Protocol || r.URL.Path != "/team-a/service-a" {
 			t.Errorf("unexpected resolver request: headers=%#v body=%#v", r.Header, body)
 		}
 		_, _ = io.WriteString(w, `{"metadata":{"user_key":"uk_http"},"target":{"base_url":"`+upstream.URL+`"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Directive-Source","values":["http"]}]}}`)

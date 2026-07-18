@@ -7,9 +7,9 @@ import type { SessionState } from "./session";
 export function AppRoot({ initialSession }: { initialSession: SessionState }) {
   return (
     <WorkbenchProvider
-      appearance={{ storageKey: "dproxy-theme" }}
+      appearance={{ storageKey: "dp-theme" }}
       defaultLocale="zh-CN"
-      localeStorageKey="dproxy-locale"
+      localeStorageKey="dp-locale"
       withAntdApp
     >
       <AuthBoundary initialSession={initialSession}>

@@ -138,7 +138,7 @@ func (c *Controller) createTempFile() (*os.File, string, error) {
 	c.tempOnce.Do(func() {
 		c.tempDir = c.config.TempDir
 		if c.tempDir == "" {
-			c.tempDir = filepath.Join(os.TempDir(), "dproxy-body-store")
+			c.tempDir = filepath.Join(os.TempDir(), "dp-body-store")
 		}
 		c.tempErr = os.MkdirAll(c.tempDir, 0o700)
 	})

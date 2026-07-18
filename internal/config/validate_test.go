@@ -34,7 +34,7 @@ func testOIDCAuth() dexgithub.Config {
 	return dexgithub.Config{
 		Enabled:    true,
 		Issuer:     "https://2008.s.lwmacct.com:20088",
-		ClientID:   "dproxy",
+		ClientID:   "dp",
 		SessionTTL: 24 * time.Hour,
 	}
 }

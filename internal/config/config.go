@@ -133,7 +133,7 @@ func DefaultConfig() Config {
 					DexGitHub: func() dexgithub.Config {
 						config := dexgithub.DefaultConfig()
 						config.Issuer = "https://2008.s.lwmacct.com:20088"
-						config.ClientID = "dproxy"
+						config.ClientID = "dp"
 						return config
 					}(),
 					AllowedGitHubUsers: []string{"lwmacct"},

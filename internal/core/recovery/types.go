@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const Protocol = "dproxy.recovery.v3"
+const Protocol = "dp.recovery.v3"
 
 type TriggerType string
 

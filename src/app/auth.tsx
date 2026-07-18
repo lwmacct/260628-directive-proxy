@@ -20,7 +20,7 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const authStateEvent = "dproxy:auth-state";
+const authStateEvent = "dp:auth-state";
 
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   const response = await fetch(input, init);

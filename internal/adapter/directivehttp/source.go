@@ -13,6 +13,8 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
+const Protocol = "dp.resolve.v1"
+
 type Options struct {
 	Timeout             time.Duration
 	MaxPayloadBytes     int64
@@ -80,7 +82,7 @@ func (s *Source) Read(ctx context.Context, reference directive.HTTPReference, re
 		return nil, directive.ErrRemoteInvalid
 	}
 	body, err := json.Marshal(resolveRequest{
-		Protocol: "dproxy.resolve.v1",
+		Protocol: Protocol,
 		Request: requestMetadata{
 			Method: request.Method,
 			URL:    request.URL,

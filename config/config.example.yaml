@@ -59,7 +59,7 @@ server:
         id: "github" # Authentication method ID
         label: "GitHub" # Authentication method display label
         issuer: "https://2008.s.lwmacct.com:20088" # Dex OIDC issuer URL
-        client-id: "dproxy" # OIDC client ID
+        client-id: "dp" # OIDC client ID
         client-secret: "" # OIDC client secret
         session-ttl: 24h0m0s # Maximum browser session lifetime
         flow-ttl: 5m0s # Login flow lifetime

@@ -221,7 +221,7 @@ func TestApplyRewriteAlwaysRemovesSystemHeaders(t *testing.T) {
 
 	for name := range req.Out.Header {
 		if strings.HasPrefix(strings.ToLower(name), "x-dp-") {
-			t.Fatalf("dproxy header reached outbound request: %s", name)
+			t.Fatalf("dp header reached outbound request: %s", name)
 		}
 	}
 	if got := req.Out.Header.Get("X-Upstream"); got != "keep" {
