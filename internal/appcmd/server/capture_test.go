@@ -224,10 +224,10 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
-		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a"},
+		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a", "provider": "test"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Modules: module.Specs{{
-			Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
+			Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses"}`),
 		}},
 	})
 	if err != nil {
@@ -254,7 +254,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 			if usage["total_tokens"] != int64(13) || record.Data["response_id"] != "resp_proxy" {
 				t.Fatalf("unexpected usage record: %#v", record)
 			}
-			if record.TraceID == "" || record.Metadata["user_key"] != "uk_usage" || record.Metadata["tenant_id"] != "tenant-a" {
+			if record.TraceID == "" || record.Metadata["user_key"] != "uk_usage" || record.Metadata["tenant_id"] != "tenant-a" || record.Metadata["provider"] != "test" {
 				t.Fatalf("usage record missing metadata: %#v", record)
 			}
 			return

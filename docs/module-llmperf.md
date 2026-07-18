@@ -4,12 +4,12 @@
 
 ```json
 {
+  "metadata": {"provider": "openai"},
   "modules": [
     {
       "module": "builtin.llmperf",
       "config": {
         "protocol": "openai.responses",
-        "labels": {"provider":"openai"},
         "max-sse-metadata-bytes": 0,
         "max-retained-bytes": 0,
         "max-nesting-depth": 0
@@ -18,6 +18,8 @@
   ]
 }
 ```
+
+公共业务维度使用 Payload 顶层 `metadata`；它会由运行时传入 Module Context，并出现在每条 `dp.event.v6` Record 的顶层，不在 Module config 或 topic data 中重复定义。
 
 该 Module 订阅 upstream started、response headers、raw upstream body chunk 和 body end。raw 端口保留代理实际读取切片的时间戳；处理进入 ordered async lane，并在 round-trip lifetime 结束前 drain。
 

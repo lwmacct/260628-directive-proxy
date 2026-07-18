@@ -43,7 +43,7 @@ func (output recordingOutput) EmitBorrowed(topic string, data map[string]any) bo
 }
 
 func TestModuleMeasuresOpenAIResponsesSSEFromRawPort(t *testing.T) {
-	scope, records := configuredScope(t, `{"protocol":"openai.responses","labels":{"provider":"openai"}}`)
+	scope, records := configuredScope(t, `{"protocol":"openai.responses"}`)
 	_ = scope.UpstreamStarted(t.Context(), lifecycle.UpstreamStarted{})
 	header := make(http.Header)
 	header.Set("Content-Type", "text/event-stream")
@@ -59,8 +59,11 @@ func TestModuleMeasuresOpenAIResponsesSSEFromRawPort(t *testing.T) {
 		sawFirstText = sawFirstText || record.topic == "llm.perf.first_text"
 		if record.topic == "llm.perf.observed" {
 			sawResult = true
-			if record.data["protocol"] != "openai.responses" || record.data["labels"].(map[string]string)["provider"] != "openai" {
+			if record.data["protocol"] != "openai.responses" {
 				t.Fatalf("unexpected result: %#v", record.data)
+			}
+			if _, exists := record.data["labels"]; exists {
+				t.Fatalf("module-specific labels were emitted: %#v", record.data)
 			}
 		}
 	}
@@ -72,6 +75,9 @@ func TestModuleMeasuresOpenAIResponsesSSEFromRawPort(t *testing.T) {
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
 	if _, err := New().CompileProgram([]byte(`{"protocol":"auto","unknown":true}`)); err == nil {
 		t.Fatal("unknown field was accepted")
+	}
+	if _, err := New().CompileProgram([]byte(`{"protocol":"auto","labels":{"provider":"openai"}}`)); err == nil {
+		t.Fatal("module-specific labels were accepted")
 	}
 }
 

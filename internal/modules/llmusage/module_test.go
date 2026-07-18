@@ -47,7 +47,7 @@ func (output recordingOutput) EmitBorrowed(topic string, data map[string]any) bo
 }
 
 func TestModuleExtractsOpenAIResponsesFromSSEDataPort(t *testing.T) {
-	scope, records := configuredScope(t, `{"protocol":"openai.responses","labels":{"provider":"openai"}}`, 1)
+	scope, records := configuredScope(t, `{"protocol":"openai.responses"}`, 1)
 	header := make(http.Header)
 	header.Set("Content-Type", "text/event-stream")
 	_ = scope.UpstreamResponseStarted(t.Context(), lifecycle.ResponseStarted{StatusCode: http.StatusOK, Header: header})
@@ -132,6 +132,9 @@ func TestModuleEmitsNotObservedForChatStreamWithoutUsage(t *testing.T) {
 func TestModuleRejectsUnknownConfigFields(t *testing.T) {
 	if _, err := New().CompileProgram([]byte(`{"protocol":"auto","unknown":true}`)); err == nil {
 		t.Fatal("unknown config field was accepted")
+	}
+	if _, err := New().CompileProgram([]byte(`{"protocol":"auto","labels":{"provider":"openai"}}`)); err == nil {
+		t.Fatal("module-specific labels were accepted")
 	}
 }
 

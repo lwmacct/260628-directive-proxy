@@ -20,11 +20,10 @@ import (
 const Name = "builtin.llmperf"
 
 type Spec struct {
-	Protocol            llmperf.Protocol  `json:"protocol"`
-	Labels              map[string]string `json:"labels,omitempty"`
-	MaxSSEMetadataBytes int               `json:"max-sse-metadata-bytes,omitempty"`
-	MaxRetainedBytes    int               `json:"max-retained-bytes,omitempty"`
-	MaxNestingDepth     int               `json:"max-nesting-depth,omitempty"`
+	Protocol            llmperf.Protocol `json:"protocol"`
+	MaxSSEMetadataBytes int              `json:"max-sse-metadata-bytes,omitempty"`
+	MaxRetainedBytes    int              `json:"max-retained-bytes,omitempty"`
+	MaxNestingDepth     int              `json:"max-nesting-depth,omitempty"`
 }
 
 type Module struct{}
@@ -169,14 +168,12 @@ func (perf *instance) finish(at time.Time, cause error, output event.Emitter) {
 		"protocol": string(result.Protocol), "format": string(result.Format), "outcome": string(result.Outcome),
 		"terminal": string(result.Terminal), "milestones": result.Milestones, "metrics": result.Metrics,
 	}
-	addLabels(data, perf.spec.Labels)
 	output.Emit("llm.perf.observed", data)
 }
 
 func (perf *instance) emitFailure(stage string, err error, output event.Emitter) {
 	if output != nil {
 		data := map[string]any{"stage": stage, "error": err.Error()}
-		addLabels(data, perf.spec.Labels)
 		output.Emit("llm.perf.failed", data)
 	}
 }
@@ -198,14 +195,6 @@ func decodeSpec(raw []byte) (Spec, error) {
 	case llmperf.ProtocolAuto, llmperf.ProtocolOpenAIResponses, llmperf.ProtocolOpenAIChatCompletions, llmperf.ProtocolAnthropicMessages, llmperf.ProtocolGoogleGenerateContent:
 	default:
 		return Spec{}, fmt.Errorf("unsupported protocol %q", spec.Protocol)
-	}
-	if len(spec.Labels) > 16 {
-		return Spec{}, errors.New("too many labels")
-	}
-	for name, value := range spec.Labels {
-		if name == "" || name != strings.TrimSpace(name) || len(name) > 64 || value == "" || value != strings.TrimSpace(value) || len(value) > 256 || strings.ContainsAny(name+value, "\r\n\x00") {
-			return Spec{}, errors.New("invalid label")
-		}
 	}
 	if spec.MaxSSEMetadataBytes < 0 || spec.MaxSSEMetadataBytes > 1<<20 {
 		return Spec{}, fmt.Errorf("max-sse-metadata-bytes must be between 0 and %d", 1<<20)
@@ -231,15 +220,4 @@ func responseFormat(raw string) (llmperf.Format, bool) {
 		return llmperf.FormatJSON, true
 	}
 	return "", false
-}
-
-func addLabels(data map[string]any, labels map[string]string) {
-	if len(labels) == 0 {
-		return
-	}
-	copyLabels := make(map[string]string, len(labels))
-	for name, value := range labels {
-		copyLabels[name] = value
-	}
-	data["labels"] = copyLabels
 }

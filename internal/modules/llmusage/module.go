@@ -20,7 +20,6 @@ const Name = "builtin.llmusage"
 
 type Spec struct {
 	Protocol            llmusage.Protocol `json:"protocol"`
-	Labels              map[string]string `json:"labels,omitempty"`
 	MaxSSEMetadataBytes int               `json:"max-sse-metadata-bytes,omitempty"`
 	MaxResultBytes      int               `json:"max-result-bytes,omitempty"`
 	MaxNestingDepth     int               `json:"max-nesting-depth,omitempty"`
@@ -149,7 +148,6 @@ func (usage *instance) finish(cause error, output event.Emitter) {
 		if cause != nil && !errors.Is(cause, io.EOF) {
 			data["stream_error"] = cause.Error()
 		}
-		addLabels(data, usage.spec.Labels)
 		output.Emit("llm.usage.not_observed", data)
 	}
 }
@@ -177,7 +175,6 @@ func (usage *instance) emitResults(results []llmusage.Result, output event.Emitt
 			"total_source":   string(result.TotalSource),
 			"raw_usage_json": string(result.RawUsage),
 		}
-		addLabels(data, usage.spec.Labels)
 		output.Emit("llm.usage.observed", data)
 	}
 }
@@ -197,7 +194,6 @@ func (usage *instance) emitFailure(stage string, err error, output event.Emitter
 	if usage.format != "" {
 		data["format"] = string(usage.format)
 	}
-	addLabels(data, usage.spec.Labels)
 	output.Emit("llm.usage.failed", data)
 }
 
@@ -234,14 +230,6 @@ func decodeSpec(raw []byte) (Spec, error) {
 	default:
 		return Spec{}, fmt.Errorf("unsupported protocol %q", spec.Protocol)
 	}
-	if len(spec.Labels) > 16 {
-		return Spec{}, fmt.Errorf("too many labels")
-	}
-	for name, value := range spec.Labels {
-		if name == "" || name != strings.TrimSpace(name) || len(name) > 64 || value == "" || value != strings.TrimSpace(value) || len(value) > 256 || strings.ContainsAny(name+value, "\r\n\x00") {
-			return Spec{}, fmt.Errorf("invalid label")
-		}
-	}
 	if spec.MaxSSEMetadataBytes < 0 || spec.MaxSSEMetadataBytes > 1<<20 {
 		return Spec{}, fmt.Errorf("max-sse-metadata-bytes must be between 0 and %d", 1<<20)
 	}
@@ -268,15 +256,4 @@ func responseFormat(rawContentType string) (llmusage.Format, bool) {
 	default:
 		return "", false
 	}
-}
-
-func addLabels(data map[string]any, labels map[string]string) {
-	if len(labels) == 0 {
-		return
-	}
-	copyLabels := make(map[string]string, len(labels))
-	for name, value := range labels {
-		copyLabels[name] = value
-	}
-	data["labels"] = copyLabels
 }
