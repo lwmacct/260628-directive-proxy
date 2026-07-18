@@ -115,7 +115,7 @@ func validateFluentOutput(cfg fluent.Config) (fluent.Config, error) {
 }
 
 func validateDirectiveSourceAccess(cfg DirectiveSourceAccess) (DirectiveSourceAccess, error) {
-	normalized, err := cfg.SourceIPAllowConfig.Normalize()
+	normalized, err := cfg.Normalize()
 	if err != nil || normalized.Enabled && len(normalized.Rules) == 0 {
 		return cfg, ErrInvalidAccess
 	}
@@ -123,7 +123,7 @@ func validateDirectiveSourceAccess(cfg DirectiveSourceAccess) (DirectiveSourceAc
 		return cfg, ErrInvalidAccess
 	}
 	cfg.SourceIPAllowConfig = normalized
-	cfg.SourceClientIPConfig.TrustedProxies = normalizeTrustedProxies(cfg.SourceClientIPConfig.TrustedProxies)
+	cfg.TrustedProxies = normalizeTrustedProxies(cfg.TrustedProxies)
 	return cfg, nil
 }
 

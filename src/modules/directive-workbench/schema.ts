@@ -190,7 +190,7 @@ function parseModule(value: unknown, label: string, text: Text["authConsole"]): 
   return { module, ...(input.config === undefined ? {} : { config: input.config }) };
 }
 
-function parseProgram(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec[] | undefined {
+function parseModules(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec[] | undefined {
   if (value === undefined) return undefined;
   const values = arrayValue(value, label, text);
   if (values.length > 16) throw new Error(text.mustBe(label, "array with at most 16 modules"));
@@ -201,7 +201,7 @@ function parseProgram(value: unknown, label: string, text: Text["authConsole"]):
 
 function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePayload {
   const input = record(value, "payload", text);
-  knownKeys(input, ["metadata", "target", "proxy", "headers", "program", "recovery"], "payload", text);
+  knownKeys(input, ["metadata", "target", "proxy", "headers", "modules", "recovery"], "payload", text);
   const metadata = parseMetadata(input.metadata, text);
   const targetInput = record(input.target, "payload.target", text);
   knownKeys(targetInput, ["base_url", "exact_url"], "payload.target", text);
@@ -228,9 +228,9 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
       ...(headersInput.mutations === undefined ? {} : { mutations: arrayValue(headersInput.mutations, "payload.headers.mutations", text).map((item, index) => parseHeaderMutation(item, `payload.headers.mutations[${index}]`, text, false)) }),
     };
   }
-  const program = parseProgram(input.program, "payload.program", text);
+  const modules = parseModules(input.modules, "payload.modules", text);
   const recovery = parseRecovery(input.recovery, text);
-  return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(program ? { program } : {}), ...(recovery ? { recovery } : {}) };
+  return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(modules ? { modules } : {}), ...(recovery ? { recovery } : {}) };
 }
 
 function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string, string> | undefined {

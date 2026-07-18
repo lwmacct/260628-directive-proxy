@@ -2,7 +2,6 @@ package directive
 
 import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 const (
@@ -96,7 +95,7 @@ type Payload struct {
 	Target   TargetSection     `json:"target"`
 	Proxy    string            `json:"proxy,omitempty"`
 	Headers  *HeaderPolicy     `json:"headers,omitempty"`
-	Program  program.Program   `json:"program,omitempty"`
+	Modules  module.Specs      `json:"modules,omitempty"`
 	Recovery *RecoverySpec     `json:"recovery,omitempty"`
 }
 

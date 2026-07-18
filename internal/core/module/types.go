@@ -25,6 +25,8 @@ type Spec struct {
 	Config json.RawMessage `json:"config,omitempty"`
 }
 
+type Specs []Spec
+
 type ProgramDefinition interface {
 	Definition
 	Lifetime() Lifetime

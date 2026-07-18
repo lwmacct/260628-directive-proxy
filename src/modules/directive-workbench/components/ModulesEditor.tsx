@@ -26,7 +26,7 @@ function ModuleConfigInput(props: { item: EditorModuleSpec; onChange: (patch: Pa
   </Flex>;
 }
 
-export function ModuleProgramEditor(props: {
+export function ModulesEditor(props: {
   text: Text["authConsole"];
   value: EditorModuleSpec[];
   onChange: (value: EditorModuleSpec[]) => void;

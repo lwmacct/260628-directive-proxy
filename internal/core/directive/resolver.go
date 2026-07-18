@@ -107,7 +107,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 		return nil, proxy.ErrInvalidDirective
 	}
 	var executable *program.Executable
-	if len(payload.Program) > 0 {
+	if len(payload.Modules) > 0 {
 		if r == nil || r.compiler == nil {
 			err = errors.New("program compiler is unavailable")
 			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
@@ -116,7 +116,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 			}
 			return nil, proxy.ErrInvalidDirective
 		}
-		executable, err = r.compiler.Compile(payload.Program)
+		executable, err = r.compiler.Compile(payload.Modules)
 		if err != nil {
 			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 			if document.Kind == KindRemote {

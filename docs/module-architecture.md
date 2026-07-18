@@ -3,7 +3,7 @@
 Module 是 directive 驱动的请求生命周期扩展单元，不局限于可观测性。Module 可以观察类型化事件，也可以在数据提交前修改请求、响应或流切片。生命周期由 Exchange 拥有，Program runtime 只执行已经编译的扩展程序。
 
 ```text
-program.Program（Payload 中的有序 Spec）
+module.Specs（Payload.modules 中的有序 Module Spec）
   -> program.Runtime.Compile（每个已解析 Payload 一次）
 program.Executable（不可变 Binding 列表）
   -> program.Run（每个 Exchange）
@@ -17,14 +17,14 @@ directive 使用有序数组声明程序：
 
 ```json
 {
-  "program": [
+  "modules": [
     {"module":"builtin.capture","config":{}},
     {"module":"builtin.llmusage","config":{"protocol":"openai.responses"}}
   ]
 }
 ```
 
-每项只包含 `module` 和可选 `config`，对应唯一的 `module.Spec`。所有 Definition 注册到同一个进程级 Module Catalog，名称全局唯一；Program Compiler 要求目标 Definition 提供 Program capability，并把 Module 名直接作为 Record 的 `producer`。Program Definition 通过 `Lifetime()` 静态声明 `exchange` 或 `round_trip`；directive 不再覆盖生命周期。数组顺序是所有当前活跃 Module 的全局 mutation 和事件提交顺序。
+`modules` 每项只包含 `module` 和可选 `config`，对应唯一的 `module.Spec`。所有 Definition 注册到同一个进程级 Module Catalog，名称全局唯一；Program Compiler 要求目标 Definition 提供 Program capability，并把 Module 名直接作为 Record 的 `producer`。Program Definition 通过 `Lifetime()` 静态声明 `exchange` 或 `round_trip`；directive 不再覆盖生命周期。数组顺序是所有当前活跃 Module 的全局 mutation 和事件提交顺序。
 
 `recovery.controller` 直接使用同一个 `module.Spec`，没有 `RecoveryControllerSpec` 或其他平行参数类型。Controller Compiler 从全局 Catalog 查找 Definition 并要求 Recovery Controller capability，在 Prepare 阶段把 config 编译为不可变 Binding；Policy 保存原 Module Spec 和 Binding，并跨全部 RoundTrip 复用。`builtin.recovery` 是当前内置实现。RecoveryTransport 不持有全局 Controller，也不解释 Controller config。
 
@@ -52,7 +52,7 @@ directive 使用有序数组声明程序：
 - round-trip-lifetime scope 在每次 RoundTrip 构造上游请求前打开，Recovery retry、transport error 或响应 body 结束时关闭；
 - exchange-lifetime Module 可以观察所有 round trip，round-trip-lifetime Module 不会泄漏状态到下一次重试；
 - 两类 scope 的 `module.OpenContext` 与每次回调的 `module.Context` 自动携带同一份不可变 metadata；
-- Program runtime 把两个 scope 中当前活跃的实例按原始数组索引合并；共同端口、mutation 和流投影都严格遵守同一个全局顺序；
+- Program runtime 把两个 scope 中当前活跃的实例按原始 `modules` 数组索引合并；共同端口、mutation 和流投影都严格遵守同一个全局顺序；
 - scope 结束时先 drain `scope_end` lane，再调用 Instance `Finish`；客户端取消只改变 Finish cause，不跳过 drain。
 
 ## 类型化端口

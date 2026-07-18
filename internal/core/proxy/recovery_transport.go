@@ -135,6 +135,10 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			}
 			return nil, context.Canceled
 		}
+		responseHeaderTimeout := time.Duration(0)
+		if recoveryPolicy != nil {
+			responseHeaderTimeout = recoveryPolicy.Triggers.ResponseHeaderTimeout
+		}
 		response, roundTripErr, responseTimedOut := t.roundTrip(roundTripRequest, recoveryPolicy)
 		if roundTripErr != nil {
 			trigger := recovery.Trigger{Type: recovery.TriggerTransportError, Code: "transport_error"}
@@ -142,9 +146,9 @@ func (t *RecoveryTransport) RoundTrip(req *http.Request) (*http.Response, error)
 			if responseTimedOut {
 				trigger = recovery.Trigger{
 					Type:      recovery.TriggerResponseHeaderTimeout,
-					TimeoutMS: recoveryPolicy.Triggers.ResponseHeaderTimeout.Milliseconds(),
+					TimeoutMS: responseHeaderTimeout.Milliseconds(),
 				}
-				enabled = recoveryPolicy != nil && recoveryPolicy.Triggers.ResponseHeaderTimeout > 0
+				enabled = responseHeaderTimeout > 0
 			}
 			if enabled {
 				recoveryResult, started, recoveryErr := t.recoverRoundTrip(req.Context(), recoveryPolicy, roundTrip, source, trigger, nil)

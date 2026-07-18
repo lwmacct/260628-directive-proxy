@@ -70,6 +70,9 @@ type RoundTrip struct {
 }
 
 func newExchange(manager *Manager, req *http.Request, startedAt time.Time) *Exchange {
+	if manager == nil || req == nil {
+		return nil
+	}
 	current := &Exchange{
 		manager:        manager,
 		ctx:            req.Context(),
@@ -81,7 +84,7 @@ func newExchange(manager *Manager, req *http.Request, startedAt time.Time) *Exch
 		maxRoundTrips:  manager.maxRoundTrips,
 		requestStarted: lifecycle.RequestStarted{Method: req.Method, URL: requestURL(req), Host: req.Host, Header: req.Header.Clone()},
 	}
-	if manager != nil && manager.programRuntime != nil {
+	if manager.programRuntime != nil {
 		current.programRuntime = manager.programRuntime
 	}
 	return current

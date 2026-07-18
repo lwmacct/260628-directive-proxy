@@ -24,7 +24,7 @@ func newRegistry(catalog *module.Catalog) (*registry, error) {
 	return &registry{catalog: catalog}, nil
 }
 
-func (r *registry) compile(specs Program) ([]compiled, []compiled, error) {
+func (r *registry) compile(specs module.Specs) ([]compiled, []compiled, error) {
 	if len(specs) == 0 {
 		return nil, nil, nil
 	}

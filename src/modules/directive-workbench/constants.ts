@@ -72,7 +72,7 @@ export function createInitialEditor(): EditorState {
       newHeaderMutation("set", "name", "Authorization", ["Bearer upstream-token"]),
       newHeaderMutation("set", "name", "X-Api-Key", ["demo-api-key"]),
     ],
-    program: [newModuleSpec("builtin.capture")],
+    modules: [newModuleSpec("builtin.capture")],
     recovery: initialRecovery(),
   };
 }

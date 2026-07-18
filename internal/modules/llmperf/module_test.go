@@ -100,7 +100,7 @@ func configuredScope(t *testing.T, raw string) (*program.ScopeSet, *recordingFac
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{{Module: Name, Config: []byte(raw)}})
+	executable, err := runtime.Compile(module.Specs{{Module: Name, Config: []byte(raw)}})
 	if err != nil {
 		t.Fatal(err)
 	}

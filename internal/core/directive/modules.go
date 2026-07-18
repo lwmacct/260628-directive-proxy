@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
-	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
 
 func normalizeModuleSpec(spec module.Spec) (module.Spec, error) {
@@ -27,13 +26,13 @@ func normalizeModuleSpec(spec module.Spec) (module.Spec, error) {
 	return spec, nil
 }
 
-func normalizeProgram(source program.Program) (program.Program, error) {
-	if len(source) > maxModuleSpecs {
+func normalizeModules(specs module.Specs) (module.Specs, error) {
+	if len(specs) > maxModuleSpecs {
 		return nil, ErrInvalidPayload
 	}
-	result := make(program.Program, len(source))
-	seen := make(map[string]struct{}, len(source))
-	for index, spec := range source {
+	result := make(module.Specs, len(specs))
+	seen := make(map[string]struct{}, len(specs))
+	for index, spec := range specs {
 		normalized, err := normalizeModuleSpec(spec)
 		if err != nil {
 			return nil, err

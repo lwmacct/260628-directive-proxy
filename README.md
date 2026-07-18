@@ -88,7 +88,7 @@ File 使用配置根目录内的 slash 相对路径：
 
 文件根目录由 `server.proxy.directive.remote.file.root` 设置；支持子目录，但不接受绝对路径、`.`、`..` 或反斜杠路径。
 
-Inline 的 JSON 本身就是 `Payload`。Remote 的 JSON 本身就是 `RemoteSpec`，只描述如何取得同一种 `Payload`；不能声明 `payload`、`program`、`recovery` 或任何执行字段。
+Inline 的 JSON 本身就是 `Payload`。Remote 的 JSON 本身就是 `RemoteSpec`，只描述如何取得同一种 `Payload`；不能声明 `payload`、`modules`、`recovery` 或任何执行字段。
 
 HTTP/Redis/File source 提供完整 `Payload`，例如：
 
@@ -96,7 +96,7 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 {
   "metadata": {"user_id": "user-1", "user_key": "key-1", "tenant_id": "tenant-a"},
   "target": {"base_url": "https://api.example.com/v2"},
-  "program": [
+  "modules": [
     {"module": "builtin.capture", "config": {}},
     {"module": "builtin.llmusage", "config": {"protocol": "openai.responses"}}
   ],
@@ -124,7 +124,7 @@ Payload 的 `headers` 是单一 HeaderPolicy。每条 mutation 都必须声明 `
 
 Recovery 是唯一的自动恢复机制。没有独立 Retry API、Retry-ID 或活动请求索引。
 
-`controller` 的值就是与 Program 条目完全相同的 Module Spec：`{module, config}`。所有 Definition 注册到同一个全局 Module Catalog，再由 capability 区分 Program Module 与 Recovery Controller Module。Prepare 阶段把 `builtin.recovery` 的 config 编译为不可变 Controller Binding，并由同一 Recovery Policy 跨全部 RoundTrip 复用；RecoveryTransport 不持有全局 Controller。
+`controller` 的值就是与 `modules` 条目完全相同的 Module Spec：`{module, config}`。所有 Definition 注册到同一个全局 Module Catalog，再由 capability 区分 Program Module 与 Recovery Controller Module。Prepare 阶段把 `builtin.recovery` 的 config 编译为不可变 Controller Binding，并由同一 Recovery Policy 跨全部 RoundTrip 复用；RecoveryTransport 不持有全局 Controller。
 
 可配置触发器：
 
@@ -230,7 +230,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 ## Module 与外部观测
 
-内置 Module 由 directive 的单一有序 `program` 数组启用；每项只声明唯一的 `module` 和可选 `config`，生命周期由 Module Definition 静态声明：
+内置 Module 由 directive 的单一有序 `modules` 数组启用；每项只声明唯一的 `module` 和可选 `config`，生命周期由 Module Definition 静态声明：
 
 - [`builtin.capture`](docs/module-capture.md)：请求、响应和生命周期审计；
 - [`builtin.llmusage`](docs/module-llmusage.md)：LLM token usage 提取；
@@ -238,7 +238,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 Module 经内部有界队列向 Fluent 输出统一 `dp.event.v4` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 顶层自动包含完整 `metadata`（directive 可选字段加系统 `trace_id`），各 topic 的 `data` 不重复该公共字段；Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
-已解析 Payload 的 Program 在 Prepare 阶段编译一次为不可变 Executable；exchange-lifetime 实例打开一次，Recovery 的每个 RoundTrip 仅从同一批 Binding 打开新的 round-trip-lifetime 实例，不重新编译 Module 配置。数组顺序是所有当前活跃 Module 的全局执行顺序；Module 名在全局 Catalog 内唯一，并直接作为外部 Record 的 `producer`。Program 与 Recovery Controller 共享同一个 `module.Spec`，但分别要求 Program capability 与 Controller capability。
+已解析的 `Payload.modules` 在 Prepare 阶段编译一次为不可变 Program Executable；exchange-lifetime 实例打开一次，Recovery 的每个 RoundTrip 仅从同一批 Binding 打开新的 round-trip-lifetime 实例，不重新编译 Module 配置。数组顺序是所有当前活跃 Module 的全局执行顺序；Module 名在全局 Catalog 内唯一，并直接作为外部 Record 的 `producer`。Modules 与 Recovery Controller 共享同一个 `module.Spec`，但分别要求 Program capability 与 Controller capability。
 
 更多细节见 [Module architecture](docs/module-architecture.md)。
 

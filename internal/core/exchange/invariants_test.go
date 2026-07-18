@@ -146,7 +146,7 @@ func TestCanceledExchangeDrainsAsyncModulesBeforeFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{{Module: "test.drain"}})
+	executable, err := runtime.Compile(module.Specs{{Module: "test.drain"}})
 	if err != nil {
 		t.Fatal(err)
 	}

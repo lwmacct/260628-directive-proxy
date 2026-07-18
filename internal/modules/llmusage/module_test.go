@@ -75,7 +75,7 @@ func TestRecoveryRoundTripsUseIsolatedUsageInstances(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
-	executable, err := runtime.Compile(program.Program{{Module: Name, Config: []byte(`{"protocol":"openai.responses"}`)}})
+	executable, err := runtime.Compile(module.Specs{{Module: Name, Config: []byte(`{"protocol":"openai.responses"}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func configuredScope(t *testing.T, raw string, roundTrip int) (*program.ScopeSet
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(program.Program{{Module: Name, Config: []byte(raw)}})
+	executable, err := runtime.Compile(module.Specs{{Module: Name, Config: []byte(raw)}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@
 
 ```json
 {
-  "program": [
+  "modules": [
     {
       "module": "builtin.llmperf",
       "config": {

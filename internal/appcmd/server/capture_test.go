@@ -64,7 +64,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_capture", "request_id": "capture-request"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program: program.Program{{
+		Modules: module.Specs{{
 			Module: capture.Name, Config: []byte(`{"body-chunk-bytes":8}`),
 		}},
 		Headers: &directive.HeaderPolicy{Mutations: []directive.HeaderMutation{
@@ -158,7 +158,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_disabled"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program:  program.Program{{Module: capture.Name, Config: []byte(`{}`)}},
+		Modules:  module.Specs{{Module: capture.Name, Config: []byte(`{}`)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
-		Program: program.Program{{
+		Modules: module.Specs{{
 			Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses","labels":{"provider":"test"}}`),
 		}},
 	})

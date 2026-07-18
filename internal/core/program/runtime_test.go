@@ -38,7 +38,7 @@ func TestRuntimeContainsModulePanicsAndDegradesDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{{Module: "panic.module", Config: []byte(`{}`)}})
+	executable, err := runtime.Compile(module.Specs{{Module: "panic.module", Config: []byte(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestExecutableCompilesOnceAndOpensEachRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{{Module: "round_trip.module", Config: []byte(`{}`)}})
+	executable, err := runtime.Compile(module.Specs{{Module: "round_trip.module", Config: []byte(`{}`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +100,12 @@ func TestRuntimeFailsClosedAfterClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := runtime.Compile(Program{})
+	executable, err := runtime.Compile(module.Specs{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runtime.Close()
-	if _, err := runtime.Compile(Program{}); !errors.Is(err, ErrRuntimeClosed) {
+	if _, err := runtime.Compile(module.Specs{}); !errors.Is(err, ErrRuntimeClosed) {
 		t.Fatalf("closed runtime compiled a program: %v", err)
 	}
 	if _, err := runtime.StartRun("trace", executable, runtimeMetadata(t, "trace")); !errors.Is(err, ErrRuntimeClosed) {
@@ -121,14 +121,14 @@ func TestRuntimeRejectsDuplicateModulesAndInvalidDefinitionLifetime(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.Compile(Program{{Module: "test.module"}, {Module: "test.module"}}); err == nil {
+	if _, err := runtime.Compile(module.Specs{{Module: "test.module"}, {Module: "test.module"}}); err == nil {
 		t.Fatal("duplicate module was accepted")
 	}
 	controllerOnly, err := NewRuntime(module.MustCatalog(baseDefinition{name: "test.controller"}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controllerOnly.Compile(Program{{Module: "test.controller"}}); err == nil {
+	if _, err := controllerOnly.Compile(module.Specs{{Module: "test.controller"}}); err == nil {
 		t.Fatal("controller-only module was accepted by the program compiler")
 	}
 
@@ -139,7 +139,7 @@ func TestRuntimeRejectsDuplicateModulesAndInvalidDefinitionLifetime(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := invalid.Compile(Program{{Module: "invalid.module"}}); err == nil {
+	if _, err := invalid.Compile(module.Specs{{Module: "invalid.module"}}); err == nil {
 		t.Fatal("invalid definition lifetime was accepted")
 	}
 }

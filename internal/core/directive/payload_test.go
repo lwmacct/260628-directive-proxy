@@ -265,6 +265,7 @@ func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
 		`{"source":{"http":{"url":"https://resolver.example/resolve"}}}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"payload":{"target":{"base_url":"https://api.example.com"}}}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"program":{}}`,
+		`{"http":{"url":"https://resolver.example/resolve"},"modules":[]}`,
 		`{"http":{"url":"https://resolver.example/resolve"},"recovery":{}}`,
 	}
 	for _, raw := range invalid {

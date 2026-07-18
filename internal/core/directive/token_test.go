@@ -8,9 +8,9 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 )
 
-type compilerFunc func(program.Program) (*program.Executable, error)
+type compilerFunc func(module.Specs) (*program.Executable, error)
 
-func (compile compilerFunc) Compile(source program.Program) (*program.Executable, error) {
+func (compile compilerFunc) Compile(source module.Specs) (*program.Executable, error) {
 	return compile(source)
 }
 
@@ -34,7 +34,7 @@ func newTestResolver(opts ...ResolverOptions) *Resolver {
 		configured = opts[0]
 	}
 	if configured.Compiler == nil {
-		configured.Compiler = compilerFunc(func(program.Program) (*program.Executable, error) {
+		configured.Compiler = compilerFunc(func(module.Specs) (*program.Executable, error) {
 			return &program.Executable{}, nil
 		})
 	}

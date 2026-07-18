@@ -7,7 +7,7 @@ import { newHeaderMutation } from "../constants";
 import type { DirectiveSource, EditorState, HeaderMutation } from "../types";
 import { HeaderMutationsTable } from "./HeaderMutationsTable";
 import { KeyValueEditor } from "./KeyValueEditor";
-import { ModuleProgramEditor } from "./ModuleProgramEditor";
+import { ModulesEditor } from "./ModulesEditor";
 import { RecoveryEditor } from "./RecoveryEditor";
 
 const { Text: Label } = Typography;
@@ -120,7 +120,7 @@ export function StructuredEditorPanel(props: {
     }, {
       key: "modules",
       label: text.modules,
-      children: <div><Label strong>{text.programModules}</Label><div className="section-description">{text.programModulesDescription}</div><ModuleProgramEditor text={text} value={editor.program} onChange={(program) => onUpdate({ program })} /></div>,
+      children: <div><Label strong>{text.orderedModules}</Label><div className="section-description">{text.orderedModulesDescription}</div><ModulesEditor text={text} value={editor.modules} onChange={(modules) => onUpdate({ modules })} /></div>,
     },
     {
       key: "recovery",

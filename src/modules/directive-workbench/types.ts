@@ -62,7 +62,7 @@ export type EditorState = {
   requestHeaderMode: "patch" | "replace";
   preserveProxyDisclosure: boolean;
   headerMutations: HeaderMutation[];
-  program: EditorModuleSpec[];
+  modules: EditorModuleSpec[];
   recovery: RecoveryEditorState;
 };
 
@@ -76,7 +76,7 @@ export type DirectivePayload = {
   target: { base_url: string } | { exact_url: string };
   proxy?: string;
   headers?: DirectiveHeaderPolicy;
-  program?: ModuleSpec[];
+  modules?: ModuleSpec[];
   recovery?: RecoverySpec;
 };
 

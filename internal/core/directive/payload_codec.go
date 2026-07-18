@@ -127,7 +127,7 @@ func normalizePayload(payload Payload) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
-	program, err := normalizeProgram(payload.Program)
+	modules, err := normalizeModules(payload.Modules)
 	if err != nil {
 		return Payload{}, err
 	}
@@ -137,7 +137,7 @@ func normalizePayload(payload Payload) (Payload, error) {
 	}
 	payload.Target = target
 	payload.Metadata = compiledMetadata.Map()
-	payload.Program = program
+	payload.Modules = modules
 	payload.Recovery = recoverySpec
 	planOnly := payload
 	planOnly.Recovery = nil
@@ -291,13 +291,4 @@ func countRemoteBackends(spec RemoteSpec) int {
 		count++
 	}
 	return count
-}
-
-func isForbiddenResolverHeader(name string) bool {
-	switch strings.ToLower(name) {
-	case "host", "content-length", "content-type", "connection", "proxy-connection", "keep-alive", "transfer-encoding", "upgrade", "trailer", "te":
-		return true
-	default:
-		return false
-	}
 }

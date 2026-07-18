@@ -68,7 +68,7 @@ func NewRuntime(catalog *module.Catalog, emission event.Provider) (*Runtime, err
 	return runtime, nil
 }
 
-func (runtime *Runtime) Compile(source Program) (*Executable, error) {
+func (runtime *Runtime) Compile(source module.Specs) (*Executable, error) {
 	if runtime == nil {
 		return nil, errors.New("program runtime is unavailable")
 	}

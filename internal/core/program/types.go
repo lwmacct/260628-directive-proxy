@@ -2,10 +2,8 @@ package program
 
 import "github.com/lwmacct/260628-directive-proxy/internal/core/module"
 
-type Program []module.Spec
-
 type Compiler interface {
-	Compile(Program) (*Executable, error)
+	Compile(module.Specs) (*Executable, error)
 }
 
 type Executable struct {

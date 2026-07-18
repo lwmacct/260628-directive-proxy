@@ -67,7 +67,7 @@ func (definition recoveryEventDefinition) Name() string              { return "t
 func (definition recoveryEventDefinition) Lifetime() module.Lifetime { return module.LifetimeRoundTrip }
 
 func (definition recoveryEventDefinition) CompileProgram(_ json.RawMessage) (module.Binding, error) {
-	return recoveryEventBinding{recorder: definition.recorder}, nil
+	return recoveryEventBinding(definition), nil
 }
 
 func (binding recoveryEventBinding) Open(module.OpenContext) (module.Instance, error) {
@@ -497,7 +497,7 @@ func testRecoveryPolicy() *recovery.Policy {
 
 func compileRecoveryProgram(t *testing.T, runtime *program.Runtime) *program.Executable {
 	t.Helper()
-	executable, err := runtime.Compile(program.Program{{Module: "test.recovery.events"}})
+	executable, err := runtime.Compile(module.Specs{{Module: "test.recovery.events"}})
 	if err != nil {
 		t.Fatal(err)
 	}
