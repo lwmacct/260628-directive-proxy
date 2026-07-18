@@ -1,7 +1,11 @@
 pipeline:
   outputs:
     - name: file
-      match: '*'
+      match_regex: '^dp\.(?!.*\.jsonl$).*'
       path: output
       file: events.log
+      format: plain
+    - name: file
+      match: '*.jsonl'
+      path: output
       format: plain

@@ -1,0 +1,5 @@
+pipeline:
+  filters:
+    - name: rewrite_tag
+      match_regex: '^dp\.(?!.*\.jsonl$).*'
+      rule: '$topic ^(.+)$ dp.$1.jsonl true'

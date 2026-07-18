@@ -19,6 +19,10 @@ Fluent Bit runs in the tmux session `directive-proxy-fluentbit`. Repeating
 The Forward input listens on `0.0.0.0:23194`. Records are written as JSON to
 `output/events.log`.
 
+The same records are also written to tag-named JSONL files in `output/` by the
+second file output. For example, tag `dp.capture.request` is written to
+`output/dp.capture.request.jsonl`.
+
 The tmux process ID is stored in `fluent-bit.pid` at this directory's root.
 The entire `output/` directory is ignored and can be deleted whenever a clean
 output file is needed.
