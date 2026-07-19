@@ -28,6 +28,7 @@ type Handler struct {
 	bodyMaxBytes       int64
 	bodyQueueWait      time.Duration
 	bodyChunkBytes     int
+	requestMetrics     RequestMetrics
 	next               http.Handler
 }
 
@@ -39,6 +40,7 @@ type HandlerOptions struct {
 	BodyMaxBytes       int64
 	BodyQueueWait      time.Duration
 	BodyChunkBytes     int
+	RequestMetrics     RequestMetrics
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
 }
@@ -71,6 +73,7 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		bodyMaxBytes:       opts.BodyMaxBytes,
 		bodyQueueWait:      opts.BodyQueueWait,
 		bodyChunkBytes:     opts.BodyChunkBytes,
+		requestMetrics:     opts.RequestMetrics,
 		next:               opts.Next,
 	}
 }
@@ -137,6 +140,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.proxy == nil || h.resolver == nil {
 		http.NotFound(w, r)
 		return
+	}
+	var requestBody *bodystore.Store
+	if h.requestMetrics != nil {
+		startedAt := time.Now()
+		writer := &metricsResponseWriter{ResponseWriter: w}
+		w = writer
+		h.requestMetrics.RequestStarted()
+		defer func() {
+			var requestBodyBytes int64
+			if requestBody != nil {
+				requestBodyBytes = requestBody.Size()
+			}
+			h.requestMetrics.RequestFinished(writer.status, requestMetricsOutcome(r, writer.status), time.Since(startedAt), requestBodyBytes, writer.bytes)
+		}()
 	}
 	var current *exchange.Exchange
 	if h.trackBeforeResolve && h.exchangeFactory != nil {
@@ -209,6 +226,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handleProxyError(w, r, bodyErr)
 		return
 	}
+	requestBody = body
 	defer func() { _ = body.Close() }()
 	template := NewRequestTemplate(r)
 	ctx := contextWithPreparedRequest(r.Context(), prepared, template, body)

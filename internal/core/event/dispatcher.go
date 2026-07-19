@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	vmmetrics "github.com/VictoriaMetrics/metrics"
 )
 
 type queuedRecord struct {
@@ -23,9 +26,11 @@ type Dispatcher struct {
 	queuedBytes  atomic.Int64
 	queuedCount  atomic.Int64
 	dropped      atomic.Uint64
+	sinkFailures atomic.Uint64
 	lastFailNano atomic.Int64
 	failed       atomic.Bool
 	closed       atomic.Bool
+	metricsOnce  sync.Once
 	wg           sync.WaitGroup
 }
 
@@ -55,6 +60,29 @@ func NewDispatcher(ctx context.Context, binding Config) (*Dispatcher, error) {
 		go runner.run(index, runner.queues[index])
 	}
 	return runner, nil
+}
+
+func (r *Dispatcher) RegisterMetrics(set *vmmetrics.Set) {
+	if r == nil || set == nil {
+		return
+	}
+	r.metricsOnce.Do(func() {
+		set.NewGauge("directive_proxy_event_output_enabled", func() float64 { return 1 })
+		set.NewGauge("directive_proxy_event_output_queue_limit_records", func() float64 { return float64(r.maxRecords) })
+		set.NewGauge("directive_proxy_event_output_queue_limit_bytes", func() float64 { return float64(r.maxBytes) })
+		set.NewGauge("directive_proxy_event_output_queue_records", func() float64 { return float64(r.queuedCount.Load()) })
+		set.NewGauge("directive_proxy_event_output_queue_bytes", func() float64 { return float64(r.queuedBytes.Load()) })
+		set.NewGauge("directive_proxy_event_output_healthy", func() float64 {
+			if r.sinkHealth().Status == "ok" {
+				return 1
+			}
+			return 0
+		})
+		set.RegisterMetricsWriter(func(writer io.Writer) {
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_event_output_dropped_records_total", r.dropped.Load())
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_event_output_failures_total", r.sinkFailures.Load())
+		})
+	})
 }
 
 func (r *Dispatcher) enqueue(record Record, copyBorrowed bool) bool {
@@ -114,6 +142,7 @@ func (r *Dispatcher) run(shardIndex int, queue <-chan queuedRecord) {
 		r.queuedCount.Add(-1)
 		if err != nil {
 			r.failed.Store(true)
+			r.sinkFailures.Add(1)
 			r.lastFailNano.Store(time.Now().UTC().UnixNano())
 			slog.Error("event sink failed", "error", err)
 		} else {

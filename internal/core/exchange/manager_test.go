@@ -19,9 +19,33 @@ import (
 	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
 
+type recordingMetrics struct {
+	roundTripsStarted int
+	roundTripOutcomes []string
+	recoveryTriggers  []string
+	recoveryOutcomes  []string
+}
+
+func (metrics *recordingMetrics) RoundTripStarted() {
+	metrics.roundTripsStarted++
+}
+
+func (metrics *recordingMetrics) RoundTripFinished(outcome string, _ time.Duration) {
+	metrics.roundTripOutcomes = append(metrics.roundTripOutcomes, outcome)
+}
+
+func (metrics *recordingMetrics) RecoveryStarted(trigger string) {
+	metrics.recoveryTriggers = append(metrics.recoveryTriggers, trigger)
+}
+
+func (metrics *recordingMetrics) RecoveryFinished(outcome string) {
+	metrics.recoveryOutcomes = append(metrics.recoveryOutcomes, outcome)
+}
+
 func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	runtime, dispatcher, output := newCaptureRuntime(t)
-	manager := NewManager(ManagerOptions{MaxRoundTrips: 10}, runtime)
+	metrics := &recordingMetrics{}
+	manager := NewManager(ManagerOptions{MaxRoundTrips: 10, Metrics: metrics}, runtime)
 	req := httptest.NewRequest(http.MethodPost, "http://proxy.local/v1/chat?token=secret", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Idempotency-Key", "lifecycle-test")
@@ -106,6 +130,10 @@ func TestExchangeLifecycleRunsRecoveryRetryAndEmitsEvents(t *testing.T) {
 	}
 	if preparedCount != 1 || roundTripStartedCount != 2 {
 		t.Fatalf("unexpected directive lifecycle counts: prepared=%d roundTrips=%d", preparedCount, roundTripStartedCount)
+	}
+	if metrics.roundTripsStarted != 2 || strings.Join(metrics.roundTripOutcomes, ",") != "canceled_for_retry,completed" ||
+		strings.Join(metrics.recoveryTriggers, ",") != "unexpected_status" || strings.Join(metrics.recoveryOutcomes, ",") != "retry_requested" {
+		t.Fatalf("unexpected lifecycle metrics: %#v", metrics)
 	}
 }
 

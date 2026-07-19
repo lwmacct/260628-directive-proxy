@@ -257,6 +257,9 @@ func (roundTrip *RoundTrip) RecoveryStarted(value lifecycle.RecoveryStarted) {
 		return
 	}
 	current := roundTrip.exchange
+	if current.manager.metrics != nil {
+		current.manager.metrics.RecoveryStarted(value.Trigger)
+	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
@@ -281,6 +284,9 @@ func (roundTrip *RoundTrip) RecoveryFinished(value lifecycle.RecoveryFinished) {
 		return
 	}
 	current := roundTrip.exchange
+	if current.manager.metrics != nil {
+		current.manager.metrics.RecoveryFinished(string(value.Outcome))
+	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
@@ -293,6 +299,9 @@ func (roundTrip *RoundTrip) finishLifecycle(outcome lifecycle.Outcome, cause mod
 		return
 	}
 	current := roundTrip.exchange
+	if current.manager.metrics != nil {
+		current.manager.metrics.RoundTripFinished(string(outcome), time.Since(roundTrip.startedAt))
+	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
 	if roundTrip.projection != nil {

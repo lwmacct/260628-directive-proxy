@@ -60,6 +60,7 @@ type Configuration struct {
 
 type ManagerOptions struct {
 	MaxRoundTrips int
+	Metrics       Metrics
 }
 
 type RecoveryContext struct {

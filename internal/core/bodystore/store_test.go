@@ -1,12 +1,15 @@
 package bodystore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"strings"
 	"testing"
 	"time"
+
+	vmmetrics "github.com/VictoriaMetrics/metrics"
 )
 
 func testController() *Controller {
@@ -120,5 +123,57 @@ func TestStoreRejectsUnknownBodyThatCannotFitInstanceMemory(t *testing.T) {
 	controller := New(Config{MemoryMaxBytes: 4, MaxBodyBytes: 8, QueueMaxRequests: 1})
 	if _, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader("123")), -1, Observer{}); !errors.Is(err, ErrStoreCapacity) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestControllerMetricsExposeAdmissionOutcomesAndWait(t *testing.T) {
+	controller := New(Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
+	set := vmmetrics.NewSet()
+	controller.RegisterMetrics(set)
+	first, err := controller.Admit(t.Context(), 4, 4, 0, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+
+	if _, err := controller.Admit(t.Context(), 4, 4, time.Millisecond, 4); !errors.Is(err, ErrQueueTimeout) {
+		t.Fatalf("unexpected queue timeout: %v", err)
+	}
+	queuedContext, cancelQueued := context.WithCancel(t.Context())
+	defer cancelQueued()
+	queuedResult := make(chan error, 1)
+	go func() {
+		_, queueErr := controller.Admit(queuedContext, 4, 4, time.Second, 4)
+		queuedResult <- queueErr
+	}()
+	deadline := time.Now().Add(time.Second)
+	for controller.Snapshot().QueuedRequests != 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := controller.Admit(t.Context(), 4, 4, time.Second, 4); !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("unexpected queue full error: %v", err)
+	}
+	cancelQueued()
+	if err := <-queuedResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected queued cancellation: %v", err)
+	}
+	if _, err := controller.Admit(t.Context(), 8, 8, 0, 4); !errors.Is(err, ErrStoreCapacity) {
+		t.Fatalf("unexpected capacity error: %v", err)
+	}
+
+	var output bytes.Buffer
+	set.WritePrometheus(&output)
+	metrics := output.String()
+	for _, metric := range []string{
+		"directive_proxy_body_store_admitted_total 1",
+		"directive_proxy_body_store_queue_full_total 1",
+		"directive_proxy_body_store_queue_timeout_total 1",
+		"directive_proxy_body_store_canceled_total 1",
+		"directive_proxy_body_store_capacity_rejected_total 1",
+		"directive_proxy_body_store_admission_wait_seconds_count 3",
+	} {
+		if !strings.Contains(metrics, metric) {
+			t.Fatalf("metrics output is missing %q: %s", metric, metrics)
+		}
 	}
 }

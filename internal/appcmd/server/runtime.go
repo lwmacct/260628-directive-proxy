@@ -42,9 +42,11 @@ type runtime struct {
 	tls              *tlsRuntime
 	directiveRemotes *directiveRemotes
 	recoveryCompiler *recoveryhttp.Compiler
+	metrics          *runtimeMetrics
 }
 
 func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
+	runtimeMetrics := newRuntimeMetrics()
 	tlsRuntime, err := newTLSRuntime(ctx, cfg.HTTP.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
@@ -101,13 +103,19 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		_ = tlsRuntime.Close()
 		return nil, fmt.Errorf("configure program runtime: %w", err)
 	}
-	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: cfg.Proxy.Recovery.MaxRoundTripsLimit}, programRuntime)
+	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: cfg.Proxy.Recovery.MaxRoundTripsLimit, Metrics: runtimeMetrics}, programRuntime)
 	bodyStore := bodystore.New(bodystore.Config{
 		MemoryMaxBytes:   cfg.Proxy.BodyStore.MemoryMaxBytes,
 		MaxBodyBytes:     cfg.Proxy.BodyStore.MaxBodyBytes,
 		ChunkBytes:       cfg.Proxy.BodyStore.ChunkBytes,
 		QueueMaxRequests: cfg.Proxy.BodyStore.QueueMaxRequests,
 	})
+	bodyStore.RegisterMetrics(runtimeMetrics.MetricsSet())
+	if eventOutput != nil {
+		eventOutput.RegisterMetrics(runtimeMetrics.MetricsSet())
+	} else {
+		runtimeMetrics.RegisterDisabledEventOutput()
+	}
 	baseTransport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.Proxy.Transport.MaxIdleConnsPerHost,
@@ -144,6 +152,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		tls:              tlsRuntime,
 		directiveRemotes: directiveRemotes,
 		recoveryCompiler: recoveryCompiler,
+		metrics:          runtimeMetrics,
 	}, nil
 }
 
@@ -188,7 +197,7 @@ func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, err
 	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
-func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler program.Compiler, recoveryCompiler recovery.Compiler, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper) http.Handler {
+func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler program.Compiler, recoveryCompiler recovery.Compiler, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper, requestMetrics proxy.RequestMetrics) http.Handler {
 	remoteConfig := cfg.Proxy.Directive.Remote
 	options := proxy.HandlerOptions{
 		BodyStore:       bodyStore,
@@ -196,6 +205,7 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler pro
 		BodyMaxBytes:    cfg.Proxy.BodyStore.MaxBodyBytes,
 		BodyQueueWait:   cfg.Proxy.BodyStore.QueueWait,
 		BodyChunkBytes:  cfg.Proxy.BodyStore.ChunkBytes,
+		RequestMetrics:  requestMetrics,
 	}
 	if exchangeFactory != nil {
 		options.ExchangeFactory = exchangeFactory

@@ -10,13 +10,21 @@ import (
 type Manager struct {
 	maxRoundTrips  int
 	programRuntime *program.Runtime
+	metrics        Metrics
+}
+
+type Metrics interface {
+	RoundTripStarted()
+	RoundTripFinished(outcome string, duration time.Duration)
+	RecoveryStarted(trigger string)
+	RecoveryFinished(outcome string)
 }
 
 func NewManager(options ManagerOptions, programRuntime *program.Runtime) *Manager {
 	if options.MaxRoundTrips < 1 {
 		options.MaxRoundTrips = 1
 	}
-	return &Manager{maxRoundTrips: options.MaxRoundTrips, programRuntime: programRuntime}
+	return &Manager{maxRoundTrips: options.MaxRoundTrips, programRuntime: programRuntime, metrics: options.Metrics}
 }
 
 func (manager *Manager) Start(req *http.Request) *Exchange {

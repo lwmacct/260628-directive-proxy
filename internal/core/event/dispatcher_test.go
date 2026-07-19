@@ -1,9 +1,15 @@
 package event_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	vmmetrics "github.com/VictoriaMetrics/metrics"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
@@ -14,6 +20,7 @@ type blockingSink struct {
 	started  chan struct{}
 	allow    chan struct{}
 	captured chan string
+	err      error
 }
 
 func (*blockingSink) Start(context.Context) error { return nil }
@@ -23,7 +30,7 @@ func (sink *blockingSink) Write(_ context.Context, _ int, record event.Record) e
 	if sink.captured != nil {
 		sink.captured <- string(record.Data["data"].([]byte))
 	}
-	return nil
+	return sink.err
 }
 func (*blockingSink) Health() event.Status        { return event.Status{Status: "ok"} }
 func (*blockingSink) Close(context.Context) error { return nil }
@@ -49,6 +56,48 @@ func TestDispatcherReleasesOwnedRecordAfterSinkReturns(t *testing.T) {
 	}
 	if !released.Load() {
 		t.Fatal("owned record was not released after sink returned")
+	}
+}
+
+func TestDispatcherMetricsExposeDropsFailuresAndHealth(t *testing.T) {
+	sink := &blockingSink{started: make(chan struct{}), allow: make(chan struct{}), err: errors.New("write failed")}
+	dispatcher, err := event.NewDispatcher(context.Background(), event.Config{Sink: sink, QueueMaxRecords: 1, QueueMaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := vmmetrics.NewSet()
+	dispatcher.RegisterMetrics(set)
+	trace := dispatcher.Open("trace", eventMetadata(t))
+	emitter := trace.Emitter("binding", 1)
+	emitter.Emit("first", map[string]any{"value": "first"})
+	<-sink.started
+	emitter.Emit("dropped", map[string]any{"value": "second"})
+	close(sink.allow)
+
+	deadline := time.Now().Add(time.Second)
+	var output bytes.Buffer
+	for time.Now().Before(deadline) {
+		output.Reset()
+		set.WritePrometheus(&output)
+		if strings.Contains(output.String(), "directive_proxy_event_output_failures_total 1") &&
+			strings.Contains(output.String(), "directive_proxy_event_output_queue_records 0") {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for _, metric := range []string{
+		"directive_proxy_event_output_enabled 1",
+		"directive_proxy_event_output_healthy 0",
+		"directive_proxy_event_output_dropped_records_total 1",
+		"directive_proxy_event_output_failures_total 1",
+	} {
+		if !strings.Contains(output.String(), metric) {
+			t.Fatalf("metrics output is missing %q: %s", metric, output.String())
+		}
+	}
+	trace.Close()
+	if err := dispatcher.Close(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

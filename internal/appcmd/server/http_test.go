@@ -22,6 +22,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directivehttp"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
+	"github.com/lwmacct/260628-directive-proxy/internal/core/exchange"
 	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
 )
 
@@ -309,6 +310,103 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 	srv.Handler.ServeHTTP(healthRecorder, healthReq)
 	if healthRecorder.Code != http.StatusOK {
 		t.Fatalf("health must remain public, got %d", healthRecorder.Code)
+	}
+}
+
+func TestHTTPServerMetricsIsPublicAndTakesPrecedenceOverDirectiveAuth(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	cfg.Proxy.Directive.SourceAccess.Enabled = true
+	handler := newHTTPServer(&cfg, &runtime{bodyStore: newTestBodyStore(cfg.Proxy.BodyStore)}).Handler
+
+	request := httptest.NewRequest(http.MethodGet, "http://control.local/metrics", nil)
+	request.Header.Set("Authorization", "Bearer this-is-a-directive-token")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected metrics status: %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != metricsContentType {
+		t.Fatalf("unexpected metrics content type: %q", got)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("unexpected metrics cache policy: %q", got)
+	}
+	body := recorder.Body.String()
+	for _, metric := range []string{
+		"directive_proxy_body_store_memory_limit_bytes",
+		"directive_proxy_event_output_enabled 0",
+		"go_goroutines",
+	} {
+		if !strings.Contains(body, metric) {
+			t.Fatalf("metrics output is missing %q: %s", metric, body)
+		}
+	}
+}
+
+func TestHTTPServerMetricsRejectsNonGet(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	recorder := httptest.NewRecorder()
+	newHTTPServer(&cfg, &runtime{}).Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "http://control.local/metrics", nil))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unexpected non-GET metrics status: %d", recorder.Code)
+	}
+	if got := recorder.Header().Get("Allow"); got != http.MethodGet {
+		t.Fatalf("unexpected metrics Allow header: %q", got)
+	}
+}
+
+func TestHTTPServerMetricsTrackProxyRequestAndRoundTrip(t *testing.T) {
+	cfg := newTestServerConfig()
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil || string(body) != "request" {
+			t.Errorf("unexpected upstream request body: %q err=%v", body, err)
+		}
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(writer, "response")
+	}))
+	defer upstream.Close()
+	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
+		Metadata: testServerDirectiveMetadata(),
+		Target:   directive.TargetSection{BaseURL: upstream.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeMetrics := newRuntimeMetrics()
+	store := newTestBodyStore(cfg.Proxy.BodyStore)
+	store.RegisterMetrics(runtimeMetrics.MetricsSet())
+	runtimeMetrics.RegisterDisabledEventOutput()
+	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{
+		metrics:         runtimeMetrics,
+		bodyStore:       store,
+		exchangeFactory: exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: 2, Metrics: runtimeMetrics}, nil),
+	})
+	handler := newHTTPServer(&cfg, rt).Handler
+	request := httptest.NewRequest(http.MethodPost, "http://proxy.local/resource", strings.NewReader("request"))
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Body.String() != "response" {
+		t.Fatalf("unexpected proxy response: status=%d body=%q", response.Code, response.Body.String())
+	}
+
+	scrape := httptest.NewRecorder()
+	handler.ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "http://control.local/metrics", nil))
+	for _, metric := range []string{
+		`directive_proxy_requests_total{outcome="success"} 1`,
+		`directive_proxy_responses_total{status_class="2xx"} 1`,
+		"directive_proxy_request_body_bytes_total 7",
+		"directive_proxy_response_body_bytes_total 8",
+		"directive_proxy_request_duration_seconds_count 1",
+		"directive_proxy_round_trips_total 1",
+		"directive_proxy_round_trip_duration_seconds_count 1",
+		"directive_proxy_body_store_admitted_total 1",
+	} {
+		if !strings.Contains(scrape.Body.String(), metric) {
+			t.Fatalf("metrics output is missing %q: %s", metric, scrape.Body.String())
+		}
 	}
 }
 

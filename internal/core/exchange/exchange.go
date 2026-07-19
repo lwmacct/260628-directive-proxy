@@ -144,6 +144,9 @@ func (current *Exchange) BeginRoundTrip(cancel context.CancelFunc) (*RoundTrip, 
 	current.current = roundTrip
 	current.phase = PhasePreparingRoundTrip
 	current.stateMu.Unlock()
+	if current.manager.metrics != nil {
+		current.manager.metrics.RoundTripStarted()
+	}
 	return roundTrip, nil
 }
 

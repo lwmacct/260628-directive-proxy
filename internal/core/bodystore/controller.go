@@ -3,9 +3,12 @@ package bodystore
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	vmmetrics "github.com/VictoriaMetrics/metrics"
 )
 
 var (
@@ -40,7 +43,10 @@ type Controller struct {
 	queueFullTotal    atomic.Uint64
 	queueTimeoutTotal atomic.Uint64
 	canceledTotal     atomic.Uint64
+	capacityTotal     atomic.Uint64
 	maxQueueWaitNano  atomic.Int64
+	metricsOnce       sync.Once
+	admissionWait     atomic.Pointer[vmmetrics.PrometheusHistogram]
 }
 
 type waiter struct {
@@ -63,6 +69,7 @@ type Snapshot struct {
 	QueueFullTotal       uint64
 	QueueTimeoutTotal    uint64
 	CanceledTotal        uint64
+	CapacityTotal        uint64
 	MaxQueueWaitNanos    int64
 }
 
@@ -87,8 +94,33 @@ func (c *Controller) Snapshot() Snapshot {
 		MemoryUsedBytes: c.used, MemoryAvailableBytes: available, QueuedRequests: len(c.queue),
 		AdmittedTotal: c.admittedTotal.Load(), QueueFullTotal: c.queueFullTotal.Load(),
 		QueueTimeoutTotal: c.queueTimeoutTotal.Load(), CanceledTotal: c.canceledTotal.Load(),
-		MaxQueueWaitNanos: c.maxQueueWaitNano.Load(),
+		CapacityTotal: c.capacityTotal.Load(), MaxQueueWaitNanos: c.maxQueueWaitNano.Load(),
 	}
+}
+
+func (c *Controller) RegisterMetrics(set *vmmetrics.Set) {
+	if c == nil || set == nil {
+		return
+	}
+	c.metricsOnce.Do(func() {
+		set.NewGauge("directive_proxy_body_store_memory_limit_bytes", func() float64 { return float64(c.config.MemoryMaxBytes) })
+		set.NewGauge("directive_proxy_body_store_memory_used_bytes", func() float64 { return float64(c.Snapshot().MemoryUsedBytes) })
+		set.NewGauge("directive_proxy_body_store_memory_available_bytes", func() float64 { return float64(c.Snapshot().MemoryAvailableBytes) })
+		set.NewGauge("directive_proxy_body_store_queue_limit_requests", func() float64 { return float64(c.config.QueueMaxRequests) })
+		set.NewGauge("directive_proxy_body_store_queue_depth", func() float64 { return float64(c.Snapshot().QueuedRequests) })
+		set.NewGauge("directive_proxy_body_store_max_queue_wait_seconds", func() float64 {
+			return float64(c.Snapshot().MaxQueueWaitNanos) / float64(time.Second)
+		})
+		c.admissionWait.Store(set.NewPrometheusHistogramExt("directive_proxy_body_store_admission_wait_seconds", []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}))
+		set.RegisterMetricsWriter(func(writer io.Writer) {
+			snapshot := c.Snapshot()
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_admitted_total", snapshot.AdmittedTotal)
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_queue_full_total", snapshot.QueueFullTotal)
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_queue_timeout_total", snapshot.QueueTimeoutTotal)
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_canceled_total", snapshot.CanceledTotal)
+			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_capacity_rejected_total", snapshot.CapacityTotal)
+		})
+	})
 }
 
 func (r *Reservation) Size() int64 {
@@ -144,6 +176,7 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 		return nil, ErrBodyTooLarge
 	}
 	if size > c.config.MemoryMaxBytes {
+		c.capacityTotal.Add(1)
 		return nil, ErrStoreCapacity
 	}
 	if size == 0 {
@@ -157,6 +190,7 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 		reservation := c.grantLocked(size)
 		c.mu.Unlock()
 		c.admittedTotal.Add(1)
+		c.recordAdmissionWait(0)
 		return reservation, nil
 	}
 	if c.config.QueueMaxRequests <= 0 || len(c.queue) >= c.config.QueueMaxRequests {
@@ -177,7 +211,7 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 	defer cancel()
 	select {
 	case reservation := <-item.ready:
-		c.recordQueueWait(time.Since(queuedAt))
+		c.recordAdmissionWait(time.Since(queuedAt))
 		if err := waitCtx.Err(); err != nil {
 			reservation.Close()
 			c.recordAdmissionFailure(err, ctx.Err())
@@ -196,20 +230,23 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 			}
 			c.dispatchLocked()
 			c.mu.Unlock()
-			c.recordQueueWait(time.Since(queuedAt))
+			c.recordAdmissionWait(time.Since(queuedAt))
 			c.recordAdmissionFailure(waitCtx.Err(), ctx.Err())
 			return nil, admissionContextError(waitCtx.Err(), ctx.Err())
 		}
 		c.mu.Unlock()
 		reservation := <-item.ready
 		reservation.Close()
-		c.recordQueueWait(time.Since(queuedAt))
+		c.recordAdmissionWait(time.Since(queuedAt))
 		c.recordAdmissionFailure(waitCtx.Err(), ctx.Err())
 		return nil, admissionContextError(waitCtx.Err(), ctx.Err())
 	}
 }
 
-func (c *Controller) recordQueueWait(wait time.Duration) {
+func (c *Controller) recordAdmissionWait(wait time.Duration) {
+	if histogram := c.admissionWait.Load(); histogram != nil {
+		histogram.Update(wait.Seconds())
+	}
 	for {
 		current := c.maxQueueWaitNano.Load()
 		if wait.Nanoseconds() <= current || c.maxQueueWaitNano.CompareAndSwap(current, wait.Nanoseconds()) {
