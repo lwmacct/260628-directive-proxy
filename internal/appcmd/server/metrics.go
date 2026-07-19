@@ -1,7 +1,9 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	vmmetrics "github.com/VictoriaMetrics/metrics"
@@ -171,8 +173,52 @@ func (handler *metricsHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 	}
 	writer.Header().Set("Content-Type", metricsContentType)
 	writer.Header().Set("Cache-Control", "no-store")
+	includeRuntime, includeProcess, err := metricsOutputOptions(request)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if handler != nil && handler.set != nil {
 		handler.set.WritePrometheus(writer)
 	}
-	vmmetrics.WriteProcessMetrics(writer)
+	if includeRuntime {
+		vmmetrics.WriteGoMetrics(writer)
+	}
+	if includeProcess {
+		vmmetrics.WriteProcMetrics(writer)
+	}
+	vmmetrics.WritePushMetrics(writer)
+}
+
+func metricsOutputOptions(request *http.Request) (includeRuntime, includeProcess bool, err error) {
+	if request == nil || request.URL == nil {
+		return true, true, nil
+	}
+	includeRuntime, err = metricsOption(request, "runtime", true)
+	if err != nil {
+		return false, false, err
+	}
+	includeProcess, err = metricsOption(request, "process", true)
+	if err != nil {
+		return false, false, err
+	}
+	return includeRuntime, includeProcess, nil
+}
+
+func metricsOption(request *http.Request, name string, fallback bool) (bool, error) {
+	values, ok := request.URL.Query()[name]
+	if !ok {
+		return fallback, nil
+	}
+	if len(values) != 1 {
+		return false, fmt.Errorf("metrics query parameter %q must be specified once", name)
+	}
+	switch strings.ToLower(strings.TrimSpace(values[0])) {
+	case "1", "true", "on", "yes":
+		return true, nil
+	case "0", "false", "off", "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("metrics query parameter %q must be boolean", name)
+	}
 }

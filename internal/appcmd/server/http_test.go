@@ -337,6 +337,7 @@ func TestHTTPServerMetricsIsPublicAndTakesPrecedenceOverDirectiveAuth(t *testing
 		"m_260628_body_store_memory_limit_bytes",
 		"m_260628_event_output_enabled 0",
 		"go_goroutines",
+		"process_cpu_seconds_total",
 	} {
 		if !strings.Contains(body, metric) {
 			t.Fatalf("metrics output is missing %q: %s", metric, body)
@@ -353,6 +354,51 @@ func TestHTTPServerMetricsRejectsNonGet(t *testing.T) {
 	}
 	if got := recorder.Header().Get("Allow"); got != http.MethodGet {
 		t.Fatalf("unexpected metrics Allow header: %q", got)
+	}
+}
+
+func TestHTTPServerMetricsSelectsRuntimeAndProcessMetrics(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	handler := newHTTPServer(&cfg, &runtime{bodyStore: newTestBodyStore(cfg.Proxy.BodyStore)}).Handler
+	for _, test := range []struct {
+		name        string
+		query       string
+		wantRuntime bool
+		wantProcess bool
+	}{
+		{name: "application only", query: "runtime=0&process=0", wantRuntime: false, wantProcess: false},
+		{name: "runtime only", query: "runtime=1&process=0", wantRuntime: true, wantProcess: false},
+		{name: "process only", query: "runtime=0&process=1", wantRuntime: false, wantProcess: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/metrics?"+test.query, nil))
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected metrics status: %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			body := recorder.Body.String()
+			if !strings.Contains(body, "m_260628_requests_total") {
+				t.Fatalf("application metrics were omitted: %s", body)
+			}
+			if got := strings.Contains(body, "go_goroutines"); got != test.wantRuntime {
+				t.Fatalf("unexpected runtime metrics presence: got=%t want=%t", got, test.wantRuntime)
+			}
+			if got := strings.Contains(body, "process_cpu_seconds_total"); got != test.wantProcess {
+				t.Fatalf("unexpected process metrics presence: got=%t want=%t", got, test.wantProcess)
+			}
+		})
+	}
+}
+
+func TestHTTPServerMetricsRejectsInvalidMetricOptions(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	handler := newHTTPServer(&cfg, &runtime{}).Handler
+	for _, query := range []string{"runtime=maybe", "process=1&process=0"} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/metrics?"+query, nil))
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "metrics query parameter") {
+			t.Fatalf("unexpected invalid metrics option response for %q: status=%d body=%s", query, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 
