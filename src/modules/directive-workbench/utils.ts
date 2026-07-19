@@ -53,6 +53,7 @@ export function buildPayload(input: EditorState): DirectivePayload {
   if (input.modules.length) payload.modules = buildModules(input.modules);
   const recovery = buildRecovery(input.recovery);
   if (recovery) payload.recovery = recovery;
+  if (input.bodyStore) payload.body_store = input.bodyStore;
   return payload;
 }
 
@@ -123,6 +124,7 @@ function payloadToEditor(payload: DirectivePayload) {
     headerMutations: toEditorHeaderMutations(payload.headers?.mutations ?? []),
     modules: (payload.modules ?? []).map((item) => newModuleSpec(item.module, item.config ?? {})),
     recovery: payload.recovery,
+    bodyStore: payload.body_store,
   };
 }
 

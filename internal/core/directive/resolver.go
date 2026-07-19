@@ -125,7 +125,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 			return nil, proxy.ErrInvalidDirective
 		}
 	}
-	prepared, err := proxy.NewPreparedDirective(source, compiled.Plan, executable, compiled.Recovery, compiled.Metadata)
+	prepared, err := proxy.NewPreparedDirective(source, compiled.Plan, executable, compiled.Recovery, compiled.Metadata, compiled.BodyStore)
 	if err != nil {
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid

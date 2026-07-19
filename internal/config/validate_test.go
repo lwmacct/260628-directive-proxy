@@ -294,14 +294,12 @@ func TestValidateRecoveryConfiguration(t *testing.T) {
 	}
 	for _, mutate := range []func(*ProxyBodyStore){
 		func(cfg *ProxyBodyStore) { cfg.MemoryMaxBytes = 0 },
-		func(cfg *ProxyBodyStore) { cfg.MemoryPerBodyBytes = 0 },
-		func(cfg *ProxyBodyStore) { cfg.MemoryPerBodyBytes = cfg.MemoryMaxBytes + 1 },
-		func(cfg *ProxyBodyStore) { cfg.MemoryPerBodyBytes = cfg.MaxBodyBytes + 1 },
-		func(cfg *ProxyBodyStore) { cfg.DiskMaxBytes = cfg.MaxBodyBytes - 1 },
+		func(cfg *ProxyBodyStore) { cfg.QueueMaxRequests = 0 },
+		func(cfg *ProxyBodyStore) { cfg.QueueWait = 0 },
+		func(cfg *ProxyBodyStore) { cfg.MaxBodyBytes = cfg.MemoryMaxBytes + 1 },
 		func(cfg *ProxyBodyStore) { cfg.MaxBodyBytes = 0 },
 		func(cfg *ProxyBodyStore) { cfg.ChunkBytes = 0 },
 		func(cfg *ProxyBodyStore) { cfg.ChunkBytes = 2 << 20 },
-		func(cfg *ProxyBodyStore) { cfg.TempDir = "" },
 		func(cfg *ProxyBodyStore) { cfg.ReadTimeout = 0 },
 	} {
 		cfg := validDefaultConfig()

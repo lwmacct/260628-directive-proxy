@@ -218,7 +218,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 每个入站请求在进程内建模为一个 `Exchange`，并通过 `X-Dp-Trace-ID` 返回 UUIDv7 trace ID。Exchange 只拥有生命周期和当前 RoundTrip，不提供查询 API 或跨请求身份。
 
-请求正文使用单写入、多 reader 的流式 Replay Store。当前 RoundTrip 可以在客户端仍上传时读取正文；Recovery 决定 `retry` 后，新 RoundTrip 从 offset 0 重放已有前缀，追上尾部后继续等待后续数据。小正文保存在分段内存中，超过阈值或全局内存紧张时转入匿名临时文件。
+请求正文使用单写入、多 reader 的流式 Replay Store。当前 RoundTrip 可以在客户端仍上传时读取正文；Recovery 决定 `retry` 后，新 RoundTrip 从 offset 0 重放已有前缀，追上尾部后继续等待后续数据。正文始终保存在进程内分段内存中；读取前先申请有界 reservation，内存不足时请求进入 FIFO，队列满或超时返回 `503`，便于多实例调用方重新分流。Directive 可覆盖本请求的正文上限、排队等待、读取超时和 chunk 大小。
 
 详细状态机见 [Exchange lifecycle](docs/exchange-lifecycle.md)。
 

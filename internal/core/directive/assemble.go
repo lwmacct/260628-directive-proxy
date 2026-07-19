@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
@@ -24,9 +25,10 @@ const (
 )
 
 type CompiledPayload struct {
-	Plan     *proxy.Plan
-	Metadata metadata.Set
-	Recovery *recovery.Policy
+	Plan      *proxy.Plan
+	Metadata  metadata.Set
+	Recovery  *recovery.Policy
+	BodyStore *proxy.BodyPolicy
 }
 
 func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, error) {
@@ -65,6 +67,10 @@ func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, err
 	if err != nil {
 		return CompiledPayload{}, err
 	}
+	bodyPolicy, err := compileBodyStore(payload.BodyStore)
+	if err != nil {
+		return CompiledPayload{}, err
+	}
 	stripBeforeOps := make([]string, 0, len(opts.StripHeaders))
 	for _, name := range opts.StripHeaders {
 		name = strings.TrimSpace(name)
@@ -87,9 +93,65 @@ func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, err
 				Response: httpheader.ResponsePlan{Ops: responseOps},
 			},
 		},
-		Metadata: compiledMetadata,
-		Recovery: recoveryPolicy,
+		Metadata:  compiledMetadata,
+		Recovery:  recoveryPolicy,
+		BodyStore: bodyPolicy,
 	}, nil
+}
+
+func compileBodyStore(spec *BodyStoreSpec) (*proxy.BodyPolicy, error) {
+	if spec == nil {
+		return nil, nil
+	}
+	if spec.MaxBodyBytes != nil && *spec.MaxBodyBytes < 0 || spec.ChunkBytes != nil && *spec.ChunkBytes < 0 {
+		return nil, ErrInvalidPayload
+	}
+	if spec.MaxBodyBytes != nil && *spec.MaxBodyBytes == 0 || spec.ChunkBytes != nil && *spec.ChunkBytes == 0 {
+		return nil, ErrInvalidPayload
+	}
+	queueWait, err := parseBodyDuration(spec.QueueWait)
+	if err != nil {
+		return nil, err
+	}
+	readTimeout, err := parseBodyDuration(spec.ReadTimeout)
+	if err != nil {
+		return nil, err
+	}
+	if spec.ChunkBytes != nil && *spec.ChunkBytes > 0 && (*spec.ChunkBytes < 4<<10 || *spec.ChunkBytes > 1<<20) {
+		return nil, ErrInvalidPayload
+	}
+	if spec.MaxBodyBytes == nil && spec.QueueWait == nil && spec.ReadTimeout == nil && spec.ChunkBytes == nil {
+		return nil, nil
+	}
+	policy := &proxy.BodyPolicy{MaxBodyBytes: -1, QueueWait: -1, ReadTimeout: -1, ChunkBytes: -1}
+	if spec.MaxBodyBytes != nil {
+		policy.MaxBodyBytes = *spec.MaxBodyBytes
+	}
+	if spec.QueueWait != nil {
+		policy.QueueWait = queueWait
+	}
+	if spec.ReadTimeout != nil {
+		policy.ReadTimeout = readTimeout
+	}
+	if spec.ChunkBytes != nil {
+		policy.ChunkBytes = *spec.ChunkBytes
+	}
+	return policy, nil
+}
+
+func parseBodyDuration(raw *string) (time.Duration, error) {
+	if raw == nil {
+		return 0, nil
+	}
+	value := strings.TrimSpace(*raw)
+	if value == "" {
+		return 0, ErrInvalidPayload
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < 0 {
+		return 0, ErrInvalidPayload
+	}
+	return duration, nil
 }
 
 func compileTarget(section TargetSection, inbound *url.URL) (*url.URL, error) {

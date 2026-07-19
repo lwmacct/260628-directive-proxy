@@ -7,6 +7,13 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
+type BodyPolicy struct {
+	MaxBodyBytes int64         // -1 means inherit instance default.
+	QueueWait    time.Duration // -1 means inherit instance default.
+	ReadTimeout  time.Duration // -1 means inherit instance default.
+	ChunkBytes   int           // -1 means inherit instance default.
+}
+
 type Plan struct {
 	Target  *url.URL
 	Proxy   *url.URL

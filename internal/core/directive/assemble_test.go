@@ -3,6 +3,7 @@ package directive
 import (
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
@@ -43,6 +44,23 @@ func TestCompilePayloadAllowsOmittedMetadata(t *testing.T) {
 	}
 	if fields := compiled.Metadata.Map(); len(fields) != 0 {
 		t.Fatalf("unexpected directive metadata: %#v", compiled.Metadata.Map())
+	}
+}
+
+func TestCompilePayloadBuildsBodyAdmissionPolicy(t *testing.T) {
+	maxBody := int64(8 << 20)
+	queueWait := "2s"
+	readTimeout := "10s"
+	chunkBytes := 32 << 10
+	compiled, err := CompilePayload(Payload{
+		Target:    TargetSection{BaseURL: "https://api.example.com"},
+		BodyStore: &BodyStoreSpec{MaxBodyBytes: &maxBody, QueueWait: &queueWait, ReadTimeout: &readTimeout, ChunkBytes: &chunkBytes},
+	}, AssembleOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.BodyStore == nil || compiled.BodyStore.MaxBodyBytes != maxBody || compiled.BodyStore.QueueWait != 2*time.Second || compiled.BodyStore.ReadTimeout != 10*time.Second || compiled.BodyStore.ChunkBytes != chunkBytes {
+		t.Fatalf("unexpected body policy: %#v", compiled.BodyStore)
 	}
 }
 

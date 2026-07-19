@@ -25,6 +25,9 @@ type Handler struct {
 	trackBeforeResolve bool
 	bodyStore          *bodystore.Controller
 	bodyReadTimeout    time.Duration
+	bodyMaxBytes       int64
+	bodyQueueWait      time.Duration
+	bodyChunkBytes     int
 	next               http.Handler
 }
 
@@ -33,6 +36,9 @@ type HandlerOptions struct {
 	TrackBeforeResolve bool
 	BodyStore          *bodystore.Controller
 	BodyReadTimeout    time.Duration
+	BodyMaxBytes       int64
+	BodyQueueWait      time.Duration
+	BodyChunkBytes     int
 	// Next receives requests for which Resolver returns ErrNoMatch.
 	Next http.Handler
 }
@@ -62,6 +68,9 @@ func NewHandler(resolver Resolver, transport http.RoundTripper, opts HandlerOpti
 		trackBeforeResolve: opts.TrackBeforeResolve,
 		bodyStore:          opts.BodyStore,
 		bodyReadTimeout:    opts.BodyReadTimeout,
+		bodyMaxBytes:       opts.BodyMaxBytes,
+		bodyQueueWait:      opts.BodyQueueWait,
+		bodyChunkBytes:     opts.BodyChunkBytes,
 		next:               opts.Next,
 	}
 }
@@ -78,6 +87,16 @@ func handleProxyError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, bodystore.ErrStoreCapacity) {
 		w.Header().Set("Retry-After", "1")
 		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_store_capacity", "proxy: request body replay store capacity is exhausted")
+		return
+	}
+	if errors.Is(err, bodystore.ErrQueueFull) {
+		w.Header().Set("Retry-After", "1")
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_store_queue_full", "proxy: request admission queue is full")
+		return
+	}
+	if errors.Is(err, bodystore.ErrQueueTimeout) {
+		w.Header().Set("Retry-After", "1")
+		WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "body_store_queue_timeout", "proxy: request admission queue wait timed out")
 		return
 	}
 	if errors.Is(err, ErrBodyStoreUnavailable) {
@@ -185,7 +204,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	body, bodyErr := h.startRequestBody(w, r, current)
+	body, bodyErr := h.startRequestBody(w, r, current, prepared.BodyPolicy())
 	if bodyErr != nil {
 		handleProxyError(w, r, bodyErr)
 		return
@@ -196,7 +215,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r.WithContext(ctx))
 }
 
-func (h *Handler) startRequestBody(w http.ResponseWriter, r *http.Request, current *exchange.Exchange) (*bodystore.Store, error) {
+func (h *Handler) startRequestBody(w http.ResponseWriter, r *http.Request, current *exchange.Exchange, policy *BodyPolicy) (*bodystore.Store, error) {
 	observer := bodystore.Observer{}
 	if current != nil {
 		observer.Chunk = func(_ int64, data []byte) error {
@@ -215,15 +234,35 @@ func (h *Handler) startRequestBody(w http.ResponseWriter, r *http.Request, curre
 	if h.bodyStore == nil {
 		return nil, ErrBodyStoreUnavailable
 	}
-	if h.bodyReadTimeout > 0 {
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(h.bodyReadTimeout))
+	maxBodyBytes, queueWait, readTimeout, chunkBytes := h.bodyMaxBytes, h.bodyQueueWait, h.bodyReadTimeout, h.bodyChunkBytes
+	if policy != nil {
+		if policy.MaxBodyBytes >= 0 {
+			maxBodyBytes = policy.MaxBodyBytes
+		}
+		if policy.QueueWait >= 0 {
+			queueWait = policy.QueueWait
+		}
+		if policy.ReadTimeout >= 0 {
+			readTimeout = policy.ReadTimeout
+		}
+		if policy.ChunkBytes >= 0 {
+			chunkBytes = policy.ChunkBytes
+		}
+	}
+	reservation, err := h.bodyStore.Admit(r.Context(), r.ContentLength, maxBodyBytes, queueWait)
+	if err != nil {
+		return nil, err
 	}
 	if current != nil {
 		current.BeginBodyStream()
 	}
-	body, err := h.bodyStore.Stream(r.Context(), r.Body, r.ContentLength, observer)
+	body, err := h.bodyStore.StreamWithReservation(r.Context(), r.Body, r.ContentLength, observer, bodystore.StreamOptions{MaxBodyBytes: maxBodyBytes, QueueWait: queueWait, ChunkBytes: chunkBytes}, reservation)
 	if err != nil {
+		reservation.Close()
 		return nil, err
+	}
+	if readTimeout > 0 {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(readTimeout))
 	}
 	r.Body = http.NoBody
 	return body, nil

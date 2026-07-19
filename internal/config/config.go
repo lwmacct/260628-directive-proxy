@@ -53,7 +53,7 @@ type AuthMe struct {
 type Proxy struct {
 	Transport ProxyTransport `json:"transport" desc:"出站 HTTP 连接池与连接复用配置"`
 	Recovery  ProxyRecovery  `json:"recovery"  desc:"Directive Recovery Controller 全局资源上限"`
-	BodyStore ProxyBodyStore `json:"body-store" desc:"流式可重放请求正文的内存与磁盘配置"`
+	BodyStore ProxyBodyStore `json:"body-store" desc:"流式可重放请求正文的内存与排队配置"`
 	Directive ProxyDirective `json:"directive" desc:"指令来源配置"`
 }
 
@@ -66,13 +66,12 @@ type ProxyRecovery struct {
 }
 
 type ProxyBodyStore struct {
-	MemoryMaxBytes     int64         `json:"memory-max-bytes" desc:"所有活动 Replay Store 使用的最大内存字节数"`
-	MemoryPerBodyBytes int64         `json:"memory-per-body-bytes" desc:"单个请求 spill 到磁盘前保留在内存的最大字节数"`
-	DiskMaxBytes       int64         `json:"disk-max-bytes" desc:"所有活动 Replay Store 使用的最大临时磁盘字节数"`
-	MaxBodyBytes       int64         `json:"max-body-bytes" desc:"单个请求正文允许的最大实际字节数"`
-	ChunkBytes         int           `json:"chunk-bytes" desc:"正文摄取和内存分段的 chunk 字节数"`
-	TempDir            string        `json:"temp-dir" desc:"匿名 spill 临时文件目录"`
-	ReadTimeout        time.Duration `json:"body-read-timeout" desc:"读取请求正文的最长时间"`
+	MemoryMaxBytes   int64         `json:"memory-max-bytes" desc:"所有活动 Replay Store 预留的最大内存字节数"`
+	MaxBodyBytes     int64         `json:"max-body-bytes" desc:"单个请求正文允许的默认最大实际字节数；directive 可覆盖"`
+	ChunkBytes       int           `json:"chunk-bytes" desc:"正文摄取和内存分段的默认 chunk 字节数；directive 可覆盖"`
+	QueueMaxRequests int           `json:"queue-max-requests" desc:"等待正文内存预留的最大请求数；directive 可覆盖"`
+	QueueWait        time.Duration `json:"queue-wait" desc:"请求等待正文内存预留的最长时间；directive 可覆盖"`
+	ReadTimeout      time.Duration `json:"body-read-timeout" desc:"读取请求正文的默认最长时间；directive 可覆盖"`
 }
 
 type ProxyDirective struct {
@@ -160,13 +159,12 @@ func DefaultConfig() Config {
 					MaxCallbackResponseBytes: 16 << 10,
 				},
 				BodyStore: ProxyBodyStore{
-					MemoryMaxBytes:     512 << 20,
-					MemoryPerBodyBytes: 1 << 20,
-					DiskMaxBytes:       8 << 30,
-					MaxBodyBytes:       32 << 20,
-					ChunkBytes:         64 << 10,
-					TempDir:            "${APP_DATA:-.local/data}/tmp/body-store",
-					ReadTimeout:        30 * time.Second,
+					MemoryMaxBytes:   512 << 20,
+					MaxBodyBytes:     32 << 20,
+					ChunkBytes:       64 << 10,
+					QueueMaxRequests: 512,
+					QueueWait:        15 * time.Second,
+					ReadTimeout:      30 * time.Second,
 				},
 				Directive: ProxyDirective{
 					TokenSecret:   "${DIRECTIVE_TOKEN_SECRET:?directive token HMAC secret is required}",

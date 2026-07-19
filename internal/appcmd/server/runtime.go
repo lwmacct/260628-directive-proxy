@@ -103,12 +103,10 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 	}
 	exchangeFactory := exchange.NewManager(exchange.ManagerOptions{MaxRoundTrips: cfg.Proxy.Recovery.MaxRoundTripsLimit}, programRuntime)
 	bodyStore := bodystore.New(bodystore.Config{
-		MemoryMaxBytes:     cfg.Proxy.BodyStore.MemoryMaxBytes,
-		MemoryPerBodyBytes: cfg.Proxy.BodyStore.MemoryPerBodyBytes,
-		DiskMaxBytes:       cfg.Proxy.BodyStore.DiskMaxBytes,
-		MaxBodyBytes:       cfg.Proxy.BodyStore.MaxBodyBytes,
-		ChunkBytes:         cfg.Proxy.BodyStore.ChunkBytes,
-		TempDir:            cfg.Proxy.BodyStore.TempDir,
+		MemoryMaxBytes:   cfg.Proxy.BodyStore.MemoryMaxBytes,
+		MaxBodyBytes:     cfg.Proxy.BodyStore.MaxBodyBytes,
+		ChunkBytes:       cfg.Proxy.BodyStore.ChunkBytes,
+		QueueMaxRequests: cfg.Proxy.BodyStore.QueueMaxRequests,
 	})
 	baseTransport := proxy.NewProxyAwareTransportWithOptions(http.DefaultTransport.(*http.Transport), proxy.ProxyTransportOptions{
 		MaxIdleConns:        cfg.Proxy.Transport.MaxIdleConns,
@@ -195,6 +193,9 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler pro
 	options := proxy.HandlerOptions{
 		BodyStore:       bodyStore,
 		BodyReadTimeout: cfg.Proxy.BodyStore.ReadTimeout,
+		BodyMaxBytes:    cfg.Proxy.BodyStore.MaxBodyBytes,
+		BodyQueueWait:   cfg.Proxy.BodyStore.QueueWait,
+		BodyChunkBytes:  cfg.Proxy.BodyStore.ChunkBytes,
 	}
 	if exchangeFactory != nil {
 		options.ExchangeFactory = exchangeFactory

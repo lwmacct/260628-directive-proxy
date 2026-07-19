@@ -92,12 +92,20 @@ type FileRemoteSpec struct {
 }
 
 type Payload struct {
-	Metadata map[string]string `json:"metadata,omitempty"`
-	Target   TargetSection     `json:"target"`
-	Proxy    string            `json:"proxy,omitempty"`
-	Headers  *HeaderPolicy     `json:"headers,omitempty"`
-	Modules  module.Specs      `json:"modules,omitempty"`
-	Recovery *RecoverySpec     `json:"recovery,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	Target    TargetSection     `json:"target"`
+	Proxy     string            `json:"proxy,omitempty"`
+	Headers   *HeaderPolicy     `json:"headers,omitempty"`
+	Modules   module.Specs      `json:"modules,omitempty"`
+	Recovery  *RecoverySpec     `json:"recovery,omitempty"`
+	BodyStore *BodyStoreSpec    `json:"body_store,omitempty"`
+}
+
+type BodyStoreSpec struct {
+	MaxBodyBytes *int64  `json:"max_body_bytes,omitempty"`
+	QueueWait    *string `json:"queue_wait,omitempty"`
+	ReadTimeout  *string `json:"read_timeout,omitempty"`
+	ChunkBytes   *int    `json:"chunk_bytes,omitempty"`
 }
 
 type TargetSection struct {

@@ -189,7 +189,7 @@ function parseModules(value: unknown, label: string, text: Text["authConsole"]):
 
 function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePayload {
   const input = record(value, "payload", text);
-  knownKeys(input, ["metadata", "target", "proxy", "headers", "modules", "recovery"], "payload", text);
+  knownKeys(input, ["metadata", "target", "proxy", "headers", "modules", "recovery", "body_store"], "payload", text);
   const metadata = parseMetadata(input.metadata, text);
   const targetInput = record(input.target, "payload.target", text);
   knownKeys(targetInput, ["base_url", "exact_url"], "payload.target", text);
@@ -216,7 +216,18 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
   }
   const modules = parseModules(input.modules, "payload.modules", text);
   const recovery = parseRecovery(input.recovery, text);
-  return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(modules ? { modules } : {}), ...(recovery ? { recovery } : {}) };
+  let body_store: DirectivePayload["body_store"];
+  if (input.body_store !== undefined) {
+    const body = record(input.body_store, "payload.body_store", text);
+    knownKeys(body, ["max_body_bytes", "queue_wait", "read_timeout", "chunk_bytes"], "payload.body_store", text);
+    body_store = {
+      ...(body.max_body_bytes === undefined ? {} : { max_body_bytes: integerValue(body.max_body_bytes, "payload.body_store.max_body_bytes", text, 1, 512 << 20) }),
+      ...(body.queue_wait === undefined ? {} : { queue_wait: parseBodyDuration(body.queue_wait, "payload.body_store.queue_wait", text) }),
+      ...(body.read_timeout === undefined ? {} : { read_timeout: parseBodyDuration(body.read_timeout, "payload.body_store.read_timeout", text) }),
+      ...(body.chunk_bytes === undefined ? {} : { chunk_bytes: integerValue(body.chunk_bytes, "payload.body_store.chunk_bytes", text, 4 << 10, 1 << 20) }),
+    };
+  }
+  return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(modules ? { modules } : {}), ...(recovery ? { recovery } : {}), ...(body_store ? { body_store } : {}) };
 }
 
 function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string, string> | undefined {
@@ -264,6 +275,15 @@ function parseDuration(value: unknown, label: string, text: Text["authConsole"],
   if (raw === undefined) return undefined;
   const milliseconds = durationMilliseconds(raw);
   if (milliseconds === undefined || milliseconds <= 0 || milliseconds > 600000) throw new Error(text.mustBe(label, "positive Go duration <= 10m"));
+  return raw;
+}
+
+function parseBodyDuration(value: unknown, label: string, text: Text["authConsole"]) {
+  if (value === undefined) return undefined;
+  const raw = optionalString(value, label, text);
+  if (raw === undefined) throw new Error(text.mustBe(label, "non-negative Go duration <= 10m"));
+  const milliseconds = durationMilliseconds(raw);
+  if (milliseconds === undefined || milliseconds < 0 || milliseconds > 600000) throw new Error(text.mustBe(label, "non-negative Go duration <= 10m"));
   return raw;
 }
 

@@ -414,10 +414,7 @@ func TestHandlerStreamsRequestBodyBeforeClientEOF(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
 	})
-	store := bodystore.New(bodystore.Config{
-		MemoryMaxBytes: 16, MemoryPerBodyBytes: 16, DiskMaxBytes: 64,
-		MaxBodyBytes: 16, ChunkBytes: 4, TempDir: t.TempDir(),
-	})
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 16, MaxBodyBytes: 16, ChunkBytes: 4, QueueMaxRequests: 4})
 	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
 		return resolverResult{Plan: &Plan{Target: target}}, nil
 	}), transport, HandlerOptions{BodyStore: store, BodyReadTimeout: time.Second})
@@ -450,10 +447,7 @@ func TestHandlerStreamsRequestBodyBeforeClientEOF(t *testing.T) {
 func TestHandlerAcceptsUnknownContentLength(t *testing.T) {
 	target, _ := url.Parse("https://upstream.example")
 	var upstreamCalls atomic.Int32
-	store := bodystore.New(bodystore.Config{
-		MemoryMaxBytes: 16, MemoryPerBodyBytes: 16, DiskMaxBytes: 64,
-		MaxBodyBytes: 16, ChunkBytes: 4, TempDir: t.TempDir(),
-	})
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 16, MaxBodyBytes: 16, ChunkBytes: 4, QueueMaxRequests: 4})
 	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
 		return resolverResult{Plan: &Plan{Target: target}}, nil
 	}), roundTripFunc(func(request *http.Request) (*http.Response, error) {

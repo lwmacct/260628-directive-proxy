@@ -86,15 +86,14 @@ server:
       max-captured-body-bytes: 1048576 # 异常上游响应允许捕获的最大正文大小
       max-callback-response-bytes: 16384 # Recovery Controller 决策响应最大大小
 
-    # 流式可重放请求正文的内存与磁盘配置
+    # 流式可重放请求正文的内存与排队配置
     body-store:
-      memory-max-bytes: 536870912 # 所有活动 Replay Store 使用的最大内存字节数
-      memory-per-body-bytes: 1048576 # 单个请求 spill 到磁盘前保留在内存的最大字节数
-      disk-max-bytes: 8589934592 # 所有活动 Replay Store 使用的最大临时磁盘字节数
-      max-body-bytes: 33554432 # 单个请求正文允许的最大实际字节数
-      chunk-bytes: 65536 # 正文摄取和内存分段的 chunk 字节数
-      temp-dir: "${APP_DATA:-.local/data}/tmp/body-store" # 匿名 spill 临时文件目录
-      body-read-timeout: 30s # 读取请求正文的最长时间
+      memory-max-bytes: 536870912 # 所有活动 Replay Store 预留的最大内存字节数
+      max-body-bytes: 33554432 # 单个请求正文允许的默认最大实际字节数；directive 可覆盖
+      chunk-bytes: 65536 # 正文摄取和内存分段的默认 chunk 字节数；directive 可覆盖
+      queue-max-requests: 512 # 等待正文内存预留的最大请求数；directive 可覆盖
+      queue-wait: 15s # 请求等待正文内存预留的最长时间；directive 可覆盖
+      body-read-timeout: 30s # 读取请求正文的默认最长时间；directive 可覆盖
 
     # 指令来源配置
     directive:

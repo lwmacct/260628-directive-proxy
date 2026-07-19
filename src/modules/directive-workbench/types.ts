@@ -61,6 +61,7 @@ export type EditorState = {
   headerMutations: HeaderMutation[];
   modules: EditorModuleSpec[];
   recovery: RecoveryEditorState;
+  bodyStore?: BodyStoreSpec;
 };
 
 export type ModuleSpec = {
@@ -75,6 +76,14 @@ export type DirectivePayload = {
   headers?: DirectiveHeaderPolicy;
   modules?: ModuleSpec[];
   recovery?: RecoverySpec;
+  body_store?: BodyStoreSpec;
+};
+
+export type BodyStoreSpec = {
+  max_body_bytes?: number;
+  queue_wait?: string;
+  read_timeout?: string;
+  chunk_bytes?: number;
 };
 
 export type DirectiveHeaderMutation = {

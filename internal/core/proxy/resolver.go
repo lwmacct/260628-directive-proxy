@@ -27,21 +27,35 @@ type Resolver interface {
 // Payload validation and Program compilation are complete before this value is
 // constructed; every RoundTrip consumes the same Plan and Recovery policy.
 type PreparedDirective struct {
-	source   DirectiveSource
-	plan     *Plan
-	program  *program.Executable
-	recovery *recovery.Policy
-	metadata metadata.Set
+	source     DirectiveSource
+	plan       *Plan
+	program    *program.Executable
+	recovery   *recovery.Policy
+	metadata   metadata.Set
+	bodyPolicy *BodyPolicy
 }
 
-func NewPreparedDirective(source DirectiveSource, plan *Plan, executable *program.Executable, policy *recovery.Policy, fields metadata.Set) (*PreparedDirective, error) {
+func NewPreparedDirective(source DirectiveSource, plan *Plan, executable *program.Executable, policy *recovery.Policy, fields metadata.Set, bodyPolicy ...*BodyPolicy) (*PreparedDirective, error) {
 	if plan == nil || plan.Target == nil || policy != nil && policy.Controller == nil {
 		return nil, ErrInvalidDirective
 	}
 	cloned := ClonePlan(plan)
+	var configuredBodyPolicy *BodyPolicy
+	if len(bodyPolicy) > 0 && bodyPolicy[0] != nil {
+		value := *bodyPolicy[0]
+		configuredBodyPolicy = &value
+	}
 	return &PreparedDirective{
-		source: source, plan: cloned, program: executable, recovery: recovery.ClonePolicy(policy), metadata: fields,
+		source: source, plan: cloned, program: executable, recovery: recovery.ClonePolicy(policy), metadata: fields, bodyPolicy: configuredBodyPolicy,
 	}, nil
+}
+
+func (prepared *PreparedDirective) BodyPolicy() *BodyPolicy {
+	if prepared == nil || prepared.bodyPolicy == nil {
+		return nil
+	}
+	value := *prepared.bodyPolicy
+	return &value
 }
 
 func (prepared *PreparedDirective) Source() DirectiveSource {

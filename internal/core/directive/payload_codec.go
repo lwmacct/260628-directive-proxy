@@ -135,6 +135,13 @@ func normalizePayload(payload Payload) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
+	if payload.BodyStore != nil {
+		bodyStore := *payload.BodyStore
+		if bodyStore.MaxBodyBytes != nil && *bodyStore.MaxBodyBytes <= 0 || bodyStore.ChunkBytes != nil && *bodyStore.ChunkBytes <= 0 {
+			return Payload{}, ErrInvalidPayload
+		}
+		payload.BodyStore = &bodyStore
+	}
 	payload.Target = target
 	payload.Metadata = compiledMetadata.Map()
 	payload.Modules = modules

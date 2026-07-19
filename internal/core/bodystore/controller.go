@@ -1,54 +1,63 @@
 package bodystore
 
 import (
+	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"sync"
+	"time"
 )
 
 var (
 	ErrBodyTooLarge  = errors.New("request body exceeds replay store limit")
 	ErrStoreCapacity = errors.New("request body replay store capacity is exhausted")
+	ErrQueueFull     = errors.New("request body replay store queue is full")
+	ErrQueueTimeout  = errors.New("request body replay store queue wait timed out")
 	ErrStoreRetired  = errors.New("request body replay store is retired")
 	ErrStoreClosed   = errors.New("request body replay store is closed")
 )
 
-const defaultChunkBytes = 64 << 10
-
 type Config struct {
-	MemoryMaxBytes     int64
-	MemoryPerBodyBytes int64
-	DiskMaxBytes       int64
-	MaxBodyBytes       int64
-	ChunkBytes         int
-	TempDir            string
+	MemoryMaxBytes   int64
+	MaxBodyBytes     int64
+	ChunkBytes       int
+	QueueMaxRequests int
+}
+
+type StreamOptions struct {
+	MaxBodyBytes int64
+	QueueWait    time.Duration
+	ChunkBytes   int
 }
 
 type Controller struct {
 	config Config
 
-	mu         sync.Mutex
-	memoryUsed int64
-	diskUsed   int64
-	tempOnce   sync.Once
-	tempDir    string
-	tempErr    error
+	mu    sync.Mutex
+	used  int64
+	queue []*waiter
+}
+
+type waiter struct {
+	size    int64
+	ready   chan *Reservation
+	granted bool
+}
+
+type Reservation struct {
+	controller *Controller
+	size       int64
+	once       sync.Once
 }
 
 type Snapshot struct {
 	MemoryUsedBytes      int64
 	MemoryAvailableBytes int64
-	DiskUsedBytes        int64
-	DiskAvailableBytes   int64
+	QueuedRequests       int
 }
 
 func New(config Config) *Controller {
 	if config.ChunkBytes <= 0 {
-		config.ChunkBytes = defaultChunkBytes
-	}
-	if config.MemoryPerBodyBytes > config.MaxBodyBytes && config.MaxBodyBytes > 0 {
-		config.MemoryPerBodyBytes = config.MaxBodyBytes
+		config.ChunkBytes = 64 << 10
 	}
 	return &Controller{config: config}
 }
@@ -59,99 +68,140 @@ func (c *Controller) Snapshot() Snapshot {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return Snapshot{
-		MemoryUsedBytes:      c.memoryUsed,
-		MemoryAvailableBytes: available(c.config.MemoryMaxBytes, c.memoryUsed),
-		DiskUsedBytes:        c.diskUsed,
-		DiskAvailableBytes:   available(c.config.DiskMaxBytes, c.diskUsed),
+	available := c.config.MemoryMaxBytes - c.used
+	if available < 0 {
+		available = 0
 	}
+	return Snapshot{MemoryUsedBytes: c.used, MemoryAvailableBytes: available, QueuedRequests: len(c.queue)}
 }
 
-func available(limit, used int64) int64 {
-	remaining := limit - used
-	if remaining < 0 {
+func (r *Reservation) Size() int64 {
+	if r == nil {
 		return 0
 	}
-	return remaining
+	return r.size
 }
 
-func (c *Controller) tryReserveMemory(size int64) bool {
-	if c == nil || size < 0 {
-		return false
-	}
-	if size == 0 {
-		return true
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.config.MemoryMaxBytes <= 0 || c.memoryUsed+size > c.config.MemoryMaxBytes {
-		return false
-	}
-	c.memoryUsed += size
-	return true
-}
-
-func (c *Controller) releaseMemory(size int64) {
-	if c == nil || size <= 0 {
+func (r *Reservation) Close() {
+	if r == nil || r.controller == nil || r.size == 0 {
 		return
 	}
-	c.mu.Lock()
-	c.memoryUsed -= size
-	if c.memoryUsed < 0 {
-		c.memoryUsed = 0
-	}
-	c.mu.Unlock()
+	r.once.Do(func() { r.controller.release(r.size) })
 }
 
-func (c *Controller) tryReserveDisk(size int64) bool {
-	if c == nil || size < 0 {
-		return false
-	}
-	if size == 0 {
-		return true
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.config.DiskMaxBytes <= 0 || c.diskUsed+size > c.config.DiskMaxBytes {
-		return false
-	}
-	c.diskUsed += size
-	return true
-}
-
-func (c *Controller) releaseDisk(size int64) {
-	if c == nil || size <= 0 {
-		return
-	}
-	c.mu.Lock()
-	c.diskUsed -= size
-	if c.diskUsed < 0 {
-		c.diskUsed = 0
-	}
-	c.mu.Unlock()
-}
-
-func (c *Controller) createTempFile() (*os.File, string, error) {
+func (c *Controller) Admit(ctx context.Context, expected, maxBodyBytes int64, queueWait time.Duration) (*Reservation, error) {
 	if c == nil {
-		return nil, "", ErrStoreCapacity
+		return nil, ErrStoreCapacity
 	}
-	c.tempOnce.Do(func() {
-		c.tempDir = c.config.TempDir
-		if c.tempDir == "" {
-			c.tempDir = filepath.Join(os.TempDir(), "dp-body-store")
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = c.config.MaxBodyBytes
+	}
+	if maxBodyBytes <= 0 || expected > maxBodyBytes {
+		return nil, ErrBodyTooLarge
+	}
+	reserveSize := maxBodyBytes
+	if expected >= 0 {
+		reserveSize = expected
+	}
+	return c.admit(ctx, reserveSize, queueWait)
+}
+
+func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) (*Reservation, error) {
+	if c == nil {
+		return nil, ErrStoreCapacity
+	}
+	if size < 0 {
+		return nil, ErrBodyTooLarge
+	}
+	if size > c.config.MemoryMaxBytes {
+		return nil, ErrStoreCapacity
+	}
+	if size == 0 {
+		return &Reservation{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.mu.Lock()
+	if len(c.queue) == 0 && c.used+size <= c.config.MemoryMaxBytes {
+		reservation := c.grantLocked(size)
+		c.mu.Unlock()
+		return reservation, nil
+	}
+	if c.config.QueueMaxRequests <= 0 || len(c.queue) >= c.config.QueueMaxRequests {
+		c.mu.Unlock()
+		return nil, ErrQueueFull
+	}
+	item := &waiter{size: size, ready: make(chan *Reservation, 1)}
+	c.queue = append(c.queue, item)
+	c.mu.Unlock()
+
+	waitCtx := ctx
+	cancel := func() {}
+	if wait >= 0 {
+		waitCtx, cancel = context.WithTimeout(ctx, wait)
+	}
+	defer cancel()
+	select {
+	case reservation := <-item.ready:
+		if err := waitCtx.Err(); err != nil {
+			reservation.Close()
+			return nil, admissionContextError(err, ctx.Err())
 		}
-		c.tempErr = os.MkdirAll(c.tempDir, 0o700)
-	})
-	if c.tempErr != nil {
-		return nil, "", c.tempErr
+		return reservation, nil
+	case <-waitCtx.Done():
+		c.mu.Lock()
+		if !item.granted {
+			for index, queued := range c.queue {
+				if queued == item {
+					c.queue = append(c.queue[:index], c.queue[index+1:]...)
+					break
+				}
+			}
+			c.dispatchLocked()
+			c.mu.Unlock()
+			return nil, admissionContextError(waitCtx.Err(), ctx.Err())
+		}
+		c.mu.Unlock()
+		reservation := <-item.ready
+		reservation.Close()
+		return nil, admissionContextError(waitCtx.Err(), ctx.Err())
 	}
-	file, err := os.CreateTemp(c.tempDir, "body-*")
-	if err != nil {
-		return nil, "", err
+}
+
+func admissionContextError(waitErr, parentErr error) error {
+	if parentErr != nil {
+		return parentErr
 	}
-	path := file.Name()
-	if removeErr := os.Remove(path); removeErr == nil {
-		path = ""
+	if errors.Is(waitErr, context.DeadlineExceeded) {
+		return ErrQueueTimeout
 	}
-	return file, path, nil
+	return waitErr
+}
+
+func (c *Controller) grantLocked(size int64) *Reservation {
+	c.used += size
+	return &Reservation{controller: c, size: size}
+}
+
+func (c *Controller) release(size int64) {
+	c.mu.Lock()
+	c.used -= size
+	if c.used < 0 {
+		c.used = 0
+	}
+	c.dispatchLocked()
+	c.mu.Unlock()
+}
+
+func (c *Controller) dispatchLocked() {
+	for len(c.queue) > 0 {
+		next := c.queue[0]
+		if c.used+next.size > c.config.MemoryMaxBytes {
+			return
+		}
+		c.queue = c.queue[1:]
+		next.granted = true
+		next.ready <- c.grantLocked(next.size)
+	}
 }

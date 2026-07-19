@@ -93,7 +93,7 @@ Recovery 由 `exchange.RecoveryCycle` 持有，使用同一个 `event_id=<trace_
 
 请求正文只由 ingest goroutine 读取一次并追加到 Replay Store。`RequestBodyChunk` 在字节对上游可见前形成提交 barrier；RoundTrip reader 可以读取已保存前缀并在当前尾部等待。
 
-Store 按实际字节限制正文大小，支持未知 `Content-Length`，以内存分段保存小正文并将较大正文 spill 到匿名临时文件。Recovery `retry` 后的新 reader 从 offset 0 重放；最终响应被接受后 Store retire，仍在工作的 reader/ingest 结束后释放存储，不等待长时间下游流结束。
+Store 只使用进程内分段内存，不创建任何持久化或临时文件。请求在开始读取正文前先按已知 `Content-Length` 或 directive 的最大正文大小申请内存 reservation；容量不足时进入有界 FIFO，队列满或等待超时返回 `503`，由多实例调用方重新分流。Recovery `retry` 后的新 reader 从 offset 0 重放；最终响应被接受后 Store retire，仍在工作的 reader/ingest 结束后释放 reservation，不等待长时间下游流结束。
 
 ## 响应提交边界
 

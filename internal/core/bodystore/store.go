@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sync"
 )
 
@@ -24,29 +23,28 @@ type Result struct {
 }
 
 type Store struct {
-	controller *Controller
-	expected   int64
-	observer   Observer
-	ctx        context.Context
-	cancel     context.CancelFunc
-	source     io.ReadCloser
+	controller  *Controller
+	reservation *Reservation
+	expected    int64
+	maxBody     int64
+	chunkBytes  int
+	observer    Observer
+	ctx         context.Context
+	cancel      context.CancelFunc
+	source      io.ReadCloser
 
-	mu          sync.Mutex
-	notify      chan struct{}
-	done        chan struct{}
-	chunks      [][]byte
-	file        *os.File
-	filePath    string
-	size        int64
-	memoryBytes int64
-	diskBytes   int64
-	refs        int64
-	ingesting   bool
-	retired     bool
-	discarding  bool
-	complete    bool
-	cleaned     bool
-	result      Result
+	mu         sync.Mutex
+	notify     chan struct{}
+	done       chan struct{}
+	chunks     [][]byte
+	size       int64
+	refs       int64
+	ingesting  bool
+	retired    bool
+	discarding bool
+	complete   bool
+	cleaned    bool
+	result     Result
 
 	ownerOnce  sync.Once
 	closeOnce  sync.Once
@@ -61,12 +59,7 @@ type Reader struct {
 }
 
 func Empty(observer Observer) *Store {
-	store := &Store{
-		observer: observer,
-		notify:   make(chan struct{}),
-		done:     make(chan struct{}),
-		refs:     1,
-	}
+	store := &Store{observer: observer, notify: make(chan struct{}), done: make(chan struct{}), refs: 1}
 	result := Result{SHA256: emptyDigest(), Complete: true}
 	if observer.End != nil {
 		observer.End(result)
@@ -75,29 +68,63 @@ func Empty(observer Observer) *Store {
 	return store
 }
 
-func (c *Controller) Stream(ctx context.Context, source io.ReadCloser, expected int64, observer Observer) (*Store, error) {
+func (c *Controller) Stream(ctx context.Context, source io.ReadCloser, expected int64, observer Observer, options ...StreamOptions) (*Store, error) {
+	var configured StreamOptions
+	if len(options) > 0 {
+		configured = options[0]
+	}
+	return c.stream(ctx, source, expected, observer, configured, nil)
+}
+
+func (c *Controller) StreamWithReservation(ctx context.Context, source io.ReadCloser, expected int64, observer Observer, options StreamOptions, reservation *Reservation) (*Store, error) {
+	return c.stream(ctx, source, expected, observer, options, reservation)
+}
+
+func (c *Controller) stream(ctx context.Context, source io.ReadCloser, expected int64, observer Observer, streamOptions StreamOptions, reservation *Reservation) (*Store, error) {
 	if c == nil {
 		return nil, ErrStoreCapacity
 	}
-	if expected > c.config.MaxBodyBytes && c.config.MaxBodyBytes > 0 {
+	if streamOptions.MaxBodyBytes == 0 {
+		streamOptions.MaxBodyBytes = c.config.MaxBodyBytes
+	}
+	if streamOptions.MaxBodyBytes <= 0 {
+		streamOptions.MaxBodyBytes = c.config.MaxBodyBytes
+	}
+	if streamOptions.ChunkBytes <= 0 {
+		streamOptions.ChunkBytes = c.config.ChunkBytes
+	}
+	if streamOptions.MaxBodyBytes <= 0 {
 		return nil, ErrBodyTooLarge
+	}
+	if expected > streamOptions.MaxBodyBytes {
+		return nil, ErrBodyTooLarge
+	}
+	reserveSize := streamOptions.MaxBodyBytes
+	if expected >= 0 {
+		reserveSize = expected
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if reservation == nil {
+		var err error
+		reservation, err = c.admit(ctx, reserveSize, streamOptions.QueueWait)
+		if err != nil {
+			return nil, err
+		}
+	} else if reservation.Size() < reserveSize {
+		reservation.Close()
+		return nil, ErrStoreCapacity
+	}
 	streamCtx, cancel := context.WithCancel(ctx)
 	store := &Store{
-		controller: c,
-		expected:   expected,
-		observer:   observer,
-		ctx:        streamCtx,
-		cancel:     cancel,
-		source:     source,
-		notify:     make(chan struct{}),
-		done:       make(chan struct{}),
-		refs:       1,
+		controller: c, reservation: reservation, expected: expected, maxBody: streamOptions.MaxBodyBytes,
+		chunkBytes: streamOptions.ChunkBytes, observer: observer, ctx: streamCtx, cancel: cancel,
+		source: source, notify: make(chan struct{}), done: make(chan struct{}), refs: 1,
 	}
 	if source == nil {
+		reservation.Close()
+		store.reservation = nil
 		result := Result{SHA256: emptyDigest(), Complete: true}
 		if observer.End != nil {
 			observer.End(result)
@@ -197,9 +224,7 @@ func (s *Store) ContentLength() int64 {
 		return 0
 	}
 	s.mu.Lock()
-	expected := s.expected
-	complete := s.complete
-	size := s.size
+	expected, complete, size := s.expected, s.complete, s.size
 	s.mu.Unlock()
 	if expected >= 0 {
 		return expected
@@ -234,7 +259,7 @@ func (s *Store) ingest() {
 			terminalErr = err
 			return
 		}
-		buffer := make([]byte, s.controller.config.ChunkBytes)
+		buffer := make([]byte, s.chunkBytes)
 		n, readErr := s.source.Read(buffer)
 		if n > 0 {
 			data := buffer[:n:n]
@@ -242,7 +267,7 @@ func (s *Store) ingest() {
 				terminalErr = fmt.Errorf("request body exceeds declared content length: %w", io.ErrUnexpectedEOF)
 				return
 			}
-			if s.controller.config.MaxBodyBytes > 0 && total+int64(n) > s.controller.config.MaxBodyBytes {
+			if total+int64(n) > s.maxBody {
 				terminalErr = ErrBodyTooLarge
 				return
 			}
@@ -253,10 +278,7 @@ func (s *Store) ingest() {
 				}
 			}
 			_, _ = hasher.Write(data)
-			if err := s.append(data); err != nil {
-				terminalErr = err
-				return
-			}
+			s.append(data)
 			total += int64(n)
 		}
 		if readErr != nil {
@@ -276,102 +298,15 @@ func (s *Store) ingest() {
 	}
 }
 
-func (s *Store) append(data []byte) error {
+func (s *Store) append(data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cleaned {
-		return ErrStoreClosed
+	if s.cleaned || s.discarding {
+		return
 	}
-	if s.discarding {
-		s.size += int64(len(data))
-		s.signalLocked()
-		return nil
-	}
-	if s.file != nil {
-		return s.appendFileLocked(data)
-	}
-	size := int64(len(data))
-	withinPerBody := s.controller.config.MemoryPerBodyBytes > 0 && s.memoryBytes+size <= s.controller.config.MemoryPerBodyBytes
-	if withinPerBody && s.controller.tryReserveMemory(size) {
-		s.chunks = append(s.chunks, data)
-		s.memoryBytes += size
-		s.size += size
-		s.signalLocked()
-		return nil
-	}
-	return s.spillLocked(data)
-}
-
-func (s *Store) spillLocked(data []byte) error {
-	additional := int64(len(data))
-	totalDisk := s.memoryBytes + additional
-	if !s.controller.tryReserveDisk(totalDisk) {
-		return ErrStoreCapacity
-	}
-	file, path, err := s.controller.createTempFile()
-	if err != nil {
-		s.controller.releaseDisk(totalDisk)
-		return fmt.Errorf("create request body spill file: %w", err)
-	}
-	offset := int64(0)
-	for _, chunk := range s.chunks {
-		if err := writeAtFull(file, chunk, offset); err != nil {
-			_ = file.Close()
-			if path != "" {
-				_ = os.Remove(path)
-			}
-			s.controller.releaseDisk(totalDisk)
-			return err
-		}
-		offset += int64(len(chunk))
-	}
-	if err := writeAtFull(file, data, offset); err != nil {
-		_ = file.Close()
-		if path != "" {
-			_ = os.Remove(path)
-		}
-		s.controller.releaseDisk(totalDisk)
-		return err
-	}
-	s.controller.releaseMemory(s.memoryBytes)
-	s.chunks = nil
-	s.memoryBytes = 0
-	s.file = file
-	s.filePath = path
-	s.diskBytes = totalDisk
-	s.size += additional
+	s.chunks = append(s.chunks, data)
+	s.size += int64(len(data))
 	s.signalLocked()
-	return nil
-}
-
-func (s *Store) appendFileLocked(data []byte) error {
-	size := int64(len(data))
-	if !s.controller.tryReserveDisk(size) {
-		return ErrStoreCapacity
-	}
-	if err := writeAtFull(s.file, data, s.size); err != nil {
-		s.controller.releaseDisk(size)
-		return err
-	}
-	s.diskBytes += size
-	s.size += size
-	s.signalLocked()
-	return nil
-}
-
-func writeAtFull(file *os.File, data []byte, offset int64) error {
-	for len(data) > 0 {
-		n, err := file.WriteAt(data, offset)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			return io.ErrShortWrite
-		}
-		data = data[n:]
-		offset += int64(n)
-	}
-	return nil
 }
 
 func (s *Store) finish(result Result) {
@@ -415,7 +350,11 @@ func (s *Store) releaseRefLocked() {
 		s.refs--
 	}
 	if s.retired && s.ingesting && s.refs == 1 && !s.discarding {
-		s.discardStorageLocked()
+		s.chunks = nil
+		if s.reservation != nil {
+			s.reservation.Close()
+			s.reservation = nil
+		}
 		s.discarding = true
 	}
 	if s.refs == 0 {
@@ -423,31 +362,15 @@ func (s *Store) releaseRefLocked() {
 	}
 }
 
-func (s *Store) discardStorageLocked() {
-	if s.memoryBytes > 0 {
-		s.controller.releaseMemory(s.memoryBytes)
-		s.memoryBytes = 0
-		s.chunks = nil
-	}
-	if s.file != nil {
-		_ = s.file.Close()
-		s.file = nil
-	}
-	if s.filePath != "" {
-		_ = os.Remove(s.filePath)
-		s.filePath = ""
-	}
-	if s.diskBytes > 0 {
-		s.controller.releaseDisk(s.diskBytes)
-		s.diskBytes = 0
-	}
-}
-
 func (s *Store) cleanupLocked() {
 	if s.cleaned {
 		return
 	}
-	s.discardStorageLocked()
+	s.chunks = nil
+	if s.reservation != nil {
+		s.reservation.Close()
+		s.reservation = nil
+	}
 	s.cleaned = true
 }
 
@@ -466,10 +389,10 @@ func (r *Reader) Read(data []byte) (int, error) {
 			if int64(len(data)) > available {
 				data = data[:available]
 			}
-			n, err := store.readAtLocked(data, r.offset)
+			n := store.readAtLocked(data, r.offset)
 			r.offset += int64(n)
 			store.mu.Unlock()
-			return n, err
+			return n, nil
 		}
 		if store.complete {
 			err := store.result.Err
@@ -492,14 +415,7 @@ func (r *Reader) Read(data []byte) (int, error) {
 	}
 }
 
-func (s *Store) readAtLocked(data []byte, offset int64) (int, error) {
-	if s.file != nil {
-		n, err := s.file.ReadAt(data, offset)
-		if errors.Is(err, io.EOF) && n > 0 {
-			err = nil
-		}
-		return n, err
-	}
+func (s *Store) readAtLocked(data []byte, offset int64) int {
 	remainingOffset := offset
 	written := 0
 	for _, chunk := range s.chunks {
@@ -514,10 +430,7 @@ func (s *Store) readAtLocked(data []byte, offset int64) (int, error) {
 			break
 		}
 	}
-	if written == 0 && len(data) > 0 {
-		return 0, io.ErrUnexpectedEOF
-	}
-	return written, nil
+	return written
 }
 
 func (r *Reader) Close() error {
