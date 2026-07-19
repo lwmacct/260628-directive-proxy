@@ -33,7 +33,7 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
-	health := newHealthHandler(rt.programRuntime, rt.eventOutput)
+	health := newHealthHandler(rt.programRuntime, rt.eventOutput, rt.bodyStore)
 	fallback := newFallbackHTTPHandler(rt)
 	directiveProxy := newProxyHandler(cfg, rt.directiveRemotes, rt.programRuntime, rt.recoveryCompiler, rt.exchangeFactory, rt.bodyStore, rt.proxyTransport)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {

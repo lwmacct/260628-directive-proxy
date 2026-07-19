@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,9 +33,14 @@ type StreamOptions struct {
 type Controller struct {
 	config Config
 
-	mu    sync.Mutex
-	used  int64
-	queue []*waiter
+	mu                sync.Mutex
+	used              int64
+	queue             []*waiter
+	admittedTotal     atomic.Uint64
+	queueFullTotal    atomic.Uint64
+	queueTimeoutTotal atomic.Uint64
+	canceledTotal     atomic.Uint64
+	maxQueueWaitNano  atomic.Int64
 }
 
 type waiter struct {
@@ -53,6 +59,11 @@ type Snapshot struct {
 	MemoryUsedBytes      int64
 	MemoryAvailableBytes int64
 	QueuedRequests       int
+	AdmittedTotal        uint64
+	QueueFullTotal       uint64
+	QueueTimeoutTotal    uint64
+	CanceledTotal        uint64
+	MaxQueueWaitNanos    int64
 }
 
 func New(config Config) *Controller {
@@ -72,7 +83,12 @@ func (c *Controller) Snapshot() Snapshot {
 	if available < 0 {
 		available = 0
 	}
-	return Snapshot{MemoryUsedBytes: c.used, MemoryAvailableBytes: available, QueuedRequests: len(c.queue)}
+	return Snapshot{
+		MemoryUsedBytes: c.used, MemoryAvailableBytes: available, QueuedRequests: len(c.queue),
+		AdmittedTotal: c.admittedTotal.Load(), QueueFullTotal: c.queueFullTotal.Load(),
+		QueueTimeoutTotal: c.queueTimeoutTotal.Load(), CanceledTotal: c.canceledTotal.Load(),
+		MaxQueueWaitNanos: c.maxQueueWaitNano.Load(),
+	}
 }
 
 func (r *Reservation) Size() int64 {
@@ -89,7 +105,7 @@ func (r *Reservation) Close() {
 	r.once.Do(func() { r.controller.release(r.size) })
 }
 
-func (c *Controller) Admit(ctx context.Context, expected, maxBodyBytes int64, queueWait time.Duration) (*Reservation, error) {
+func (c *Controller) Admit(ctx context.Context, expected, maxBodyBytes int64, queueWait time.Duration, chunkBytes int) (*Reservation, error) {
 	if c == nil {
 		return nil, ErrStoreCapacity
 	}
@@ -99,11 +115,25 @@ func (c *Controller) Admit(ctx context.Context, expected, maxBodyBytes int64, qu
 	if maxBodyBytes <= 0 || expected > maxBodyBytes {
 		return nil, ErrBodyTooLarge
 	}
-	reserveSize := maxBodyBytes
+	chunkBytes = normalizeChunkBytes(chunkBytes, c.config.ChunkBytes)
+	reserveSize := maxBodyBytes + int64(chunkBytes)
 	if expected >= 0 {
-		reserveSize = expected
+		reserveSize = expected + int64(chunkBytes)
+	}
+	if reserveSize < 0 {
+		return nil, ErrBodyTooLarge
 	}
 	return c.admit(ctx, reserveSize, queueWait)
+}
+
+func normalizeChunkBytes(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 64 << 10
 }
 
 func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) (*Reservation, error) {
@@ -126,13 +156,16 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 	if len(c.queue) == 0 && c.used+size <= c.config.MemoryMaxBytes {
 		reservation := c.grantLocked(size)
 		c.mu.Unlock()
+		c.admittedTotal.Add(1)
 		return reservation, nil
 	}
 	if c.config.QueueMaxRequests <= 0 || len(c.queue) >= c.config.QueueMaxRequests {
 		c.mu.Unlock()
+		c.queueFullTotal.Add(1)
 		return nil, ErrQueueFull
 	}
 	item := &waiter{size: size, ready: make(chan *Reservation, 1)}
+	queuedAt := time.Now()
 	c.queue = append(c.queue, item)
 	c.mu.Unlock()
 
@@ -144,10 +177,13 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 	defer cancel()
 	select {
 	case reservation := <-item.ready:
+		c.recordQueueWait(time.Since(queuedAt))
 		if err := waitCtx.Err(); err != nil {
 			reservation.Close()
+			c.recordAdmissionFailure(err, ctx.Err())
 			return nil, admissionContextError(err, ctx.Err())
 		}
+		c.admittedTotal.Add(1)
 		return reservation, nil
 	case <-waitCtx.Done():
 		c.mu.Lock()
@@ -160,12 +196,35 @@ func (c *Controller) admit(ctx context.Context, size int64, wait time.Duration) 
 			}
 			c.dispatchLocked()
 			c.mu.Unlock()
+			c.recordQueueWait(time.Since(queuedAt))
+			c.recordAdmissionFailure(waitCtx.Err(), ctx.Err())
 			return nil, admissionContextError(waitCtx.Err(), ctx.Err())
 		}
 		c.mu.Unlock()
 		reservation := <-item.ready
 		reservation.Close()
+		c.recordQueueWait(time.Since(queuedAt))
+		c.recordAdmissionFailure(waitCtx.Err(), ctx.Err())
 		return nil, admissionContextError(waitCtx.Err(), ctx.Err())
+	}
+}
+
+func (c *Controller) recordQueueWait(wait time.Duration) {
+	for {
+		current := c.maxQueueWaitNano.Load()
+		if wait.Nanoseconds() <= current || c.maxQueueWaitNano.CompareAndSwap(current, wait.Nanoseconds()) {
+			return
+		}
+	}
+}
+
+func (c *Controller) recordAdmissionFailure(waitErr, parentErr error) {
+	if parentErr != nil || errors.Is(waitErr, context.Canceled) {
+		c.canceledTotal.Add(1)
+		return
+	}
+	if errors.Is(waitErr, context.DeadlineExceeded) {
+		c.queueTimeoutTotal.Add(1)
 	}
 }
 

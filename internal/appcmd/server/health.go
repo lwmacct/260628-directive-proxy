@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
@@ -12,10 +13,15 @@ import (
 type healthHandler struct {
 	modules     program.HealthProvider
 	eventOutput event.HealthProvider
+	bodyStore   *bodystore.Controller
 }
 
-func newHealthHandler(modules program.HealthProvider, eventOutput event.HealthProvider) http.Handler {
-	return &healthHandler{modules: modules, eventOutput: eventOutput}
+func newHealthHandler(modules program.HealthProvider, eventOutput event.HealthProvider, bodyStores ...*bodystore.Controller) http.Handler {
+	var bodyStore *bodystore.Controller
+	if len(bodyStores) > 0 {
+		bodyStore = bodyStores[0]
+	}
+	return &healthHandler{modules: modules, eventOutput: eventOutput, bodyStore: bodyStore}
 }
 
 func (handler *healthHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -38,6 +44,16 @@ func (handler *healthHandler) snapshot() HealthResponse {
 		EventOutput: EventOutputHealth{
 			Status: "disabled", Sink: OutputHealth{Type: "fluent", Status: "disabled"},
 		},
+		BodyStore: BodyStoreHealth{Status: "unavailable"},
+	}
+	if handler != nil && handler.bodyStore != nil {
+		snapshot := handler.bodyStore.Snapshot()
+		response.BodyStore = BodyStoreHealth{
+			Status: "ok", MemoryUsedBytes: snapshot.MemoryUsedBytes, MemoryAvailableBytes: snapshot.MemoryAvailableBytes,
+			QueuedRequests: snapshot.QueuedRequests, AdmittedTotal: snapshot.AdmittedTotal,
+			QueueFullTotal: snapshot.QueueFullTotal, QueueTimeoutTotal: snapshot.QueueTimeoutTotal,
+			CanceledTotal: snapshot.CanceledTotal, MaxQueueWaitMS: snapshot.MaxQueueWaitNanos / int64(time.Millisecond),
+		}
 	}
 	if handler != nil && handler.modules != nil {
 		health := handler.modules.ModuleHealth()

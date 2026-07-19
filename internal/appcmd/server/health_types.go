@@ -7,6 +7,19 @@ type HealthResponse struct {
 	Timestamp   time.Time           `json:"timestamp"`
 	Modules     ModuleRuntimeHealth `json:"modules"`
 	EventOutput EventOutputHealth   `json:"event_output"`
+	BodyStore   BodyStoreHealth     `json:"body_store"`
+}
+
+type BodyStoreHealth struct {
+	Status               string `json:"status"`
+	MemoryUsedBytes      int64  `json:"memory_used_bytes"`
+	MemoryAvailableBytes int64  `json:"memory_available_bytes"`
+	QueuedRequests       int    `json:"queued_requests"`
+	AdmittedTotal        uint64 `json:"admitted_total"`
+	QueueFullTotal       uint64 `json:"queue_full_total"`
+	QueueTimeoutTotal    uint64 `json:"queue_timeout_total"`
+	CanceledTotal        uint64 `json:"canceled_total"`
+	MaxQueueWaitMS       int64  `json:"max_queue_wait_ms"`
 }
 
 type ModuleRuntimeHealth struct {

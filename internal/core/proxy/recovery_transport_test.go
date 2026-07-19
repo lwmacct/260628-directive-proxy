@@ -527,7 +527,7 @@ func recoveryTestContext(t *testing.T, inbound *http.Request, current *exchange.
 		_ = inbound.Body.Close()
 		inbound.Body = http.NoBody
 	}
-	controller := bodystore.New(bodystore.Config{MemoryMaxBytes: 1 << 20, MaxBodyBytes: 1 << 20, ChunkBytes: 4 << 10, QueueMaxRequests: 8})
+	controller := bodystore.New(bodystore.Config{MemoryMaxBytes: 2 << 20, MaxBodyBytes: 1 << 20, ChunkBytes: 4 << 10, QueueMaxRequests: 8})
 	body, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader(string(data))), int64(len(data)), bodystore.Observer{})
 	if err != nil {
 		t.Fatal(err)

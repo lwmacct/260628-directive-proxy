@@ -249,9 +249,14 @@ func (h *Handler) startRequestBody(w http.ResponseWriter, r *http.Request, curre
 			chunkBytes = policy.ChunkBytes
 		}
 	}
-	reservation, err := h.bodyStore.Admit(r.Context(), r.ContentLength, maxBodyBytes, queueWait)
+	reservation, err := h.bodyStore.Admit(r.Context(), r.ContentLength, maxBodyBytes, queueWait, chunkBytes)
 	if err != nil {
 		return nil, err
+	}
+	// Start the read timeout only after admission; install it before launching
+	// ingestion so the first blocked read is covered as well.
+	if readTimeout > 0 {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(readTimeout))
 	}
 	if current != nil {
 		current.BeginBodyStream()
@@ -260,9 +265,6 @@ func (h *Handler) startRequestBody(w http.ResponseWriter, r *http.Request, curre
 	if err != nil {
 		reservation.Close()
 		return nil, err
-	}
-	if readTimeout > 0 {
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(readTimeout))
 	}
 	r.Body = http.NoBody
 	return body, nil

@@ -91,7 +91,7 @@ func (c *Controller) stream(ctx context.Context, source io.ReadCloser, expected 
 		streamOptions.MaxBodyBytes = c.config.MaxBodyBytes
 	}
 	if streamOptions.ChunkBytes <= 0 {
-		streamOptions.ChunkBytes = c.config.ChunkBytes
+		streamOptions.ChunkBytes = normalizeChunkBytes(0, c.config.ChunkBytes)
 	}
 	if streamOptions.MaxBodyBytes <= 0 {
 		return nil, ErrBodyTooLarge
@@ -108,11 +108,11 @@ func (c *Controller) stream(ctx context.Context, source io.ReadCloser, expected 
 	}
 	if reservation == nil {
 		var err error
-		reservation, err = c.admit(ctx, reserveSize, streamOptions.QueueWait)
+		reservation, err = c.admit(ctx, reserveSize+int64(streamOptions.ChunkBytes), streamOptions.QueueWait)
 		if err != nil {
 			return nil, err
 		}
-	} else if reservation.Size() < reserveSize {
+	} else if reservation.Size() < reserveSize+int64(streamOptions.ChunkBytes) {
 		reservation.Close()
 		return nil, ErrStoreCapacity
 	}

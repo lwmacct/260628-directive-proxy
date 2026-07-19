@@ -53,7 +53,7 @@ export function buildPayload(input: EditorState): DirectivePayload {
   if (input.modules.length) payload.modules = buildModules(input.modules);
   const recovery = buildRecovery(input.recovery);
   if (recovery) payload.recovery = recovery;
-  if (input.bodyStore) payload.body_store = input.bodyStore;
+  if (input.bodyStore && Object.values(input.bodyStore).some((value) => value !== undefined && value !== "")) payload.body_store = input.bodyStore;
   return payload;
 }
 

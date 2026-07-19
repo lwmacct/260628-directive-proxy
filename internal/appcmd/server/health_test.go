@@ -2,11 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 )
@@ -58,5 +61,20 @@ func TestHealthReportsDisabledEventOutputWithoutDegradingService(t *testing.T) {
 	response := handler.snapshot()
 	if response.Status != "ok" || response.EventOutput.Enabled || response.EventOutput.Status != "disabled" || response.EventOutput.Sink.Status != "disabled" {
 		t.Fatalf("unexpected disabled output health: %#v", response)
+	}
+}
+
+func TestHealthReportsBodyStoreAdmissionCounters(t *testing.T) {
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
+	first, err := store.Stream(t.Context(), io.NopCloser(strings.NewReader("1234")), 4, bodystore.Observer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Retire()
+	_, _ = store.Stream(t.Context(), io.NopCloser(strings.NewReader("5678")), 4, bodystore.Observer{}, bodystore.StreamOptions{QueueWait: time.Millisecond})
+	handler := &healthHandler{bodyStore: store}
+	response := handler.snapshot()
+	if response.BodyStore.QueueTimeoutTotal != 1 || response.BodyStore.MaxQueueWaitMS < 0 {
+		t.Fatalf("unexpected body store health: %#v", response.BodyStore)
 	}
 }

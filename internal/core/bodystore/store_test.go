@@ -10,7 +10,7 @@ import (
 )
 
 func testController() *Controller {
-	return New(Config{MemoryMaxBytes: 8, MaxBodyBytes: 8, ChunkBytes: 4, QueueMaxRequests: 2})
+	return New(Config{MemoryMaxBytes: 12, MaxBodyBytes: 8, ChunkBytes: 4, QueueMaxRequests: 2})
 }
 
 func TestStoreStreamsAndReplaysInMemory(t *testing.T) {
@@ -39,7 +39,7 @@ func TestStoreStreamsAndReplaysInMemory(t *testing.T) {
 }
 
 func TestStoreQueuesUntilReservationReleased(t *testing.T) {
-	controller := New(Config{MemoryMaxBytes: 4, MaxBodyBytes: 4, QueueMaxRequests: 1})
+	controller := New(Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
 	first, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader("1234")), 4, Observer{})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestStoreQueuesUntilReservationReleased(t *testing.T) {
 }
 
 func TestStoreQueueTimeoutAndCancellation(t *testing.T) {
-	controller := New(Config{MemoryMaxBytes: 4, MaxBodyBytes: 4, QueueMaxRequests: 1})
+	controller := New(Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
 	first, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader("1234")), 4, Observer{})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestStoreQueueTimeoutAndCancellation(t *testing.T) {
 }
 
 func TestStoreQueueFull(t *testing.T) {
-	controller := New(Config{MemoryMaxBytes: 4, MaxBodyBytes: 4, QueueMaxRequests: 1})
+	controller := New(Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
 	first, err := controller.Stream(t.Context(), io.NopCloser(strings.NewReader("1234")), 4, Observer{})
 	if err != nil {
 		t.Fatal(err)

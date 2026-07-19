@@ -414,7 +414,7 @@ func TestHandlerStreamsRequestBodyBeforeClientEOF(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: req}, nil
 	})
-	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 16, MaxBodyBytes: 16, ChunkBytes: 4, QueueMaxRequests: 4})
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 32, MaxBodyBytes: 16, ChunkBytes: 4, QueueMaxRequests: 4})
 	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
 		return resolverResult{Plan: &Plan{Target: target}}, nil
 	}), transport, HandlerOptions{BodyStore: store, BodyReadTimeout: time.Second})
@@ -447,7 +447,7 @@ func TestHandlerStreamsRequestBodyBeforeClientEOF(t *testing.T) {
 func TestHandlerAcceptsUnknownContentLength(t *testing.T) {
 	target, _ := url.Parse("https://upstream.example")
 	var upstreamCalls atomic.Int32
-	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 16, MaxBodyBytes: 16, ChunkBytes: 4, QueueMaxRequests: 4})
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 32, MaxBodyBytes: 16, ChunkBytes: 4, QueueMaxRequests: 4})
 	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) {
 		return resolverResult{Plan: &Plan{Target: target}}, nil
 	}), roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -467,6 +467,99 @@ func TestHandlerAcceptsUnknownContentLength(t *testing.T) {
 
 	if recorder.Code != http.StatusNoContent || body.reads.Load() == 0 || upstreamCalls.Load() != 1 {
 		t.Fatalf("unexpected streaming result: status=%d reads=%d upstream_calls=%d body=%s", recorder.Code, body.reads.Load(), upstreamCalls.Load(), recorder.Body.String())
+	}
+}
+
+func TestHandlerAdmissionTimeoutDoesNotReadQueuedBody(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if _, err := io.ReadAll(request.Body); err != nil {
+			return nil, err
+		}
+		close(entered)
+		<-release
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: request}, nil
+	})
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
+	bodyPolicy := &BodyPolicy{MaxBodyBytes: 4, QueueWait: 20 * time.Millisecond, ReadTimeout: -1, ChunkBytes: 4}
+	prepared, err := NewPreparedDirective(DirectiveSource{Mode: "inline"}, &Plan{Target: target}, nil, nil, proxyTestMetadata(), bodyPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(preparedResolver{prepared: prepared}, transport, HandlerOptions{BodyStore: store, BodyMaxBytes: 4, BodyQueueWait: time.Second, BodyChunkBytes: 4})
+	firstDone := make(chan struct{})
+	go func() {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "http://proxy.local/first", strings.NewReader("1234"))
+		handler.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusNoContent {
+			t.Errorf("unexpected first request status: %d", recorder.Code)
+		}
+		close(firstDone)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not reach upstream")
+	}
+	queuedBody := &countedBody{data: strings.NewReader("5678")}
+	second := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodPost, "http://proxy.local/second", nil)
+	secondRequest.Body = queuedBody
+	secondRequest.ContentLength = 4
+	handler.ServeHTTP(second, secondRequest)
+	if second.Code != http.StatusServiceUnavailable || queuedBody.reads.Load() != 0 {
+		t.Fatalf("queued request was not shed before body read: status=%d reads=%d body=%s", second.Code, queuedBody.reads.Load(), second.Body.String())
+	}
+	if second.Header().Get("Retry-After") != "1" {
+		t.Fatalf("missing retry-after: %#v", second.Header())
+	}
+	close(release)
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not finish")
+	}
+}
+
+func TestHandlerAdmissionQueueFullReturnsRetryableResponse(t *testing.T) {
+	target, _ := url.Parse("https://upstream.example")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		_, _ = io.ReadAll(request.Body)
+		close(entered)
+		<-release
+		return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: http.NoBody, Request: request}, nil
+	})
+	store := bodystore.New(bodystore.Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 0})
+	handler := NewHandler(resolverFunc(func(*http.Request) (resolverResult, error) { return resolverResult{Plan: &Plan{Target: target}}, nil }), transport, HandlerOptions{BodyStore: store, BodyMaxBytes: 4, BodyQueueWait: time.Second, BodyChunkBytes: 4})
+	firstDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "http://proxy.local/first", strings.NewReader("1234")))
+		close(firstDone)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not reach upstream")
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "http://proxy.local/resource", strings.NewReader("1234")))
+	if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Retry-After") != "1" {
+		t.Fatalf("unexpected queue-full response: status=%d headers=%#v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Error.Code != "body_store_queue_full" {
+		t.Fatalf("unexpected queue-full body: %s", recorder.Body.String())
+	}
+	close(release)
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not finish")
 	}
 }
 

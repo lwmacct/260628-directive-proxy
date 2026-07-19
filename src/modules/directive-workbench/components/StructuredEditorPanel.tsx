@@ -1,10 +1,10 @@
 import { PlusOutlined, QuestionCircleOutlined } from "@ant-design/icons";
-import { Button, Checkbox, Flex, Form, Input, Select, Space, Tabs, Tooltip, Typography } from "antd";
+import { Button, Checkbox, Flex, Form, Input, InputNumber, Select, Space, Tabs, Tooltip, Typography } from "antd";
 import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import type { ChangeEvent } from "react";
 import type { Text } from "../../../shared/i18n";
 import { newHeaderMutation } from "../constants";
-import type { DirectiveSource, EditorState, HeaderMutation } from "../types";
+import type { BodyStoreSpec, DirectiveSource, EditorState, HeaderMutation } from "../types";
 import { HeaderMutationsTable } from "./HeaderMutationsTable";
 import { KeyValueEditor } from "./KeyValueEditor";
 import { ModulesEditor } from "./ModulesEditor";
@@ -26,6 +26,11 @@ export function StructuredEditorPanel(props: {
   };
   const updateHeaderMutation = (field: HeaderField, key: string, patch: Partial<HeaderMutation>) => {
     updateHeaderMutations(field, editor[field].map((item) => item.key === key ? { ...item, ...patch } : item));
+  };
+  const updateBodyStore = (patch: Partial<BodyStoreSpec>) => {
+    const next = { ...(editor.bodyStore ?? {}), ...patch };
+    const hasValue = Object.values(next).some((value) => value !== undefined && value !== "");
+    onUpdate({ bodyStore: hasValue ? next : undefined });
   };
   const headerMutationsEditor = (field: HeaderField, showSide: boolean) => <Flex gap="small" vertical>
     <Flex align="center" gap="small" justify="space-between" wrap>
@@ -89,6 +94,28 @@ export function StructuredEditorPanel(props: {
 
   const inlineItems = [
     { key: "target", label: text.target, children: target },
+    {
+      key: "body-store",
+      label: text.bodyStore,
+      children: <Flex gap="small" vertical>
+        <Typography.Text type="secondary">{text.bodyStoreDescription}</Typography.Text>
+        <Checkbox checked={editor.bodyStore !== undefined} onChange={(event: CheckboxChangeEvent) => onUpdate({ bodyStore: event.target.checked ? {} : undefined })}>{text.bodyStoreOverride}</Checkbox>
+        {editor.bodyStore !== undefined ? <Flex gap="small" wrap>
+          <Form.Item label={text.bodyMaxBodyBytes}>
+            <InputNumber min={1} max={512 << 20} value={editor.bodyStore.max_body_bytes} onChange={(value) => updateBodyStore({ max_body_bytes: value ?? undefined })} />
+          </Form.Item>
+          <Form.Item label={text.bodyQueueWait}>
+            <Input allowClear placeholder="2s" value={editor.bodyStore.queue_wait ?? ""} onChange={(event: ChangeEvent<HTMLInputElement>) => updateBodyStore({ queue_wait: event.target.value || undefined })} />
+          </Form.Item>
+          <Form.Item label={text.bodyReadTimeout}>
+            <Input allowClear placeholder="30s" value={editor.bodyStore.read_timeout ?? ""} onChange={(event: ChangeEvent<HTMLInputElement>) => updateBodyStore({ read_timeout: event.target.value || undefined })} />
+          </Form.Item>
+          <Form.Item label={text.bodyChunkBytes}>
+            <InputNumber min={4 << 10} max={1 << 20} step={4 << 10} value={editor.bodyStore.chunk_bytes} onChange={(value) => updateBodyStore({ chunk_bytes: value ?? undefined })} />
+          </Form.Item>
+        </Flex> : null}
+      </Flex>,
+    },
     {
       key: "metadata",
       label: text.metadata,
