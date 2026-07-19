@@ -68,6 +68,10 @@ server:
       allowed-github-users:
         - lwmacct
 
+  # Prometheus 指标配置
+  metrics:
+    prefix: "m_260628_" # 应用指标名的完整前缀，不影响 go_* 和 process_* 指标
+
   # 代理配置
   proxy:
 

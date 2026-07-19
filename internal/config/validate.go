@@ -14,6 +14,11 @@ func Validate(cfg Server) (Server, error) {
 	if strings.TrimSpace(cfg.HTTP.Listen) == "" {
 		return cfg, ErrInvalidHTTP
 	}
+	metricsConfig, err := normalizeMetrics(cfg.Metrics)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Metrics = metricsConfig
 	if cfg.HTTP.TLS.Enabled {
 		cfg.HTTP.TLS.DefaultCertificate = strings.TrimSpace(cfg.HTTP.TLS.DefaultCertificate)
 		for index := range cfg.HTTP.TLS.Certificates {
@@ -99,6 +104,34 @@ func Validate(cfg Server) (Server, error) {
 	}
 	cfg.Proxy.Directive.Remote = remote
 	return cfg, nil
+}
+
+func normalizeMetrics(cfg ServerMetrics) (ServerMetrics, error) {
+	cfg.Prefix = strings.TrimSpace(cfg.Prefix)
+	if !validMetricPrefix(cfg.Prefix) {
+		return cfg, ErrInvalidMetrics
+	}
+	return cfg, nil
+}
+
+func validMetricPrefix(value string) bool {
+	if value == "" || !metricFirstByte(value[0]) {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		if !metricByte(value[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func metricFirstByte(value byte) bool {
+	return value == '_' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
+}
+
+func metricByte(value byte) bool {
+	return metricFirstByte(value) || value >= '0' && value <= '9'
 }
 
 func validateFluentOutput(cfg fluent.Config) (fluent.Config, error) {

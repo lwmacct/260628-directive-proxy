@@ -17,6 +17,7 @@ import (
 var (
 	ErrInvalidHTTP      = errors.New("invalid http config")
 	ErrInvalidAuth      = errors.New("invalid auth config")
+	ErrInvalidMetrics   = errors.New("invalid metrics config")
 	ErrInvalidTransport = errors.New("invalid transport config")
 	ErrInvalidRecovery  = errors.New("invalid recovery config")
 	ErrInvalidBodyStore = errors.New("invalid body store config")
@@ -30,9 +31,14 @@ type Config struct {
 }
 
 type Server struct {
-	HTTP   ServerHTTP    `json:"http"   desc:"HTTP 服务配置"`
-	Proxy  Proxy         `json:"proxy"  desc:"代理配置"`
-	Fluent fluent.Config `json:"fluent" desc:"Fluent Forward 事件输出配置；关闭时不创建 Sink、Queue 或连接"`
+	HTTP    ServerHTTP    `json:"http"    desc:"HTTP 服务配置"`
+	Metrics ServerMetrics `json:"metrics" desc:"Prometheus 指标配置"`
+	Proxy   Proxy         `json:"proxy"   desc:"代理配置"`
+	Fluent  fluent.Config `json:"fluent"  desc:"Fluent Forward 事件输出配置；关闭时不创建 Sink、Queue 或连接"`
+}
+
+type ServerMetrics struct {
+	Prefix string `json:"prefix" desc:"应用指标名的完整前缀，不影响 go_* 和 process_* 指标"`
 }
 
 type ServerHTTP struct {
@@ -150,6 +156,7 @@ func DefaultConfig() Config {
 					return config
 				}(),
 			},
+			Metrics: ServerMetrics{Prefix: "m_260628_"},
 			Proxy: Proxy{
 				Recovery: ProxyRecovery{
 					MaxRoundTripsLimit:       10,

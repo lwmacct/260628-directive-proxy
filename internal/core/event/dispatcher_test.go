@@ -66,7 +66,7 @@ func TestDispatcherMetricsExposeDropsFailuresAndHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	set := vmmetrics.NewSet()
-	dispatcher.RegisterMetrics(set)
+	dispatcher.RegisterMetrics(set, "directive_proxy_")
 	trace := dispatcher.Open("trace", eventMetadata(t))
 	emitter := trace.Emitter("binding", 1)
 	emitter.Emit("first", map[string]any{"value": "first"})

@@ -98,27 +98,27 @@ func (c *Controller) Snapshot() Snapshot {
 	}
 }
 
-func (c *Controller) RegisterMetrics(set *vmmetrics.Set) {
+func (c *Controller) RegisterMetrics(set *vmmetrics.Set, prefix string) {
 	if c == nil || set == nil {
 		return
 	}
 	c.metricsOnce.Do(func() {
-		set.NewGauge("directive_proxy_body_store_memory_limit_bytes", func() float64 { return float64(c.config.MemoryMaxBytes) })
-		set.NewGauge("directive_proxy_body_store_memory_used_bytes", func() float64 { return float64(c.Snapshot().MemoryUsedBytes) })
-		set.NewGauge("directive_proxy_body_store_memory_available_bytes", func() float64 { return float64(c.Snapshot().MemoryAvailableBytes) })
-		set.NewGauge("directive_proxy_body_store_queue_limit_requests", func() float64 { return float64(c.config.QueueMaxRequests) })
-		set.NewGauge("directive_proxy_body_store_queue_depth", func() float64 { return float64(c.Snapshot().QueuedRequests) })
-		set.NewGauge("directive_proxy_body_store_max_queue_wait_seconds", func() float64 {
+		set.NewGauge(prefix+"body_store_memory_limit_bytes", func() float64 { return float64(c.config.MemoryMaxBytes) })
+		set.NewGauge(prefix+"body_store_memory_used_bytes", func() float64 { return float64(c.Snapshot().MemoryUsedBytes) })
+		set.NewGauge(prefix+"body_store_memory_available_bytes", func() float64 { return float64(c.Snapshot().MemoryAvailableBytes) })
+		set.NewGauge(prefix+"body_store_queue_limit_requests", func() float64 { return float64(c.config.QueueMaxRequests) })
+		set.NewGauge(prefix+"body_store_queue_depth", func() float64 { return float64(c.Snapshot().QueuedRequests) })
+		set.NewGauge(prefix+"body_store_max_queue_wait_seconds", func() float64 {
 			return float64(c.Snapshot().MaxQueueWaitNanos) / float64(time.Second)
 		})
-		c.admissionWait.Store(set.NewPrometheusHistogramExt("directive_proxy_body_store_admission_wait_seconds", []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}))
+		c.admissionWait.Store(set.NewPrometheusHistogramExt(prefix+"body_store_admission_wait_seconds", []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}))
 		set.RegisterMetricsWriter(func(writer io.Writer) {
 			snapshot := c.Snapshot()
-			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_admitted_total", snapshot.AdmittedTotal)
-			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_queue_full_total", snapshot.QueueFullTotal)
-			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_queue_timeout_total", snapshot.QueueTimeoutTotal)
-			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_canceled_total", snapshot.CanceledTotal)
-			vmmetrics.WriteCounterUint64(writer, "directive_proxy_body_store_capacity_rejected_total", snapshot.CapacityTotal)
+			vmmetrics.WriteCounterUint64(writer, prefix+"body_store_admitted_total", snapshot.AdmittedTotal)
+			vmmetrics.WriteCounterUint64(writer, prefix+"body_store_queue_full_total", snapshot.QueueFullTotal)
+			vmmetrics.WriteCounterUint64(writer, prefix+"body_store_queue_timeout_total", snapshot.QueueTimeoutTotal)
+			vmmetrics.WriteCounterUint64(writer, prefix+"body_store_canceled_total", snapshot.CanceledTotal)
+			vmmetrics.WriteCounterUint64(writer, prefix+"body_store_capacity_rejected_total", snapshot.CapacityTotal)
 		})
 	})
 }

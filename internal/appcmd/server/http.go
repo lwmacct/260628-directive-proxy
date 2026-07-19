@@ -33,7 +33,7 @@ func newHTTPServer(cfg *config.Server, rt *runtime) *http.Server {
 }
 
 func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
-	runtimeMetrics := ensureRuntimeMetrics(rt)
+	runtimeMetrics := ensureRuntimeMetrics(rt, cfg.Metrics.Prefix)
 	health := newHealthHandler(rt.programRuntime, rt.eventOutput, rt.bodyStore)
 	metrics := &metricsHandler{set: runtimeMetrics.MetricsSet()}
 	fallback := newFallbackHTTPHandler(rt)
@@ -50,16 +50,16 @@ func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	return routeHTTPRequests(rt, health, metrics, protectedDirective, fallback)
 }
 
-func ensureRuntimeMetrics(rt *runtime) *runtimeMetrics {
+func ensureRuntimeMetrics(rt *runtime, prefix string) *runtimeMetrics {
 	if rt.metrics != nil {
 		return rt.metrics
 	}
-	rt.metrics = newRuntimeMetrics()
+	rt.metrics = newRuntimeMetrics(prefix)
 	if rt.bodyStore != nil {
-		rt.bodyStore.RegisterMetrics(rt.metrics.MetricsSet())
+		rt.bodyStore.RegisterMetrics(rt.metrics.MetricsSet(), rt.metrics.Prefix())
 	}
 	if rt.eventOutput != nil {
-		rt.eventOutput.RegisterMetrics(rt.metrics.MetricsSet())
+		rt.eventOutput.RegisterMetrics(rt.metrics.MetricsSet(), rt.metrics.Prefix())
 	} else {
 		rt.metrics.RegisterDisabledEventOutput()
 	}

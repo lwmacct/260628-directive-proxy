@@ -45,6 +45,32 @@ func TestDefaultConfigUsesSingleHTTPListen(t *testing.T) {
 	if cfg.HTTP.Listen != ":23198" {
 		t.Fatalf("unexpected http listen: %q", cfg.HTTP.Listen)
 	}
+	if cfg.Metrics.Prefix != "m_260628_" {
+		t.Fatalf("unexpected metrics prefix: %q", cfg.Metrics.Prefix)
+	}
+}
+
+func TestValidateNormalizesMetricsPrefix(t *testing.T) {
+	cfg := validDefaultConfig()
+	cfg.Metrics.Prefix = " edge_proxy_ "
+
+	validated, err := Validate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validated.Metrics.Prefix != "edge_proxy_" {
+		t.Fatalf("unexpected metrics prefix: %q", validated.Metrics.Prefix)
+	}
+}
+
+func TestValidateRejectsInvalidMetricsPrefix(t *testing.T) {
+	for _, prefix := range []string{"", "9proxy", "edge-proxy", "edge.proxy", "edge proxy", "代理"} {
+		cfg := validDefaultConfig()
+		cfg.Metrics.Prefix = prefix
+		if _, err := Validate(cfg); !errors.Is(err, ErrInvalidMetrics) {
+			t.Fatalf("expected invalid metrics prefix %q, got %v", prefix, err)
+		}
+	}
 }
 
 func TestValidateRejectsMissingHTTPListen(t *testing.T) {

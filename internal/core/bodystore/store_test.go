@@ -129,7 +129,7 @@ func TestStoreRejectsUnknownBodyThatCannotFitInstanceMemory(t *testing.T) {
 func TestControllerMetricsExposeAdmissionOutcomesAndWait(t *testing.T) {
 	controller := New(Config{MemoryMaxBytes: 8, MaxBodyBytes: 4, ChunkBytes: 4, QueueMaxRequests: 1})
 	set := vmmetrics.NewSet()
-	controller.RegisterMetrics(set)
+	controller.RegisterMetrics(set, "directive_proxy_")
 	first, err := controller.Admit(t.Context(), 4, 4, 0, 4)
 	if err != nil {
 		t.Fatal(err)

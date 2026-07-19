@@ -10,7 +10,8 @@ import (
 const metricsContentType = "text/plain; version=0.0.4; charset=utf-8"
 
 type runtimeMetrics struct {
-	set *vmmetrics.Set
+	set    *vmmetrics.Set
+	prefix string
 
 	inFlight               *vmmetrics.Gauge
 	requestSuccessTotal    *vmmetrics.Counter
@@ -32,28 +33,41 @@ type runtimeMetrics struct {
 	recoveryFailuresTotal *vmmetrics.Counter
 }
 
-func newRuntimeMetrics() *runtimeMetrics {
+func newRuntimeMetrics(prefix string) *runtimeMetrics {
 	set := vmmetrics.NewSet()
-	return &runtimeMetrics{
-		set:                    set,
-		inFlight:               set.NewGauge("directive_proxy_in_flight_requests", nil),
-		requestSuccessTotal:    set.NewCounter(`directive_proxy_requests_total{outcome="success"}`),
-		requestErrorTotal:      set.NewCounter(`directive_proxy_requests_total{outcome="error"}`),
-		requestCanceledTotal:   set.NewCounter(`directive_proxy_requests_total{outcome="canceled"}`),
-		requestDuration:        set.NewPrometheusHistogramExt("directive_proxy_request_duration_seconds", []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}),
-		requestBodyBytesTotal:  set.NewCounter("directive_proxy_request_body_bytes_total"),
-		responseBodyBytesTotal: set.NewCounter("directive_proxy_response_body_bytes_total"),
-		responses1xxTotal:      set.NewCounter(`directive_proxy_responses_total{status_class="1xx"}`),
-		responses2xxTotal:      set.NewCounter(`directive_proxy_responses_total{status_class="2xx"}`),
-		responses3xxTotal:      set.NewCounter(`directive_proxy_responses_total{status_class="3xx"}`),
-		responses4xxTotal:      set.NewCounter(`directive_proxy_responses_total{status_class="4xx"}`),
-		responses5xxTotal:      set.NewCounter(`directive_proxy_responses_total{status_class="5xx"}`),
-		roundTripsTotal:        set.NewCounter("directive_proxy_round_trips_total"),
-		roundTripDuration:      set.NewPrometheusHistogramExt("directive_proxy_round_trip_duration_seconds", []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}),
-		retriesTotal:           set.NewCounter("directive_proxy_retries_total"),
-		recoveryAttemptsTotal:  set.NewCounter("directive_proxy_recovery_attempts_total"),
-		recoveryFailuresTotal:  set.NewCounter("directive_proxy_recovery_failures_total"),
+	result := &runtimeMetrics{
+		set:    set,
+		prefix: prefix,
 	}
+	result.inFlight = set.NewGauge(result.name("in_flight_requests"), nil)
+	result.requestSuccessTotal = set.NewCounter(result.name(`requests_total{outcome="success"}`))
+	result.requestErrorTotal = set.NewCounter(result.name(`requests_total{outcome="error"}`))
+	result.requestCanceledTotal = set.NewCounter(result.name(`requests_total{outcome="canceled"}`))
+	result.requestDuration = set.NewPrometheusHistogramExt(result.name("request_duration_seconds"), []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30})
+	result.requestBodyBytesTotal = set.NewCounter(result.name("request_body_bytes_total"))
+	result.responseBodyBytesTotal = set.NewCounter(result.name("response_body_bytes_total"))
+	result.responses1xxTotal = set.NewCounter(result.name(`responses_total{status_class="1xx"}`))
+	result.responses2xxTotal = set.NewCounter(result.name(`responses_total{status_class="2xx"}`))
+	result.responses3xxTotal = set.NewCounter(result.name(`responses_total{status_class="3xx"}`))
+	result.responses4xxTotal = set.NewCounter(result.name(`responses_total{status_class="4xx"}`))
+	result.responses5xxTotal = set.NewCounter(result.name(`responses_total{status_class="5xx"}`))
+	result.roundTripsTotal = set.NewCounter(result.name("round_trips_total"))
+	result.roundTripDuration = set.NewPrometheusHistogramExt(result.name("round_trip_duration_seconds"), []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30})
+	result.retriesTotal = set.NewCounter(result.name("retries_total"))
+	result.recoveryAttemptsTotal = set.NewCounter(result.name("recovery_attempts_total"))
+	result.recoveryFailuresTotal = set.NewCounter(result.name("recovery_failures_total"))
+	return result
+}
+
+func (m *runtimeMetrics) name(suffix string) string {
+	return m.prefix + suffix
+}
+
+func (m *runtimeMetrics) Prefix() string {
+	if m == nil {
+		return ""
+	}
+	return m.prefix
 }
 
 func (m *runtimeMetrics) MetricsSet() *vmmetrics.Set {
@@ -67,14 +81,14 @@ func (m *runtimeMetrics) RegisterDisabledEventOutput() {
 	if m == nil || m.set == nil {
 		return
 	}
-	m.set.NewGauge("directive_proxy_event_output_enabled", func() float64 { return 0 })
-	m.set.NewGauge("directive_proxy_event_output_healthy", func() float64 { return 0 })
-	m.set.NewGauge("directive_proxy_event_output_queue_limit_records", func() float64 { return 0 })
-	m.set.NewGauge("directive_proxy_event_output_queue_limit_bytes", func() float64 { return 0 })
-	m.set.NewGauge("directive_proxy_event_output_queue_records", func() float64 { return 0 })
-	m.set.NewGauge("directive_proxy_event_output_queue_bytes", func() float64 { return 0 })
-	m.set.NewCounter("directive_proxy_event_output_dropped_records_total")
-	m.set.NewCounter("directive_proxy_event_output_failures_total")
+	m.set.NewGauge(m.name("event_output_enabled"), func() float64 { return 0 })
+	m.set.NewGauge(m.name("event_output_healthy"), func() float64 { return 0 })
+	m.set.NewGauge(m.name("event_output_queue_limit_records"), func() float64 { return 0 })
+	m.set.NewGauge(m.name("event_output_queue_limit_bytes"), func() float64 { return 0 })
+	m.set.NewGauge(m.name("event_output_queue_records"), func() float64 { return 0 })
+	m.set.NewGauge(m.name("event_output_queue_bytes"), func() float64 { return 0 })
+	m.set.NewCounter(m.name("event_output_dropped_records_total"))
+	m.set.NewCounter(m.name("event_output_failures_total"))
 }
 
 func (m *runtimeMetrics) RequestStarted() {

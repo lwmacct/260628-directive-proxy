@@ -86,6 +86,21 @@ func TestConfigFileUsesCommandHierarchy(t *testing.T) {
 	}
 }
 
+func TestConfigFileLoadsMetricsPrefix(t *testing.T) {
+	setDirectiveTokenSecret(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  metrics:\n    prefix: edge_proxy_\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Manager.Load(t.Context(), cfgm.File(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.Metrics.Prefix != "edge_proxy_" {
+		t.Fatalf("unexpected metrics prefix: %q", loaded.Server.Metrics.Prefix)
+	}
+}
+
 func TestConfigFileLoadsInlineTLSConfiguration(t *testing.T) {
 	setDirectiveTokenSecret(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")

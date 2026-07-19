@@ -46,7 +46,7 @@ type runtime struct {
 }
 
 func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
-	runtimeMetrics := newRuntimeMetrics()
+	runtimeMetrics := newRuntimeMetrics(cfg.Metrics.Prefix)
 	tlsRuntime, err := newTLSRuntime(ctx, cfg.HTTP.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("configure tls: %w", err)
@@ -110,9 +110,9 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		ChunkBytes:       cfg.Proxy.BodyStore.ChunkBytes,
 		QueueMaxRequests: cfg.Proxy.BodyStore.QueueMaxRequests,
 	})
-	bodyStore.RegisterMetrics(runtimeMetrics.MetricsSet())
+	bodyStore.RegisterMetrics(runtimeMetrics.MetricsSet(), runtimeMetrics.Prefix())
 	if eventOutput != nil {
-		eventOutput.RegisterMetrics(runtimeMetrics.MetricsSet())
+		eventOutput.RegisterMetrics(runtimeMetrics.MetricsSet(), runtimeMetrics.Prefix())
 	} else {
 		runtimeMetrics.RegisterDisabledEventOutput()
 	}

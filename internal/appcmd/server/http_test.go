@@ -334,8 +334,8 @@ func TestHTTPServerMetricsIsPublicAndTakesPrecedenceOverDirectiveAuth(t *testing
 	}
 	body := recorder.Body.String()
 	for _, metric := range []string{
-		"directive_proxy_body_store_memory_limit_bytes",
-		"directive_proxy_event_output_enabled 0",
+		"m_260628_body_store_memory_limit_bytes",
+		"m_260628_event_output_enabled 0",
 		"go_goroutines",
 	} {
 		if !strings.Contains(body, metric) {
@@ -374,9 +374,9 @@ func TestHTTPServerMetricsTrackProxyRequestAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeMetrics := newRuntimeMetrics()
+	runtimeMetrics := newRuntimeMetrics(cfg.Metrics.Prefix)
 	store := newTestBodyStore(cfg.Proxy.BodyStore)
-	store.RegisterMetrics(runtimeMetrics.MetricsSet())
+	store.RegisterMetrics(runtimeMetrics.MetricsSet(), runtimeMetrics.Prefix())
 	runtimeMetrics.RegisterDisabledEventOutput()
 	rt := newTestRuntimeWithSourceAccess(t, cfg, runtime{
 		metrics:         runtimeMetrics,
@@ -395,18 +395,43 @@ func TestHTTPServerMetricsTrackProxyRequestAndRoundTrip(t *testing.T) {
 	scrape := httptest.NewRecorder()
 	handler.ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "http://control.local/metrics", nil))
 	for _, metric := range []string{
-		`directive_proxy_requests_total{outcome="success"} 1`,
-		`directive_proxy_responses_total{status_class="2xx"} 1`,
-		"directive_proxy_request_body_bytes_total 7",
-		"directive_proxy_response_body_bytes_total 8",
-		"directive_proxy_request_duration_seconds_count 1",
-		"directive_proxy_round_trips_total 1",
-		"directive_proxy_round_trip_duration_seconds_count 1",
-		"directive_proxy_body_store_admitted_total 1",
+		`m_260628_requests_total{outcome="success"} 1`,
+		`m_260628_responses_total{status_class="2xx"} 1`,
+		"m_260628_request_body_bytes_total 7",
+		"m_260628_response_body_bytes_total 8",
+		"m_260628_request_duration_seconds_count 1",
+		"m_260628_round_trips_total 1",
+		"m_260628_round_trip_duration_seconds_count 1",
+		"m_260628_body_store_admitted_total 1",
 	} {
 		if !strings.Contains(scrape.Body.String(), metric) {
 			t.Fatalf("metrics output is missing %q: %s", metric, scrape.Body.String())
 		}
+	}
+}
+
+func TestHTTPServerMetricsUsesConfiguredPrefix(t *testing.T) {
+	cfg := config.DefaultConfig().Server
+	cfg.Metrics.Prefix = "edge_proxy_"
+	handler := newHTTPServer(&cfg, &runtime{bodyStore: newTestBodyStore(cfg.Proxy.BodyStore)}).Handler
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/metrics", nil))
+
+	body := recorder.Body.String()
+	for _, metric := range []string{
+		"edge_proxy_requests_total",
+		"edge_proxy_body_store_memory_limit_bytes",
+		"edge_proxy_event_output_enabled",
+	} {
+		if !strings.Contains(body, metric) {
+			t.Fatalf("metrics output is missing %q: %s", metric, body)
+		}
+	}
+	if strings.Contains(body, "m_260628_") {
+		t.Fatalf("metrics output retained the default prefix: %s", body)
+	}
+	if !strings.Contains(body, "go_goroutines") {
+		t.Fatalf("standard process metrics were unexpectedly prefixed: %s", body)
 	}
 }
 
