@@ -31,10 +31,10 @@ func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	runtimeMetrics := ensureRuntimeMetrics(rt, cfg.Metrics.Prefix)
 	health := newHealthHandler(rt.programRuntime, rt.eventOutput, rt.bodyStore)
 	metrics := &metricsHandler{set: runtimeMetrics.MetricsSet()}
-	fallback := newFallbackHTTPHandler()
+	frontend := newFrontendHTTPHandler()
 	directiveProxy := newProxyHandler(cfg, rt.directiveRemotes, rt.programRuntime, rt.recoveryCompiler, rt.exchangeFactory, rt.bodyStore, rt.proxyTransport, runtimeMetrics)
 	if !cfg.Proxy.Directive.SourceAccess.Enabled {
-		return routeHTTPRequests(health, metrics, directiveProxy, fallback)
+		return routeHTTPRequests(health, metrics, directiveProxy, frontend)
 	}
 	var protectedDirective http.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxy.WriteProxyErrorJSON(w, http.StatusServiceUnavailable, "source_access_unavailable", "directive: source access unavailable")
@@ -42,7 +42,7 @@ func newHTTPHandler(cfg *config.Server, rt *runtime) http.Handler {
 	if rt.sourceAccess != nil {
 		protectedDirective = rt.sourceAccess.RequireAccess(directiveProxy)
 	}
-	return routeHTTPRequests(health, metrics, protectedDirective, fallback)
+	return routeHTTPRequests(health, metrics, protectedDirective, frontend)
 }
 
 func ensureRuntimeMetrics(rt *runtime, prefix string) *runtimeMetrics {
@@ -61,7 +61,7 @@ func ensureRuntimeMetrics(rt *runtime, prefix string) *runtimeMetrics {
 	return rt.metrics
 }
 
-func routeHTTPRequests(health, metrics, directiveHandler, fallback http.Handler) http.Handler {
+func routeHTTPRequests(health, metrics, directiveHandler, frontend http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/health":
@@ -71,20 +71,20 @@ func routeHTTPRequests(health, metrics, directiveHandler, fallback http.Handler)
 		case directive.MatchesRequest(r):
 			directiveHandler.ServeHTTP(w, r)
 		default:
-			fallback.ServeHTTP(w, r)
+			frontend.ServeHTTP(w, r)
 		}
 	})
 }
 
-func newFallbackHTTPHandler() http.Handler {
-	mux := http.NewServeMux()
-	if webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT")); webRoot != "" {
-		mux.Handle("/", spaFileServer(webRoot))
+func newFrontendHTTPHandler() http.Handler {
+	webRoot := strings.TrimSpace(os.Getenv("WEB_ROOT"))
+	if webRoot == "" {
+		return http.NotFoundHandler()
 	}
-	return mux
+	return frontendFileServer(webRoot)
 }
 
-func spaFileServer(root string) http.Handler {
+func frontendFileServer(root string) http.Handler {
 	fs := http.Dir(root)
 	fileServer := http.FileServer(fs)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,13 +92,19 @@ func spaFileServer(root string) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if r.URL.Path == "/" {
+			if !fileExists(fs, "/index.html") {
+				http.NotFound(w, r)
+				return
+			}
+			fileServer.ServeHTTP(w, r)
+			return
+		}
 		if fileExists(fs, r.URL.Path) {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
-		fallback := r.Clone(r.Context())
-		fallback.URL.Path = "/"
-		fileServer.ServeHTTP(w, fallback)
+		http.NotFound(w, r)
 	})
 }
 

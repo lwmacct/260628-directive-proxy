@@ -3,6 +3,7 @@ import path from "node:path";
 import { defineConfig } from "vite";
 
 const rootDir = import.meta.dirname;
+const directiveAuthorization = /^Bearer\s+dp\.\S*$/i;
 // Uncomment these local Workbench source aliases when developing both repositories together.
 // const workbenchDir = "/data/project/260627-antd-workbench/workspace";
 
@@ -28,7 +29,7 @@ export default defineConfig({
         target: "http://localhost:23198",
         bypass(request) {
           const authorization = request.headers.authorization ?? "";
-          if (authorization.startsWith("Bearer dp.")) {
+          if (directiveAuthorization.test(authorization.trim())) {
             return undefined;
           }
           return request.url;

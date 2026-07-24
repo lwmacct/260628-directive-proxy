@@ -198,11 +198,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function normalizeRequestPath(value: string, text: Text["directiveConsole"]) {
   const path = value.trim();
   if (!path) throw new Error(text.pathRequired);
-  if (!path.startsWith("/") || path.startsWith("//")) throw new Error(text.pathSameOrigin);
-  const pathname = new URL(path, "http://directive.local").pathname;
-  if (pathname === "/health" || pathname === "/metrics") {
-    throw new Error(text.pathReservedAPI);
-  }
+  const baseURL = new URL("http://directive.local/");
+  let requestURL: URL;
+  try { requestURL = new URL(path, baseURL); } catch { throw new Error(text.pathSameOrigin); }
+  if (!path.startsWith("/") || requestURL.origin !== baseURL.origin) throw new Error(text.pathSameOrigin);
   return path;
 }
 

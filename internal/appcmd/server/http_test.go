@@ -97,7 +97,7 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	ordinaryBearerRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(ordinaryBearerRecorder, ordinaryBearerReq)
 	if ordinaryBearerRecorder.Code != http.StatusOK {
-		t.Fatalf("ordinary bearer request must use fallback handler, got %d", ordinaryBearerRecorder.Code)
+		t.Fatalf("health handler must ignore ordinary bearer authorization, got %d", ordinaryBearerRecorder.Code)
 	}
 }
 
@@ -297,6 +297,7 @@ func TestControlHealthRemainsPublic(t *testing.T) {
 	srv := newHTTPServer(&cfg, rt)
 
 	healthReq := httptest.NewRequest(http.MethodGet, "http://control.local/health", nil)
+	healthReq.Header.Set("Authorization", "Bearer dp.invalid")
 	healthRecorder := httptest.NewRecorder()
 	srv.Handler.ServeHTTP(healthRecorder, healthReq)
 	if healthRecorder.Code != http.StatusOK {
@@ -313,7 +314,7 @@ func TestHTTPServerMetricsIsPublicAndTakesPrecedenceOverDirectiveAuth(t *testing
 	handler := newHTTPServer(&cfg, &runtime{bodyStore: newTestBodyStore(cfg.Proxy.BodyStore)}).Handler
 
 	request := httptest.NewRequest(http.MethodGet, "http://control.local/metrics", nil)
-	request.Header.Set("Authorization", "Bearer this-is-a-directive-token")
+	request.Header.Set("Authorization", "Bearer dp.invalid")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 
@@ -475,7 +476,7 @@ func TestHTTPServerMetricsUsesConfiguredPrefix(t *testing.T) {
 	}
 }
 
-func TestHTTPServerServesDirectiveWorkbenchSPA(t *testing.T) {
+func TestHTTPServerServesOnlyDirectiveWorkbenchRootAndStaticFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("directive-workbench"), 0o600); err != nil {
 		t.Fatal(err)
@@ -487,19 +488,90 @@ func TestHTTPServerServesDirectiveWorkbenchSPA(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	handler := newHTTPServer(&cfg, &runtime{}).Handler
 
-	spa := httptest.NewRecorder()
-	handler.ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "http://control.local/console/workbench", nil))
-	if spa.Code != http.StatusOK || spa.Body.String() != "directive-workbench" {
-		t.Fatalf("unexpected SPA fallback: status=%d body=%q", spa.Code, spa.Body.String())
+	index := httptest.NewRecorder()
+	handler.ServeHTTP(index, httptest.NewRequest(http.MethodGet, "http://control.local/", nil))
+	if index.Code != http.StatusOK || index.Body.String() != "directive-workbench" {
+		t.Fatalf("unexpected frontend index: status=%d body=%q", index.Code, index.Body.String())
 	}
-	if cookies := spa.Header().Values("Set-Cookie"); len(cookies) != 0 {
-		t.Fatalf("SPA response set cookies: %q", cookies)
+	if cookies := index.Header().Values("Set-Cookie"); len(cookies) != 0 {
+		t.Fatalf("frontend response set cookies: %q", cookies)
+	}
+	indexHead := httptest.NewRecorder()
+	handler.ServeHTTP(indexHead, httptest.NewRequest(http.MethodHead, "http://control.local/", nil))
+	if indexHead.Code != http.StatusOK || indexHead.Body.Len() != 0 {
+		t.Fatalf("unexpected frontend index HEAD response: status=%d body=%q", indexHead.Code, indexHead.Body.String())
 	}
 
 	asset := httptest.NewRecorder()
 	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "http://control.local/app.js", nil))
 	if asset.Code != http.StatusOK || asset.Body.String() != "asset" {
 		t.Fatalf("unexpected static asset: status=%d body=%q", asset.Code, asset.Body.String())
+	}
+	assetHead := httptest.NewRecorder()
+	handler.ServeHTTP(assetHead, httptest.NewRequest(http.MethodHead, "http://control.local/app.js", nil))
+	if assetHead.Code != http.StatusOK || assetHead.Body.Len() != 0 {
+		t.Fatalf("unexpected static asset HEAD response: status=%d body=%q", assetHead.Code, assetHead.Body.String())
+	}
+
+	for _, test := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "unknown GET", method: http.MethodGet, path: "/console/workbench"},
+		{name: "unknown HEAD", method: http.MethodHead, path: "/missing.js"},
+		{name: "non-GET asset", method: http.MethodPost, path: "/app.js"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(test.method, "http://control.local"+test.path, nil))
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("unexpected frontend route status: got=%d want=%d", recorder.Code, http.StatusNotFound)
+			}
+		})
+	}
+}
+
+func TestHTTPServerReturnsNotFoundWithoutFrontend(t *testing.T) {
+	t.Setenv("WEB_ROOT", "")
+	cfg := config.DefaultConfig().Server
+	handler := newHTTPServer(&cfg, &runtime{}).Handler
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPost} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(method, "http://control.local/unknown", nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("unexpected %s status without frontend: got=%d want=%d", method, recorder.Code, http.StatusNotFound)
+		}
+	}
+}
+
+func TestHTTPServerDirectiveTakesPrecedenceOverStaticFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.js"), []byte("asset"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WEB_ROOT", root)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, "proxied")
+	}))
+	defer upstream.Close()
+	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
+		Metadata: testServerDirectiveMetadata(),
+		Target:   directive.TargetSection{BaseURL: upstream.URL},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := newTestServerConfig()
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/app.js", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+
+	newHTTPServer(&cfg, newTestRuntimeWithSourceAccess(t, cfg, runtime{})).Handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted || recorder.Body.String() != "proxied" {
+		t.Fatalf("directive did not take precedence over static file: status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 }
 

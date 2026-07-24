@@ -3,6 +3,7 @@ import { useWorkbenchLocale } from "@lwmacct/260627-antd-workbench";
 const zh = {
   app: {
     appearance: "外观设置",
+    sourceCode: "源码",
   },
   directiveConsole: {
     directiveConsole: "Directive Console", directiveConsoleDescription: "在一个工作区中构建、编码并调试 Inline 与 Remote Directive。", currentDirective: "当前类型", remoteSpecJSON: "RemoteSpec JSON",
@@ -42,7 +43,7 @@ const zh = {
     invalidGlob: (label: string) => `${label} 不是合法的 Glob`, delHasValues: (label: string) => `${label} del mutation 不能包含 values`,
     addNeedsValues: (label: string) => `${label} add/set mutation 必须包含合法 values`, setNeedsOneValue: (label: string) => `${label} set mutation 必须且只能包含一个 value`, hostValues: (label: string) => `${label} Host 只支持单值 set 或 del`,
     tokenPrefix: "Token 必须使用 dp.22.inline/remote 格式", tokenDecodeFailed: "Token JSON Base64URL 解码失败", invalidRedisKey: "Redis Key 必须是 1-256 字节且不能包含首尾空白或控制字符", invalidFilePath: "File path 必须是根目录内的 slash 相对路径，不能包含 .、.. 或反斜杠，且不能超过 4096 字节", invalidResolverHeader: "请求头名称或值不合法", invalidControllerHeader: "Controller Header 名称或值不合法",
-    unknownField: (label: string, field: string) => `${label} 包含未知字段 ${field}`, pathRequired: "请求路径不能为空", pathSameOrigin: "请求路径必须是以 / 开头的同源路径", pathReservedAPI: "请求路径不能指向保留 API",
+    unknownField: (label: string, field: string) => `${label} 包含未知字段 ${field}`, pathRequired: "请求路径不能为空", pathSameOrigin: "请求路径必须是以 / 开头的同源路径",
     headerValueString: (name: string) => `Request Header ${name} 的值必须是 string`,
   },
 } as const;
@@ -50,6 +51,7 @@ const zh = {
 const en: Text = {
   app: {
     appearance: "Appearance",
+    sourceCode: "Source code",
   },
   directiveConsole: {
     directiveConsole: "Directive Console", directiveConsoleDescription: "Build, encode, and debug Inline and Remote Directives in one workspace.", currentDirective: "Current type", remoteSpecJSON: "RemoteSpec JSON",
@@ -89,7 +91,7 @@ const en: Text = {
     invalidGlob: (label: string) => `${label} is not a valid glob`, delHasValues: (label: string) => `${label} cannot contain values for del`,
     addNeedsValues: (label: string) => `${label} requires valid values for add/set`, setNeedsOneValue: (label: string) => `${label} requires exactly one value for set`, hostValues: (label: string) => `${label} Host only supports single-value set or del`,
     tokenPrefix: "Token must use the dp.22.inline/remote format", tokenDecodeFailed: "Failed to decode Token JSON Base64URL", invalidRedisKey: "Redis key must be 1-256 bytes without surrounding whitespace or control characters", invalidFilePath: "File path must be a slash-separated relative path under the configured root without . or .. segments or backslashes, up to 4096 bytes", invalidResolverHeader: "Header name or value is invalid", invalidControllerHeader: "Controller header name or value is invalid",
-    unknownField: (label: string, field: string) => `${label} contains unknown field ${field}`, pathRequired: "Request path is required", pathSameOrigin: "Request path must be a same-origin path starting with /", pathReservedAPI: "Request path cannot target a reserved API",
+    unknownField: (label: string, field: string) => `${label} contains unknown field ${field}`, pathRequired: "Request path is required", pathSameOrigin: "Request path must be a same-origin path starting with /",
     headerValueString: (name: string) => `Request Header ${name} must be a string`,
   },
 };

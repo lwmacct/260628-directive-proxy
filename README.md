@@ -11,7 +11,8 @@ Directive Proxy 是由 `Authorization: Bearer dp.22.<inline|remote>.<base64url-j
 - `GET /health`：公开健康检查；
 - `GET /metrics`：公开 Prometheus 指标；
 - 携带 `Authorization: Bearer dp.*` 的其他请求：进入 data plane；
-- 其他 GET/HEAD 请求：在设置 `WEB_ROOT` 时由 SPA 文件服务器处理，否则返回 404。
+- `GET/HEAD /` 及 `WEB_ROOT` 下实际存在的静态文件：提供浏览器工作台；
+- 其他请求：返回 404。
 
 除 `/health` 和 `/metrics` 外没有静态保留业务前缀；任意路径携带 dp token 都可以进入 data plane。
 
@@ -258,7 +259,7 @@ pnpm install
 pnpm dev
 ```
 
-生产镜像把 `pnpm build` 生成的 `dist/` 复制到 `/app/web`，并通过 `WEB_ROOT=/app/web` 提供 SPA。
+生产镜像把 `pnpm build` 生成的 `dist/` 复制到 `/app/web`，并通过 `WEB_ROOT=/app/web` 提供工作台入口和静态资源。前端使用 HashRouter，不依赖服务端 SPA fallback。
 
 ## Directive 来源白名单
 
