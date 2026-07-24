@@ -195,17 +195,18 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function normalizeRequestPath(value: string, text: Text["authConsole"]) {
+export function normalizeRequestPath(value: string, text: Text["directiveConsole"]) {
   const path = value.trim();
   if (!path) throw new Error(text.pathRequired);
   if (!path.startsWith("/") || path.startsWith("//")) throw new Error(text.pathSameOrigin);
-  if (path === "/health" || path === "/authme" || path.startsWith("/authme/") || path === "/api/admin" || path.startsWith("/api/admin/") || path === "/api/public" || path.startsWith("/api/public/")) {
+  const pathname = new URL(path, "http://directive.local").pathname;
+  if (pathname === "/health" || pathname === "/metrics") {
     throw new Error(text.pathReservedAPI);
   }
   return path;
 }
 
-export function parseRequestHeaders(value: string, text: Text["authConsole"]): Record<string, string> {
+export function parseRequestHeaders(value: string, text: Text["directiveConsole"]): Record<string, string> {
   let parsed: unknown;
   try { parsed = JSON.parse(value || "{}"); } catch { throw new Error(text.invalidJSON("Request Headers")); }
   if (!isRecord(parsed)) throw new Error(text.mustBe("Request Headers", "JSON object"));

@@ -5,7 +5,7 @@ import type { ChangeEvent } from "react";
 import type { HeaderMutation } from "../types";
 import type { Text } from "../../../shared/i18n";
 
-export function HeaderMutationsTable(props: { items: HeaderMutation[]; text: Text["authConsole"]; showSide?: boolean; onChange: (key: string, patch: Partial<HeaderMutation>) => void; onRemove: (key: string) => void }) {
+export function HeaderMutationsTable(props: { items: HeaderMutation[]; text: Text["directiveConsole"]; showSide?: boolean; onChange: (key: string, patch: Partial<HeaderMutation>) => void; onRemove: (key: string) => void }) {
   const columns: TableColumnsType<HeaderMutation> = [
     ...(props.showSide === false ? [] : [{ title: props.text.side, dataIndex: "side", width: 126, render: (_: unknown, record: HeaderMutation) => <Select options={[{ label: props.text.requestSide, value: "request" }, { label: props.text.responseSide, value: "response" }]} value={record.side} onChange={(side: HeaderMutation["side"]) => props.onChange(record.key, { side })} /> }]),
     { title: props.text.action, dataIndex: "action", width: 116, render: (_, record) => <Select options={[{ label: props.text.addAction, value: "add" }, { label: props.text.setAction, value: "set" }, { label: props.text.delAction, value: "del" }]} value={record.action} onChange={(action: HeaderMutation["action"]) => props.onChange(record.key, { action, ...(action === "set" && record.values.length > 1 ? { values: record.values.slice(0, 1) } : {}) })} /> },

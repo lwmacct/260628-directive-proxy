@@ -1,42 +1,16 @@
 package config
 
 import (
-	"encoding/base64"
 	"errors"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 	"github.com/lwmacct/260718-go-pkg-clientip/pkg/clientip"
 	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
 )
 
 func validDefaultConfig() Server {
-	cfg := DefaultConfig().Server
-	cfg.HTTP.AuthMe.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.HTTP.AuthMe.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Token: "admin-token"}}
-	return cfg
-}
-
-func oidcConfig() Server {
-	cfg := validDefaultConfig()
-	cfg.HTTP.AuthMe.StaticToken.Enabled = false
-	cfg.HTTP.AuthMe.DexGitHub.Enabled = true
-	cfg.HTTP.AuthMe.DexGitHub = testOIDCAuth()
-	cfg.HTTP.AuthMe.AllowedGitHubUsers = []string{"lwmacct"}
-	return cfg
-}
-
-func testOIDCAuth() dexgithub.Config {
-	return dexgithub.Config{
-		Enabled:    true,
-		Issuer:     "https://2008.s.lwmacct.com:20088",
-		ClientID:   "dp",
-		SessionTTL: 24 * time.Hour,
-	}
+	return DefaultConfig().Server
 }
 
 func TestDefaultConfigUsesSingleHTTPListen(t *testing.T) {
@@ -108,103 +82,6 @@ func TestValidateSkipsTLSConfigurationWhenDisabled(t *testing.T) {
 
 	if _, err := Validate(cfg); err != nil {
 		t.Fatalf("disabled TLS must not be validated: %v", err)
-	}
-}
-
-func TestValidateRejectsInvalidAuth(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*dexgithub.Config)
-	}{
-		{name: "http issuer", mutate: func(cfg *dexgithub.Config) { cfg.Issuer = "http://auth.example.com" }},
-		{name: "missing client", mutate: func(cfg *dexgithub.Config) { cfg.ClientID = "" }},
-		{name: "missing users", mutate: func(*dexgithub.Config) {}},
-		{name: "empty user", mutate: func(*dexgithub.Config) {}},
-		{name: "duplicate users", mutate: func(*dexgithub.Config) {}},
-		{name: "invalid session TTL", mutate: func(cfg *dexgithub.Config) { cfg.SessionTTL = -1 }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := oidcConfig()
-			test.mutate(&cfg.HTTP.AuthMe.DexGitHub)
-			switch test.name {
-			case "missing users":
-				cfg.HTTP.AuthMe.AllowedGitHubUsers = nil
-			case "empty user":
-				cfg.HTTP.AuthMe.AllowedGitHubUsers = []string{" "}
-			case "duplicate users":
-				cfg.HTTP.AuthMe.AllowedGitHubUsers = []string{"lwmacct", " LwMacct "}
-			}
-			if _, err := Validate(cfg); !errors.Is(err, ErrInvalidAuth) {
-				t.Fatalf("expected invalid auth config, got %v", err)
-			}
-		})
-	}
-}
-
-func TestValidateNormalizesAuth(t *testing.T) {
-	cfg := oidcConfig()
-	cfg.HTTP.AuthMe.DexGitHub.Issuer += "/"
-	cfg.HTTP.AuthMe.AllowedGitHubUsers = []string{" LwMacct "}
-
-	validated, err := Validate(cfg)
-	if err != nil {
-		t.Fatalf("validate config: %v", err)
-	}
-	if validated.HTTP.AuthMe.DexGitHub.Issuer != "https://2008.s.lwmacct.com:20088" {
-		t.Fatalf("unexpected issuer: %q", validated.HTTP.AuthMe.DexGitHub.Issuer)
-	}
-	if validated.HTTP.AuthMe.AllowedGitHubUsers[0] != "lwmacct" {
-		t.Fatalf("unexpected username: %q", validated.HTTP.AuthMe.AllowedGitHubUsers[0])
-	}
-}
-
-func TestValidateTokenAuth(t *testing.T) {
-	cfg := validDefaultConfig()
-
-	if _, err := Validate(cfg); err != nil {
-		t.Fatalf("validate config: %v", err)
-	}
-	cfg.HTTP.AuthMe.StaticToken.Credentials[0].Token = "admin-token-rotated"
-	if _, err := Validate(cfg); err != nil {
-		t.Fatalf("opaque token was rejected: %v", err)
-	}
-	cfg.HTTP.AuthMe.StaticToken.Credentials[0].Token = "invalid token"
-	if _, err := Validate(cfg); !errors.Is(err, ErrInvalidAuth) {
-		t.Fatalf("token containing whitespace was accepted: %v", err)
-	}
-}
-
-func TestValidateOIDCAndTokenAuth(t *testing.T) {
-	cfg := validDefaultConfig()
-	cfg.HTTP.AuthMe.DexGitHub.Enabled = true
-	cfg.HTTP.AuthMe.DexGitHub = testOIDCAuth()
-	cfg.HTTP.AuthMe.AllowedGitHubUsers = []string{"lwmacct"}
-
-	if _, err := Validate(cfg); err != nil {
-		t.Fatalf("validate combined auth config: %v", err)
-	}
-}
-
-func TestValidateRejectsDisabledAuth(t *testing.T) {
-	cfg := validDefaultConfig()
-	cfg.HTTP.AuthMe.StaticToken.Enabled = false
-	if _, err := Validate(cfg); !errors.Is(err, ErrInvalidAuth) {
-		t.Fatalf("expected invalid auth config, got %v", err)
-	}
-}
-
-func TestValidateReportsAuthCause(t *testing.T) {
-	cfg := validDefaultConfig()
-	cfg.HTTP.AuthMe.Origins = []string{"http://localhost:23199", "https://2310.s.lwmacct.com:23109"}
-
-	_, err := Validate(cfg)
-	if !errors.Is(err, ErrInvalidAuth) {
-		t.Fatalf("expected invalid auth config, got %v", err)
-	}
-	want := `invalid auth config: authme: invalid authme config: trusted origins must use one scheme: origin[1]="https://2310.s.lwmacct.com:23109" conflicts with origin[0]="http://localhost:23199"`
-	if err.Error() != want {
-		t.Fatalf("unexpected diagnostic:\nwant: %s\n got: %s", want, err)
 	}
 }
 

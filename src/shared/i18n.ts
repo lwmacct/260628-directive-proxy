@@ -4,11 +4,7 @@ const zh = {
   app: {
     appearance: "外观设置",
   },
-  auth: {
-    authorizedOnly: "仅限已授权用户访问", signInDescription: "登录以继续",
-    unavailable: "暂时无法连接认证服务", invalidToken: "访问令牌无效",
-  },
-  authConsole: {
+  directiveConsole: {
     directiveConsole: "Directive Console", directiveConsoleDescription: "在一个工作区中构建、编码并调试 Inline 与 Remote Directive。", currentDirective: "当前类型", remoteSpecJSON: "RemoteSpec JSON",
     localOnly: "纯前端", payloadJSON: "Payload JSON",
     payloadBuilder: "Payload", httpSpecBuilder: "HTTP RemoteSpec", redisSpecBuilder: "Redis RemoteSpec", fileSpecBuilder: "File RemoteSpec",
@@ -55,11 +51,7 @@ const en: Text = {
   app: {
     appearance: "Appearance",
   },
-  auth: {
-    authorizedOnly: "Authorized users only", signInDescription: "Sign in to continue",
-    unavailable: "Unable to connect to the authentication service", invalidToken: "Invalid access token",
-  },
-  authConsole: {
+  directiveConsole: {
     directiveConsole: "Directive Console", directiveConsoleDescription: "Build, encode, and debug Inline and Remote Directives in one workspace.", currentDirective: "Current type", remoteSpecJSON: "RemoteSpec JSON",
     localOnly: "Browser only", payloadJSON: "Payload JSON",
     payloadBuilder: "Payload", httpSpecBuilder: "HTTP RemoteSpec", redisSpecBuilder: "Redis RemoteSpec", fileSpecBuilder: "File RemoteSpec",

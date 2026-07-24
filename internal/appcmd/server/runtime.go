@@ -9,9 +9,6 @@ import (
 	"net/http"
 
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/recoveryhttp"
@@ -37,7 +34,6 @@ type runtime struct {
 	proxyTransport   http.RoundTripper
 	programRuntime   *program.Runtime
 	eventOutput      *event.Dispatcher
-	adminAuth        *authme.Auth
 	sourceAccess     *directiveSourceAccess
 	tls              *tlsRuntime
 	directiveRemotes *directiveRemotes
@@ -58,14 +54,6 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 			_ = tlsRuntime.Close()
 			return nil, fmt.Errorf("configure source access: %w", err)
 		}
-	}
-	adminAuth, err := newAdminAuth(ctx, cfg.HTTP)
-	if err != nil {
-		if sourceAccess != nil {
-			sourceAccess.Close()
-		}
-		_ = tlsRuntime.Close()
-		return nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	eventOutput, err := newEventDispatcher(ctx, cfg.Fluent)
 	if err != nil {
@@ -147,7 +135,6 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		proxyTransport:   recoveryTransport,
 		programRuntime:   programRuntime,
 		eventOutput:      eventOutput,
-		adminAuth:        adminAuth,
 		sourceAccess:     sourceAccess,
 		tls:              tlsRuntime,
 		directiveRemotes: directiveRemotes,
@@ -169,32 +156,6 @@ func newEventDispatcher(ctx context.Context, fluentConfig fluent.Config) (*event
 		QueueMaxRecords: fluentConfig.Buffer.MaxEvents,
 		QueueMaxBytes:   int64(fluentConfig.Buffer.MaxBytes),
 	})
-}
-
-func newAdminAuth(ctx context.Context, cfg config.ServerHTTP) (*authme.Auth, error) {
-	methods := make([]authme.Method, 0, 2)
-	var authorizers []authme.Authorizer
-	if cfg.AuthMe.StaticToken.Enabled {
-		tokenConfig := cfg.AuthMe.StaticToken
-		tokenMethod, err := statictoken.New(tokenConfig)
-		if err != nil {
-			return nil, err
-		}
-		methods = append(methods, tokenMethod)
-	}
-	if cfg.AuthMe.DexGitHub.Enabled {
-		oidcMethod, err := dexgithub.New(ctx, cfg.AuthMe.DexGitHub)
-		if err != nil {
-			return nil, err
-		}
-		authorizer, err := dexgithub.NewUsernameAuthorizer(cfg.AuthMe.AllowedGitHubUsers)
-		if err != nil {
-			return nil, err
-		}
-		authorizers = append(authorizers, authorizer)
-		methods = append(methods, oidcMethod)
-	}
-	return authme.New(authme.Config{Prefix: cfg.AuthMe.PathPrefix, Origins: cfg.AuthMe.Origins, Session: cfg.AuthMe.Session}, authme.WithMethods(methods...), authme.WithAuthorizer(authme.Chain(authorizers...)))
 }
 
 func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler program.Compiler, recoveryCompiler recovery.Compiler, exchangeFactory *exchange.Manager, bodyStore *bodystore.Controller, transport http.RoundTripper, requestMetrics proxy.RequestMetrics) http.Handler {

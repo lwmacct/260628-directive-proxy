@@ -10,7 +10,7 @@ import { KeyValueEditor } from "./KeyValueEditor";
 const { Text: Label } = Typography;
 
 export function RecoveryEditor(props: {
-  text: Text["authConsole"];
+  text: Text["directiveConsole"];
   value: RecoveryEditorState;
   onChange: (value: RecoveryEditorState) => void;
 }) {

@@ -2,25 +2,24 @@
 
 Directive Proxy 是由 `Authorization: Bearer dp.22.<inline|remote>.<base64url-json>.<hmac>` 指令驱动的通用 HTTP 反向代理。
 
-项目的主要职责是 data plane：解析指令、改写请求、访问上游，并在异常发生时通过 Recovery Controller 让调用方同步修订远程指令或决定下一步动作。服务端控制面只保留 AuthMe 登录；directive 的生成、解析和校验全部在浏览器工作台本地完成。
+项目的主要职责是 data plane：解析指令、改写请求、访问上游，并在异常发生时通过 Recovery Controller 让调用方同步修订远程指令或决定下一步动作。项目没有服务端控制面；directive 的生成、解析和校验全部在无登录的浏览器工作台本地完成。
 
 ## HTTP 边界
 
 服务默认监听 `:23198`，单 listener 上的路由优先级如下：
 
-- `/authme/*`：AuthMe 登录、回调和 Session API；
 - `GET /health`：公开健康检查；
-- `/api/admin/*`、`/api/public/*`：保留前缀，统一返回 404；
+- `GET /metrics`：公开 Prometheus 指标；
 - 携带 `Authorization: Bearer dp.*` 的其他请求：进入 data plane；
 - 其他 GET/HEAD 请求：在设置 `WEB_ROOT` 时由 SPA 文件服务器处理，否则返回 404。
 
-`/api/admin/*` 和已删除的 `/api/public/*` 都是保留前缀，不会因为携带 dp token 而进入代理。普通业务路径（包括其他 `/api/...`）仍可进入 data plane。
+除 `/health` 和 `/metrics` 外没有静态保留业务前缀；任意路径携带 dp token 都可以进入 data plane。
 
 TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校验 token HMAC；它不会写入 token。secret 错误或 MAC 篡改返回 `401 directive_unauthorized`。
 
 上游 HTTPS 连接显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1；连接池由 `server.proxy.transport` 配置。明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 
-前端只保留 directive workbench、登录和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
+前端只保留 directive workbench 和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
 
 ## Directive v22
 
@@ -246,31 +245,11 @@ server:
 
 更多细节见 [Module architecture](docs/module-architecture.md)。
 
-## AuthMe 与指令工作台
+## 指令工作台
 
-AuthMe 支持静态 Access token 和 Dex GitHub OIDC。至少启用一种认证方式。浏览器使用统一加密 Session；directive 的 JSON 与 token 编解码完全在工作台本地完成，不调用服务端 encode API。
+工作台是不带登录、Session 或应用 Cookie 状态的静态前端。directive JSON 与 token 的编解码完全在浏览器本地完成，不调用服务端 encode API；TokenSecret 只保存在当前页面内存中。请求调试器显式使用 `credentials: "omit"`，不会携带或接受浏览器凭据。
 
-```yaml
-server:
-  http:
-    authme:
-      origins:
-        - https://proxy.example.com
-      session:
-        keys:
-          - id: primary
-            secret: "${AUTHME_SESSION_KEY}"
-      statictoken:
-        enabled: true
-        credentials:
-          - id: admin
-            name: Administrator
-            token: "${AUTHME_ACCESS_TOKEN}"
-      dexgithub:
-        enabled: false
-```
-
-`AUTHME_SESSION_KEY` 必须是 base64url 编码的 32 字节值。生产 OIDC callback 为 `<origin>/authme/callback/github`。
+主题和语言偏好保存在浏览器 localStorage 中，不参与访问控制、directive 或代理请求。
 
 前端开发：
 
@@ -283,7 +262,7 @@ pnpm dev
 
 ## Directive 来源白名单
 
-`server.proxy.directive.source-access` 只保护 dp data plane，不保护 AuthMe、健康检查或静态前端。启用后，来源校验发生在 token 解码和远程 resolver 访问之前。
+`server.proxy.directive.source-access` 只保护 dp data plane，不保护健康检查、指标或静态前端。启用后，来源校验发生在 token 解码和远程 resolver 访问之前。
 
 规则支持自动识别的 IP、CIDR 和域名。只有直接对端命中 `trusted-proxies` 时才按 `headers` 的配置顺序读取转发头；`max-header-bytes` 和 `max-hops` 限制转发链的资源消耗。
 

@@ -6,9 +6,6 @@ import (
 
 	"github.com/lwmacct/251207-go-pkg-cfgm/pkg/cfgm"
 	"github.com/lwmacct/260614-go-pkg-tlsreload/pkg/tlsreload"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/dexgithub"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 	"github.com/lwmacct/260714-go-pkg-fluent/pkg/fluent"
 	"github.com/lwmacct/260718-go-pkg-clientip/pkg/clientip"
 	"github.com/lwmacct/260718-go-pkg-ipallow/pkg/ipallow"
@@ -16,7 +13,6 @@ import (
 
 var (
 	ErrInvalidHTTP      = errors.New("invalid http config")
-	ErrInvalidAuth      = errors.New("invalid auth config")
 	ErrInvalidMetrics   = errors.New("invalid metrics config")
 	ErrInvalidTransport = errors.New("invalid transport config")
 	ErrInvalidRecovery  = errors.New("invalid recovery config")
@@ -44,16 +40,6 @@ type ServerMetrics struct {
 type ServerHTTP struct {
 	Listen string           `json:"listen" desc:"HTTP 服务监听地址"`
 	TLS    tlsreload.Config `json:"tls"    desc:"HTTPS TLS 配置"`
-	AuthMe AuthMe           `json:"authme" desc:"Authme 指令工作台认证配置"`
-}
-
-type AuthMe struct {
-	PathPrefix         string               `json:"path-prefix"      desc:"认证 HTTP 路由前缀"`
-	Origins            []string             `json:"origins"          desc:"允许浏览器访问应用的可信 origin"`
-	Session            authme.SessionConfig `json:"session"          desc:"统一浏览器 Session 配置"`
-	StaticToken        statictoken.Config   `json:"statictoken" desc:"Static token 认证配置"`
-	DexGitHub          dexgithub.Config     `json:"dexgithub" desc:"Dex GitHub OIDC 认证配置"`
-	AllowedGitHubUsers []string             `json:"allowed-github-users" desc:"允许访问应用的 GitHub 用户名"`
 }
 
 type Proxy struct {
@@ -124,25 +110,6 @@ func DefaultConfig() Config {
 		Server: Server{
 			HTTP: ServerHTTP{
 				Listen: ":23198",
-				AuthMe: AuthMe{
-					Origins: []string{"http://localhost:23199"},
-					Session: authme.SessionConfig{
-						Keys: []authme.SessionKey{{ID: "default", Secret: "${AUTHME_SESSION_KEY}"}},
-					},
-					StaticToken: func() statictoken.Config {
-						config := statictoken.DefaultConfig()
-						config.Enabled = true
-						config.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Token: "${AUTHME_ACCESS_TOKEN}"}}
-						return config
-					}(),
-					DexGitHub: func() dexgithub.Config {
-						config := dexgithub.DefaultConfig()
-						config.Issuer = "https://2008.s.lwmacct.com:20088"
-						config.ClientID = "dp"
-						return config
-					}(),
-					AllowedGitHubUsers: []string{"lwmacct"},
-				},
 				TLS: func() tlsreload.Config {
 					config := tlsreload.DefaultConfig()
 					config.DefaultCertificate = "default"

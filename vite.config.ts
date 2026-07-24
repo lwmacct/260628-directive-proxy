@@ -24,9 +24,6 @@ export default defineConfig({
     port: 23199,
     strictPort: true,
     proxy: {
-      "/authme": {
-        target: "http://localhost:23198",
-      },
       "/": {
         target: "http://localhost:23198",
         bypass(request) {

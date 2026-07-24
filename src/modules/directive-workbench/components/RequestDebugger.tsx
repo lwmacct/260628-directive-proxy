@@ -7,7 +7,7 @@ import { errorMessage, formatResponseHeaders, normalizeRequestPath, parseRequest
 
 const { Text: Label } = Typography;
 
-export function RequestDebugger(props: { text: Text["authConsole"]; directiveToken: string }) {
+export function RequestDebugger(props: { text: Text["directiveConsole"]; directiveToken: string }) {
   const [method, setMethod] = useState("POST");
   const [path, setPath] = useState("/v1/resources");
   const [headers, setHeaders] = useState('{\n  "Content-Type": "application/json"\n}');
@@ -30,6 +30,7 @@ export function RequestDebugger(props: { text: Text["authConsole"]; directiveTok
       const startedAt = performance.now();
       const response = await fetch(normalizeRequestPath(path, props.text), {
         method,
+        credentials: "omit",
         headers: { ...parseRequestHeaders(headers, props.text), Authorization: `Bearer ${props.directiveToken}` },
         body: bodyDisabled ? undefined : body,
         signal: requestController.signal,

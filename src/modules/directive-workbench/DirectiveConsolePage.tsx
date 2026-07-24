@@ -17,7 +17,7 @@ type SourceContent = {
   jsonPlaceholder: string;
 };
 
-function sourceContent(text: Text["authConsole"], source: DirectiveSource): SourceContent {
+function sourceContent(text: Text["directiveConsole"], source: DirectiveSource): SourceContent {
   switch (source) {
     case "inline":
       return {
@@ -46,7 +46,7 @@ function sourceContent(text: Text["authConsole"], source: DirectiveSource): Sour
   }
 }
 
-function StatusTag(props: { error: string | null; pending?: boolean; text: Text["authConsole"] }) {
+function StatusTag(props: { error: string | null; pending?: boolean; text: Text["directiveConsole"] }) {
   if (props.error) return <Tag color="red">{props.text.invalid}</Tag>;
   if (props.pending) return <Tag>{props.text.pending}</Tag>;
   return <Tag color="green">{props.text.valid}</Tag>;
@@ -55,27 +55,27 @@ function StatusTag(props: { error: string | null; pending?: boolean; text: Text[
 export function DirectiveConsolePage() {
   const t = useText();
   const { message } = AntdApp.useApp();
-  const session = useDirectiveSession(t.authConsole);
+  const session = useDirectiveSession(t.directiveConsole);
   const [debuggerOpen, setDebuggerOpen] = useState(false);
-  const content = sourceContent(t.authConsole, session.source);
+  const content = sourceContent(t.directiveConsole, session.source);
   const documentError = session.jsonError ?? session.formError;
   const tokenPrefix = `${TOKEN_FAMILY}.${TOKEN_VERSION}.${session.envelope.kind}`;
 
   function copy(value: string) {
-    void copyText(value).then((ok) => void (ok ? message.success(t.authConsole.copied) : message.error(t.authConsole.copyFailed)));
+    void copyText(value).then((ok) => void (ok ? message.success(t.directiveConsole.copied) : message.error(t.directiveConsole.copyFailed)));
   }
 
   return <WorkbenchPage
     className="directive-console-page"
-    description={<span className="directive-console-header__description">{t.authConsole.directiveConsoleDescription}</span>}
+    description={<span className="directive-console-header__description">{t.directiveConsole.directiveConsoleDescription}</span>}
     extra={<Space className="directive-console-header__actions" wrap>
       <div className="directive-console-header__protocol">
-        <span>{t.authConsole.currentDirective}</span>
+        <span>{t.directiveConsole.currentDirective}</span>
         <Tag variant="filled">{tokenPrefix}</Tag>
       </div>
-      <Button icon={<SendOutlined />} onClick={() => setDebuggerOpen(true)} type="primary">{t.authConsole.requestDebug}</Button>
+      <Button icon={<SendOutlined />} onClick={() => setDebuggerOpen(true)} type="primary">{t.directiveConsole.requestDebug}</Button>
     </Space>}
-    title={<span className="directive-console-header__title"><ThunderboltOutlined />{t.authConsole.directiveConsole}</span>}
+    title={<span className="directive-console-header__title"><ThunderboltOutlined />{t.directiveConsole.directiveConsole}</span>}
   >
     <div className="directive-source-control">
       <Segmented
@@ -90,25 +90,25 @@ export function DirectiveConsolePage() {
         onChange={(value: string | number) => session.setSource(value as DirectiveSource)}
       />
     </div>
-    <WorkbenchPanel extra={<Tag color="cyan">{t.authConsole.localOnly}</Tag>} title={content.builderTitle}>
-      {session.formError ? <Alert showIcon style={{ marginBottom: 16 }} title={t.authConsole.invalidFormDetail(session.formError)} type="warning" /> : null}
-      <StructuredEditorPanel editor={session.editor} source={session.source} text={t.authConsole} onUpdate={session.updateEditor} />
+    <WorkbenchPanel extra={<Tag color="cyan">{t.directiveConsole.localOnly}</Tag>} title={content.builderTitle}>
+      {session.formError ? <Alert showIcon style={{ marginBottom: 16 }} title={t.directiveConsole.invalidFormDetail(session.formError)} type="warning" /> : null}
+      <StructuredEditorPanel editor={session.editor} source={session.source} text={t.directiveConsole} onUpdate={session.updateEditor} />
     </WorkbenchPanel>
     <div className="directive-console-secret">
       <div className="directive-console-secret__identity">
         <span className="directive-console-secret__icon"><KeyOutlined /></span>
         <div className="directive-console-secret__copy">
           <Flex align="center" gap="small" wrap>
-            <Typography.Text strong>{t.authConsole.tokenSecret}</Typography.Text>
+            <Typography.Text strong>{t.directiveConsole.tokenSecret}</Typography.Text>
             <Tag variant="filled">HMAC-SHA256</Tag>
           </Flex>
-          <Typography.Text type="secondary">{t.authConsole.tokenSecretDescription}</Typography.Text>
+          <Typography.Text type="secondary">{t.directiveConsole.tokenSecretDescription}</Typography.Text>
         </div>
       </div>
       <Input.Password
-        aria-label={t.authConsole.tokenSecret}
+        aria-label={t.directiveConsole.tokenSecret}
         className="directive-console-secret__input"
-        placeholder={t.authConsole.tokenSecretPlaceholder}
+        placeholder={t.directiveConsole.tokenSecretPlaceholder}
         size="large"
         value={session.tokenSecret}
         onChange={(event: ChangeEvent<HTMLInputElement>) => session.updateTokenSecret(event.target.value)}
@@ -118,8 +118,8 @@ export function DirectiveConsolePage() {
       <WorkbenchPanel
         className="directive-codec-panel"
         extra={<Flex align="center" gap="small">
-          <StatusTag error={documentError} text={t.authConsole} />
-          <Button icon={<CopyOutlined />} onClick={() => copy(session.jsonInput)}>{t.authConsole.copyJSON}</Button>
+          <StatusTag error={documentError} text={t.directiveConsole} />
+          <Button icon={<CopyOutlined />} onClick={() => copy(session.jsonInput)}>{t.directiveConsole.copyJSON}</Button>
         </Flex>}
         title={content.documentTitle}
       >
@@ -137,8 +137,8 @@ export function DirectiveConsolePage() {
       <WorkbenchPanel
         className="directive-codec-panel"
         extra={<Flex align="center" gap="small">
-          <StatusTag error={session.tokenError} pending={!session.directiveToken} text={t.authConsole} />
-          <Button disabled={!session.tokenInput} icon={<CopyOutlined />} onClick={() => copy(session.tokenInput)}>{t.authConsole.copyToken}</Button>
+          <StatusTag error={session.tokenError} pending={!session.directiveToken} text={t.directiveConsole} />
+          <Button disabled={!session.tokenInput} icon={<CopyOutlined />} onClick={() => copy(session.tokenInput)}>{t.directiveConsole.copyToken}</Button>
         </Flex>}
         title="Token"
       >
@@ -158,10 +158,10 @@ export function DirectiveConsolePage() {
       open={debuggerOpen}
       rootClassName="request-debugger-drawer"
       size={760}
-      title={t.authConsole.requestDebug}
+      title={t.directiveConsole.requestDebug}
       onClose={() => setDebuggerOpen(false)}
     >
-      <RequestDebugger directiveToken={session.directiveToken} text={t.authConsole} />
+      <RequestDebugger directiveToken={session.directiveToken} text={t.directiveConsole} />
     </Drawer>
   </WorkbenchPage>;
 }

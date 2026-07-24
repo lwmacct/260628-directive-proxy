@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	miniredisServer "github.com/alicebob/miniredis/v2/server"
-	"github.com/lwmacct/260711-go-pkg-authme/pkg/authme/adapters/statictoken"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/adapter/directivehttp"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
@@ -93,13 +91,6 @@ func TestHTTPServerRoutesControlAndProxyRequestsOnOneListener(t *testing.T) {
 	}
 	if proxyPath != "/api/resources" {
 		t.Fatalf("proxy path was modified: %q", proxyPath)
-	}
-	reservedReq := httptest.NewRequest(http.MethodPost, "http://service.local/api/public/unknown", nil)
-	reservedReq.Header.Set("Authorization", "Bearer "+token)
-	reservedRecorder := httptest.NewRecorder()
-	srv.Handler.ServeHTTP(reservedRecorder, reservedReq)
-	if reservedRecorder.Code != http.StatusNotFound || proxyPath != "/api/resources" {
-		t.Fatalf("reserved public API path reached data plane: status=%d proxy_path=%q", reservedRecorder.Code, proxyPath)
 	}
 	ordinaryBearerReq := httptest.NewRequest(http.MethodGet, "http://service.local/health", nil)
 	ordinaryBearerReq.Header.Set("Authorization", "Bearer upstream-token")
@@ -300,7 +291,7 @@ func TestHTTPServerForwardsProxyRequestBody(t *testing.T) {
 	}
 }
 
-func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) {
+func TestControlHealthRemainsPublic(t *testing.T) {
 	cfg := config.DefaultConfig().Server
 	rt := &runtime{}
 	srv := newHTTPServer(&cfg, rt)
@@ -310,6 +301,9 @@ func TestControlHealthRemainsPublicWithoutRuntimeAuthInRouteTests(t *testing.T) 
 	srv.Handler.ServeHTTP(healthRecorder, healthReq)
 	if healthRecorder.Code != http.StatusOK {
 		t.Fatalf("health must remain public, got %d", healthRecorder.Code)
+	}
+	if cookies := healthRecorder.Header().Values("Set-Cookie"); len(cookies) != 0 {
+		t.Fatalf("health response set cookies: %q", cookies)
 	}
 }
 
@@ -494,9 +488,12 @@ func TestHTTPServerServesDirectiveWorkbenchSPA(t *testing.T) {
 	handler := newHTTPServer(&cfg, &runtime{}).Handler
 
 	spa := httptest.NewRecorder()
-	handler.ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "http://control.local/console/auth-console", nil))
+	handler.ServeHTTP(spa, httptest.NewRequest(http.MethodGet, "http://control.local/console/workbench", nil))
 	if spa.Code != http.StatusOK || spa.Body.String() != "directive-workbench" {
 		t.Fatalf("unexpected SPA fallback: status=%d body=%q", spa.Code, spa.Body.String())
+	}
+	if cookies := spa.Header().Values("Set-Cookie"); len(cookies) != 0 {
+		t.Fatalf("SPA response set cookies: %q", cookies)
 	}
 
 	asset := httptest.NewRecorder()
@@ -632,54 +629,5 @@ func TestRuntimeCloseClosesSourceMatcher(t *testing.T) {
 	result, matchErr := matcher.Match(context.Background(), policy, netip.MustParseAddr("127.0.0.1"))
 	if !errors.Is(matchErr, ipallow.ErrMatcherClosed) || result.Reason != ipallow.ReasonMatcherClosed || rt.sourceAccess != nil {
 		t.Fatalf("source matcher remained available after close: result=%#v err=%v", result, matchErr)
-	}
-}
-
-func TestNoStoreDisablesCaching(t *testing.T) {
-	handler := noStore(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://control.local/authme/session", nil))
-
-	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
-		t.Fatalf("unexpected Cache-Control: %q", got)
-	}
-}
-
-func TestTokenAuthSession(t *testing.T) {
-	token := "admin-token/with.punctuation"
-	cfg := config.DefaultConfig().Server
-	cfg.HTTP.AuthMe.Origins = []string{"http://localhost"}
-	cfg.HTTP.AuthMe.Session.Keys[0].Secret = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", 32)))
-	cfg.HTTP.AuthMe.StaticToken.Credentials = []statictoken.Credential{{ID: "admin", Name: "Administrator", Token: token}}
-	auth, err := newAdminAuth(t.Context(), cfg.HTTP)
-	if err != nil {
-		t.Fatalf("configure access token auth: %v", err)
-	}
-	rt := &runtime{adminAuth: auth}
-	handler := newHTTPServer(&cfg, rt).Handler
-
-	authSession := httptest.NewRecorder()
-	handler.ServeHTTP(authSession, httptest.NewRequest(http.MethodGet, "http://localhost/authme/session", nil))
-	if authSession.Code != http.StatusOK || authSession.Header().Get("Cache-Control") != "no-store" ||
-		!strings.Contains(authSession.Body.String(), `"id":"token"`) || !strings.Contains(authSession.Body.String(), `"status":"signed-out"`) {
-		t.Fatalf("unexpected auth session: status=%d body=%s", authSession.Code, authSession.Body.String())
-	}
-
-	loginRequest := httptest.NewRequest(http.MethodPost, "http://localhost/authme/login/token", strings.NewReader(`{"token":"`+token+`"}`))
-	loginRequest.Header.Set("Origin", "http://localhost")
-	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, loginRequest)
-	if login.Code != http.StatusNoContent || login.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("unexpected login: status=%d body=%s", login.Code, login.Body.String())
-	}
-
-	authenticatedRequest := httptest.NewRequest(http.MethodGet, "http://localhost/authme/session", nil)
-	authenticatedRequest.AddCookie(login.Result().Cookies()[0])
-	authenticated := httptest.NewRecorder()
-	handler.ServeHTTP(authenticated, authenticatedRequest)
-	if authenticated.Code != http.StatusOK || !strings.Contains(authenticated.Body.String(), `"status":"authenticated"`) {
-		t.Fatalf("unexpected authenticated session: status=%d body=%s", authenticated.Code, authenticated.Body.String())
 	}
 }

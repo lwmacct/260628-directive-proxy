@@ -15,7 +15,7 @@ const { Text: Label } = Typography;
 export function StructuredEditorPanel(props: {
   editor: EditorState;
   source: DirectiveSource;
-  text: Text["authConsole"];
+  text: Text["directiveConsole"];
   onUpdate: (patch: Partial<EditorState>) => void;
 }) {
   const { editor, source, text, onUpdate } = props;

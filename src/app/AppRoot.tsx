@@ -1,10 +1,8 @@
 import { WorkbenchProvider } from "@lwmacct/260627-antd-workbench";
 import { HashRouter } from "react-router-dom";
 import { AppShell } from "./AppShell";
-import { AuthBoundary } from "./auth";
-import type { SessionState } from "./session";
 
-export function AppRoot({ initialSession }: { initialSession: SessionState }) {
+export function AppRoot() {
   return (
     <WorkbenchProvider
       appearance={{ storageKey: "dp-theme" }}
@@ -12,11 +10,9 @@ export function AppRoot({ initialSession }: { initialSession: SessionState }) {
       localeStorageKey="dp-locale"
       withAntdApp
     >
-      <AuthBoundary initialSession={initialSession}>
-        <HashRouter>
-          <AppShell />
-        </HashRouter>
-      </AuthBoundary>
+      <HashRouter>
+        <AppShell />
+      </HashRouter>
     </WorkbenchProvider>
   );
 }

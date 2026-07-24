@@ -27,7 +27,7 @@ function ModuleConfigInput(props: { item: EditorModuleSpec; onChange: (patch: Pa
 }
 
 export function ModulesEditor(props: {
-  text: Text["authConsole"];
+  text: Text["directiveConsole"];
   value: EditorModuleSpec[];
   onChange: (value: EditorModuleSpec[]) => void;
 }) {

@@ -23,51 +23,6 @@ server:
       poll-jitter-ratio: 0.1 # 成功轮询后的向下随机抖动比例
       allow-insecure-http: false # 允许通过明文 HTTP 读取证书材料
 
-    # Authme 指令工作台认证配置
-    authme:
-      path-prefix: "" # 认证 HTTP 路由前缀
-
-      # 允许浏览器访问应用的可信 origin
-      origins:
-        - http://localhost:23199
-
-      # 统一浏览器 Session 配置
-      session:
-
-        # Session encryption key ring; first key writes, all keys read
-        keys:
-          - id: "default" # Session key ID
-            secret: "${AUTHME_SESSION_KEY}" # Base64url-encoded 32-byte AES key
-        ttl: 0s # Maximum browser session lifetime
-        cookie-name: "" # Optional browser session cookie name
-
-      # Static token 认证配置
-      statictoken:
-        enabled: true # Whether to enable static token authentication
-        id: "token" # Authentication method ID
-        label: "Access token" # Authentication method display label
-
-        # Static access token credentials
-        credentials:
-          - id: "admin" # Credential ID
-            name: "Administrator" # Display name
-            token: "${AUTHME_ACCESS_TOKEN}" # Opaque access token
-
-      # Dex GitHub OIDC 认证配置
-      dexgithub:
-        enabled: false # Whether to enable Dex GitHub authentication
-        id: "github" # Authentication method ID
-        label: "GitHub" # Authentication method display label
-        issuer: "https://2008.s.lwmacct.com:20088" # Dex OIDC issuer URL
-        client-id: "dp" # OIDC client ID
-        client-secret: "" # OIDC client secret
-        session-ttl: 24h0m0s # Maximum browser session lifetime
-        flow-ttl: 5m0s # Login flow lifetime
-
-      # 允许访问应用的 GitHub 用户名
-      allowed-github-users:
-        - lwmacct
-
   # Prometheus 指标配置
   metrics:
     prefix: "m_260628_" # 应用指标名的完整前缀，不影响 go_* 和 process_* 指标

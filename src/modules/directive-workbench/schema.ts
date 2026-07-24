@@ -28,47 +28,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function record(value: unknown, label: string, text: Text["authConsole"]) {
+function record(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (!isRecord(value)) throw new Error(text.mustBe(label, "JSON object"));
   return value;
 }
 
-function knownKeys(value: Record<string, unknown>, allowed: readonly string[], label: string, text: Text["authConsole"]) {
+function knownKeys(value: Record<string, unknown>, allowed: readonly string[], label: string, text: Text["directiveConsole"]) {
   const allowedSet = new Set(allowed);
   const unknown = Object.keys(value).find((key) => !allowedSet.has(key));
   if (unknown) throw new Error(text.unknownField(label, unknown));
 }
 
-function stringValue(value: unknown, label: string, text: Text["authConsole"], required = true) {
+function stringValue(value: unknown, label: string, text: Text["directiveConsole"], required = true) {
   if (typeof value !== "string" || required && value.trim() === "") throw new Error(text.nonEmptyString(label));
   return value.trim();
 }
 
-function optionalString(value: unknown, label: string, text: Text["authConsole"]) {
+function optionalString(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (value === undefined) return undefined;
   if (typeof value !== "string") throw new Error(text.mustBe(label, "string"));
   const result = value.trim();
   return result || undefined;
 }
 
-function booleanValue(value: unknown, label: string, text: Text["authConsole"]) {
+function booleanValue(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (typeof value !== "boolean") throw new Error(text.mustBe(label, "boolean"));
   return value;
 }
 
-function integerValue(value: unknown, label: string, text: Text["authConsole"], min: number, max: number) {
+function integerValue(value: unknown, label: string, text: Text["directiveConsole"], min: number, max: number) {
   if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
     throw new Error(text.mustBe(label, `integer ${min}-${max}`));
   }
   return value;
 }
 
-function arrayValue(value: unknown, label: string, text: Text["authConsole"]) {
+function arrayValue(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (!Array.isArray(value)) throw new Error(text.mustBe(label, "array"));
   return value;
 }
 
-function parseURL(value: unknown, label: string, schemes: string[], text: Text["authConsole"], userInfo = true, fragment = true) {
+function parseURL(value: unknown, label: string, schemes: string[], text: Text["directiveConsole"], userInfo = true, fragment = true) {
   const raw = stringValue(value, label, text);
   let parsed: URL;
   try { parsed = new URL(raw); } catch { throw new Error(text.mustBe(label, `${schemes.join("/")} URL`)); }
@@ -99,7 +99,7 @@ function canonicalHeaderName(value: string) {
 function parseControllerHeaders(
   value: unknown,
   label: string,
-  text: Text["authConsole"],
+  text: Text["directiveConsole"],
   maxCount?: number,
   maxValueBytes?: number,
 ) {
@@ -120,7 +120,7 @@ function parseControllerHeaders(
   return Object.keys(output).length ? output : undefined;
 }
 
-function parseGlob(value: unknown, label: string, text: Text["authConsole"]) {
+function parseGlob(value: unknown, label: string, text: Text["directiveConsole"]) {
   const pattern = stringValue(value, label, text);
   let bracket = false;
   let escaped = false;
@@ -134,7 +134,7 @@ function parseGlob(value: unknown, label: string, text: Text["authConsole"]) {
   return pattern;
 }
 
-function parseHeaderMutation(value: unknown, label: string, text: Text["authConsole"], requestOnly: boolean): DirectiveHeaderMutation {
+function parseHeaderMutation(value: unknown, label: string, text: Text["directiveConsole"], requestOnly: boolean): DirectiveHeaderMutation {
   const input = record(value, label, text);
   knownKeys(input, ["side", "action", "name", "glob", "values"], label, text);
   if (input.side !== "request" && input.side !== "response") throw new Error(text.onlyValues(`${label}.side`, "request, response"));
@@ -165,7 +165,7 @@ function parseHeaderMutation(value: unknown, label: string, text: Text["authCons
   return { side, action: input.action, ...selector, values: values as string[] };
 }
 
-function parseModule(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec {
+function parseModule(value: unknown, label: string, text: Text["directiveConsole"]): ModuleSpec {
   const input = record(value, label, text);
   knownKeys(input, ["module", "config"], label, text);
   if (typeof input.module !== "string" || input.module === "" || input.module !== input.module.trim()) throw new Error(text.nonEmptyString(`${label}.module`));
@@ -178,7 +178,7 @@ function parseModule(value: unknown, label: string, text: Text["authConsole"]): 
   return { module, ...(input.config === undefined ? {} : { config: input.config }) };
 }
 
-function parseModules(value: unknown, label: string, text: Text["authConsole"]): ModuleSpec[] | undefined {
+function parseModules(value: unknown, label: string, text: Text["directiveConsole"]): ModuleSpec[] | undefined {
   if (value === undefined) return undefined;
   const values = arrayValue(value, label, text);
   if (values.length > 16) throw new Error(text.mustBe(label, "array with at most 16 modules"));
@@ -187,7 +187,7 @@ function parseModules(value: unknown, label: string, text: Text["authConsole"]):
   return modules.length ? modules : undefined;
 }
 
-function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePayload {
+function parsePayload(value: unknown, text: Text["directiveConsole"]): DirectivePayload {
   const input = record(value, "payload", text);
   knownKeys(input, ["metadata", "target", "proxy", "headers", "modules", "recovery", "body_store"], "payload", text);
   const metadata = parseMetadata(input.metadata, text);
@@ -230,7 +230,7 @@ function parsePayload(value: unknown, text: Text["authConsole"]): DirectivePaylo
   return { ...(metadata ? { metadata } : {}), target, ...(proxy ? { proxy } : {}), ...(headers ? { headers } : {}), ...(modules ? { modules } : {}), ...(recovery ? { recovery } : {}), ...(body_store ? { body_store } : {}) };
 }
 
-function parseMetadata(value: unknown, text: Text["authConsole"]): Record<string, string> | undefined {
+function parseMetadata(value: unknown, text: Text["directiveConsole"]): Record<string, string> | undefined {
   if (value === undefined) return undefined;
   const input = record(value, "payload.metadata", text);
   const entries = Object.entries(input);
@@ -270,7 +270,7 @@ function durationMilliseconds(value: string) {
   return position === value.length ? total : undefined;
 }
 
-function parseDuration(value: unknown, label: string, text: Text["authConsole"], fallback?: string) {
+function parseDuration(value: unknown, label: string, text: Text["directiveConsole"], fallback?: string) {
   const raw = optionalString(value, label, text) ?? fallback;
   if (raw === undefined) return undefined;
   const milliseconds = durationMilliseconds(raw);
@@ -278,7 +278,7 @@ function parseDuration(value: unknown, label: string, text: Text["authConsole"],
   return raw;
 }
 
-function parseBodyDuration(value: unknown, label: string, text: Text["authConsole"]) {
+function parseBodyDuration(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (value === undefined) return undefined;
   const raw = optionalString(value, label, text);
   if (raw === undefined) throw new Error(text.mustBe(label, "non-negative Go duration <= 10m"));
@@ -287,7 +287,7 @@ function parseBodyDuration(value: unknown, label: string, text: Text["authConsol
   return raw;
 }
 
-function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec | undefined {
+function parseRecovery(value: unknown, text: Text["directiveConsole"]): RecoverySpec | undefined {
   if (value === undefined) return undefined;
   const input = record(value, "recovery", text);
   knownKeys(input, ["controller", "triggers", "budget"], "recovery", text);
@@ -340,7 +340,7 @@ function parseRecovery(value: unknown, text: Text["authConsole"]): RecoverySpec 
   };
 }
 
-function parseRemoteSpec(value: unknown, text: Text["authConsole"]): RemoteSpec {
+function parseRemoteSpec(value: unknown, text: Text["directiveConsole"]): RemoteSpec {
   const input = record(value, "remote", text);
   knownKeys(input, ["http", "redis", "file"], "remote", text);
   const backends = ["http", "redis", "file"].filter((name) => input[name] !== undefined);
@@ -394,7 +394,7 @@ export function isRemoteKeyValid(value: string) {
   });
 }
 
-export function parseTokenDocument(kind: TokenKind, value: unknown, text: Text["authConsole"]): DirectiveEnvelope {
+export function parseTokenDocument(kind: TokenKind, value: unknown, text: Text["directiveConsole"]): DirectiveEnvelope {
   if (kind === "inline") {
     return { kind, document: parsePayload(value, text) };
   }

@@ -20,7 +20,7 @@ type Artifacts = {
 
 type Direction = "builder" | "json" | "token";
 
-function createArtifacts(source: DirectiveSource, editor: EditorState, text: Text["authConsole"]): Artifacts {
+function createArtifacts(source: DirectiveSource, editor: EditorState, text: Text["directiveConsole"]): Artifacts {
   const draft = buildEnvelope(source, editor);
   try {
     if (source === "inline" && editor.modules.some((item) => !item.configValid)) {
@@ -33,7 +33,7 @@ function createArtifacts(source: DirectiveSource, editor: EditorState, text: Tex
   }
 }
 
-export function useDirectiveSession(text: Text["authConsole"]) {
+export function useDirectiveSession(text: Text["directiveConsole"]) {
   const [initial] = useState(() => {
     const editor = createInitialEditor();
     return { editor, ...createArtifacts("inline", editor, text) };
