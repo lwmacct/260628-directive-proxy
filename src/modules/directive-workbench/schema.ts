@@ -63,6 +63,13 @@ function integerValue(value: unknown, label: string, text: Text["directiveConsol
   return value;
 }
 
+function positiveInt64Value(value: unknown, label: string, text: Text["directiveConsole"]) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value >= 2 ** 63) {
+    throw new Error(text.mustBe(label, "positive signed 64-bit integer"));
+  }
+  return value;
+}
+
 function arrayValue(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (!Array.isArray(value)) throw new Error(text.mustBe(label, "array"));
   return value;
@@ -221,7 +228,7 @@ function parsePayload(value: unknown, text: Text["directiveConsole"]): Directive
     const body = record(input.body_store, "payload.body_store", text);
     knownKeys(body, ["max_body_bytes", "queue_wait", "read_timeout", "chunk_bytes"], "payload.body_store", text);
     body_store = {
-      ...(body.max_body_bytes === undefined ? {} : { max_body_bytes: integerValue(body.max_body_bytes, "payload.body_store.max_body_bytes", text, 1, 512 << 20) }),
+      ...(body.max_body_bytes === undefined ? {} : { max_body_bytes: positiveInt64Value(body.max_body_bytes, "payload.body_store.max_body_bytes", text) }),
       ...(body.queue_wait === undefined ? {} : { queue_wait: parseBodyDuration(body.queue_wait, "payload.body_store.queue_wait", text) }),
       ...(body.read_timeout === undefined ? {} : { read_timeout: parseBodyDuration(body.read_timeout, "payload.body_store.read_timeout", text) }),
       ...(body.chunk_bytes === undefined ? {} : { chunk_bytes: integerValue(body.chunk_bytes, "payload.body_store.chunk_bytes", text, 4 << 10, 1 << 20) }),
@@ -256,34 +263,62 @@ function parseMetadata(value: unknown, text: Text["directiveConsole"]): Record<s
   return entries.length ? metadata : undefined;
 }
 
-function durationMilliseconds(value: string) {
-  if (value.startsWith("+")) value = value.slice(1);
+const durationUnitNanoseconds: Record<string, bigint> = {
+  ns: 1n,
+  us: 1_000n,
+  "µs": 1_000n,
+  "μs": 1_000n,
+  ms: 1_000_000n,
+  s: 1_000_000_000n,
+  m: 60_000_000_000n,
+  h: 3_600_000_000_000n,
+};
+const maxGoDurationNanoseconds = (1n << 63n) - 1n;
+const minGoDurationMagnitudeNanoseconds = 1n << 63n;
+const maxRecoveryDurationNanoseconds = 10n * durationUnitNanoseconds.m;
+
+function durationNanoseconds(value: string) {
+  let sign = 1n;
+  if (value.startsWith("+") || value.startsWith("-")) {
+    if (value[0] === "-") sign = -1n;
+    value = value.slice(1);
+  }
+  if (value === "0") return 0n;
   const matchPattern = /(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)/gy;
-  const factors: Record<string, number> = { ns: 1e-6, us: 1e-3, "µs": 1e-3, "μs": 1e-3, ms: 1, s: 1000, m: 60000, h: 3600000 };
   let position = 0;
-  let total = 0;
+  let total = 0n;
   for (const match of value.matchAll(matchPattern)) {
     if (match.index !== position) return undefined;
-    total += Number(match[1]) * factors[match[2]];
+    const numeric = match[1];
+    const unit = durationUnitNanoseconds[match[2]];
+    const dot = numeric.indexOf(".");
+    const whole = dot < 0 ? numeric : numeric.slice(0, dot);
+    const fraction = dot < 0 ? "" : numeric.slice(dot + 1);
+    let segment = BigInt(whole || "0") * unit;
+    if (fraction) {
+      segment += BigInt(fraction) * unit / (10n ** BigInt(fraction.length));
+    }
+    total += segment;
     position += match[0].length;
   }
-  return position === value.length ? total : undefined;
+  const maxMagnitude = sign < 0 ? minGoDurationMagnitudeNanoseconds : maxGoDurationNanoseconds;
+  return position === value.length && total <= maxMagnitude ? sign * total : undefined;
 }
 
 function parseDuration(value: unknown, label: string, text: Text["directiveConsole"], fallback?: string) {
   const raw = optionalString(value, label, text) ?? fallback;
   if (raw === undefined) return undefined;
-  const milliseconds = durationMilliseconds(raw);
-  if (milliseconds === undefined || milliseconds <= 0 || milliseconds > 600000) throw new Error(text.mustBe(label, "positive Go duration <= 10m"));
+  const nanoseconds = durationNanoseconds(raw);
+  if (nanoseconds === undefined || nanoseconds <= 0 || nanoseconds > maxRecoveryDurationNanoseconds) throw new Error(text.mustBe(label, "positive Go duration <= 10m"));
   return raw;
 }
 
 function parseBodyDuration(value: unknown, label: string, text: Text["directiveConsole"]) {
   if (value === undefined) return undefined;
   const raw = optionalString(value, label, text);
-  if (raw === undefined) throw new Error(text.mustBe(label, "non-negative Go duration <= 10m"));
-  const milliseconds = durationMilliseconds(raw);
-  if (milliseconds === undefined || milliseconds < 0 || milliseconds > 600000) throw new Error(text.mustBe(label, "non-negative Go duration <= 10m"));
+  if (raw === undefined) throw new Error(text.mustBe(label, "non-negative Go duration"));
+  const nanoseconds = durationNanoseconds(raw);
+  if (nanoseconds === undefined || nanoseconds < 0) throw new Error(text.mustBe(label, "non-negative Go duration"));
   return raw;
 }
 

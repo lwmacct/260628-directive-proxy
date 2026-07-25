@@ -102,7 +102,7 @@ export function StructuredEditorPanel(props: {
         <Checkbox checked={editor.bodyStore !== undefined} onChange={(event: CheckboxChangeEvent) => onUpdate({ bodyStore: event.target.checked ? {} : undefined })}>{text.bodyStoreOverride}</Checkbox>
         {editor.bodyStore !== undefined ? <Flex gap="small" wrap>
           <Form.Item label={text.bodyMaxBodyBytes}>
-            <InputNumber min={1} max={512 << 20} value={editor.bodyStore.max_body_bytes} onChange={(value: number | null) => updateBodyStore({ max_body_bytes: value ?? undefined })} />
+            <InputNumber min={1} value={editor.bodyStore.max_body_bytes} onChange={(value: number | null) => updateBodyStore({ max_body_bytes: value ?? undefined })} />
           </Form.Item>
           <Form.Item label={text.bodyQueueWait}>
             <Input allowClear placeholder="2s" value={editor.bodyStore.queue_wait ?? ""} onChange={(event: ChangeEvent<HTMLInputElement>) => updateBodyStore({ queue_wait: event.target.value || undefined })} />
