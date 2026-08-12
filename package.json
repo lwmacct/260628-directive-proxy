@@ -1,9 +1,9 @@
 {
   "name": "directive-proxy-web",
-  "version": "0.75.260725",
+  "version": "0.76.260812",
   "private": true,
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.17.0",
+  "packageManager": "pnpm@11.21.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,17 +16,17 @@
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
     "@lwmacct/260627-antd-workbench": "^0.56.260718",
-    "antd": "^6.5.2",
+    "antd": "^6.6.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.1"
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.4",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "typescript": "~7.0.2",
-    "vite": "^8.1.5"
+    "vite": "^8.2.1"
   }
 }
