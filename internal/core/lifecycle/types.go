@@ -22,6 +22,7 @@ type RequestBodyEnded struct {
 type RoundTripStarted struct {
 	Mode          string
 	Backend       string
+	UUID          string
 	Endpoint      string
 	Resource      string
 	PayloadSHA256 string
@@ -31,6 +32,7 @@ type RoundTripStarted struct {
 type DirectivePrepared struct {
 	Mode          string
 	Backend       string
+	UUID          string
 	Endpoint      string
 	Resource      string
 	Duration      time.Duration
@@ -109,6 +111,7 @@ type RecoveryRoundTrip struct {
 type RecoveryDirective struct {
 	Mode          string
 	Backend       string
+	UUID          string
 	Endpoint      string
 	Resource      string
 	PayloadSHA256 string

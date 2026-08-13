@@ -343,7 +343,7 @@ func cloneURL(in *url.URL) *url.URL {
 
 func roundTripStartedFromDirective(value lifecycle.DirectivePrepared) lifecycle.RoundTripStarted {
 	return lifecycle.RoundTripStarted{
-		Mode: value.Mode, Backend: value.Backend, Endpoint: value.Endpoint, Resource: value.Resource,
+		Mode: value.Mode, Backend: value.Backend, UUID: value.UUID, Endpoint: value.Endpoint, Resource: value.Resource,
 		PayloadSHA256: value.PayloadSHA256, Target: cloneURL(value.Target),
 	}
 }

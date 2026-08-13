@@ -54,6 +54,7 @@ export function StructuredEditorPanel(props: {
 
   if (source === "redis") {
     return <Form layout="vertical">
+      <Form.Item label={text.remoteUUID}><Input allowClear placeholder="01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2" value={editor.remoteUUID} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ remoteUUID: event.target.value })} /></Form.Item>
       <Form.Item label={text.redisURL}><Input placeholder="redis://user:password@redis.example.com:6379/1" value={editor.redisURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ redisURL: event.target.value })} /></Form.Item>
       <Form.Item label={text.redisKey}><Input placeholder="team-a/service-a" value={editor.remoteKey} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ remoteKey: event.target.value })} /></Form.Item>
     </Form>;
@@ -61,6 +62,7 @@ export function StructuredEditorPanel(props: {
 
   if (source === "file") {
     return <Form layout="vertical">
+      <Form.Item label={text.remoteUUID}><Input allowClear placeholder="01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2" value={editor.remoteUUID} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ remoteUUID: event.target.value })} /></Form.Item>
       <Form.Item label={text.filePath}><Input placeholder="team-a/services/primary.json" value={editor.filePath} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ filePath: event.target.value })} /></Form.Item>
     </Form>;
   }
@@ -69,7 +71,7 @@ export function StructuredEditorPanel(props: {
     const httpItems = [{
       key: "endpoint",
       label: text.endpoint,
-      children: <Form.Item label={text.httpResolverURL}><Input placeholder="https://policy.example.com/v1/resolve" value={editor.httpURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ httpURL: event.target.value })} /></Form.Item>,
+      children: <><Form.Item label={text.remoteUUID}><Input allowClear placeholder="01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2" value={editor.remoteUUID} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ remoteUUID: event.target.value })} /></Form.Item><Form.Item label={text.httpResolverURL}><Input placeholder="https://policy.example.com/v1/resolve" value={editor.httpURL} onChange={(event: ChangeEvent<HTMLInputElement>) => onUpdate({ httpURL: event.target.value })} /></Form.Item></>,
     }, {
       key: "headers",
       label: text.headers,

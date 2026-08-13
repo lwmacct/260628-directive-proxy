@@ -18,7 +18,7 @@ func (current *Exchange) Configure(configuration Configuration) error {
 	}
 	info := configuration.Directive
 	value := lifecycle.DirectivePrepared{
-		Mode: info.Mode, Backend: info.Backend, Endpoint: info.Endpoint, Resource: info.Resource,
+		Mode: info.Mode, Backend: info.Backend, UUID: info.UUID, Endpoint: info.Endpoint, Resource: info.Resource,
 		Duration: info.Duration, PayloadSHA256: info.PayloadSHA256, Target: cloneURL(info.Target),
 	}
 	current.stateMu.Lock()

@@ -66,14 +66,17 @@ function buildHeaderMap(items: ResolverHeader[]) {
 }
 
 export function buildRemoteSpec(source: Exclude<DirectiveSource, "inline">, editor: EditorState): RemoteSpec {
-  if (source === "file") return { file: { path: editor.filePath.trim() } };
-  if (source === "redis") return { redis: { url: editor.redisURL.trim(), key: editor.remoteKey } };
+  const uuid = editor.remoteUUID.trim();
+  const identity = uuid ? { uuid } : {};
+  if (source === "file") return { ...identity, file: { path: editor.filePath.trim() } };
+  if (source === "redis") return { ...identity, redis: { url: editor.redisURL.trim(), key: editor.remoteKey } };
   const mutations = buildHeaderMutations(editor.resolverHeaderMutations);
   const headers = {
     ...(editor.resolverPreserveProxyDisclosure ? { preserve_proxy_disclosure: true } : {}),
     ...(mutations.length ? { mutations } : {}),
   };
   return {
+    ...identity,
     http: {
       url: editor.httpURL.trim(),
       ...(Object.keys(headers).length ? { headers } : {}),
@@ -157,13 +160,14 @@ export function envelopeToEditor(previous: EditorState, envelope: DirectiveEnvel
   }
   const spec = envelope.document;
   if ("file" in spec) {
-    return { ...previous, filePath: spec.file.path };
+    return { ...previous, remoteUUID: spec.uuid ?? "", filePath: spec.file.path };
   }
   if ("redis" in spec) {
-    return { ...previous, redisURL: spec.redis.url, remoteKey: spec.redis.key };
+    return { ...previous, remoteUUID: spec.uuid ?? "", redisURL: spec.redis.url, remoteKey: spec.redis.key };
   }
   return {
     ...previous,
+    remoteUUID: spec.uuid ?? "",
     httpURL: spec.http.url,
     resolverPreserveProxyDisclosure: spec.http.headers?.preserve_proxy_disclosure ?? false,
     resolverHeaderMutations: toEditorHeaderMutations(spec.http.headers?.mutations ?? []),

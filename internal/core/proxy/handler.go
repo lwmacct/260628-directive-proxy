@@ -208,7 +208,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if current != nil {
 		if configureErr := current.Configure(exchange.Configuration{
 			Directive: exchange.DirectiveInfo{
-				Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint, Resource: source.Resource,
+				Mode: source.Mode, Backend: source.Backend, UUID: source.UUID, Endpoint: source.Endpoint, Resource: source.Resource,
 				PayloadSHA256: source.PayloadSHA256, Duration: source.Duration, Target: plan.Target,
 			},
 			Metadata: prepared.Metadata(), Program: prepared.Program(),

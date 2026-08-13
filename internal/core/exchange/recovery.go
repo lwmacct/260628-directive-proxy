@@ -226,7 +226,7 @@ func moduleRecoveryStarted(event recovery.Event, policy *recovery.Policy) lifecy
 			NextRoundTrip: event.RoundTrip.NextRoundTrip, RetryAllowed: event.RoundTrip.RetryAllowed,
 		},
 		Directive: lifecycle.RecoveryDirective{
-			Mode: event.Directive.Mode, Backend: event.Directive.Backend,
+			Mode: event.Directive.Mode, Backend: event.Directive.Backend, UUID: event.Directive.UUID,
 			Endpoint: event.Directive.Endpoint, Resource: event.Directive.Resource,
 			PayloadSHA256: event.Directive.PayloadSHA256,
 		},

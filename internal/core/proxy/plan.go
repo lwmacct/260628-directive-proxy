@@ -23,6 +23,7 @@ type Plan struct {
 type DirectiveSource struct {
 	Mode          string
 	Backend       string
+	UUID          string
 	Endpoint      string
 	Resource      string
 	Duration      time.Duration

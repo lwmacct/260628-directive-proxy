@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 var ErrInvalidPayload = errors.New("invalid directive payload")
@@ -89,6 +91,13 @@ func ValidateRemoteSpec(spec RemoteSpec) error {
 func NormalizeRemoteSpec(spec RemoteSpec) (RemoteSpec, error) {
 	if countRemoteBackends(spec) != 1 {
 		return RemoteSpec{}, ErrInvalidPayload
+	}
+	if spec.UUID != "" {
+		id, err := uuid.Parse(strings.TrimSpace(spec.UUID))
+		if err != nil || id.String() != strings.ToLower(strings.TrimSpace(spec.UUID)) {
+			return RemoteSpec{}, ErrInvalidPayload
+		}
+		spec.UUID = id.String()
 	}
 	switch {
 	case spec.HTTP != nil:

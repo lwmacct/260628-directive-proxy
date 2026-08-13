@@ -45,6 +45,7 @@ const (
 type DirectiveInfo struct {
 	Mode          string
 	Backend       string
+	UUID          string
 	Endpoint      string
 	Resource      string
 	PayloadSHA256 string

@@ -54,6 +54,7 @@ export function initialRecovery(): RecoveryEditorState {
 
 export function createInitialEditor(): EditorState {
   return {
+    remoteUUID: "",
     remoteKey: "team-a/service-a",
     httpURL: "https://policy.example.com/v1/resolve",
     redisURL: "redis://user:password@redis.example.com:6379/1",

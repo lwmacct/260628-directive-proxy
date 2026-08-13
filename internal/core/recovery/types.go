@@ -117,6 +117,7 @@ type Trigger struct {
 type DirectiveInfo struct {
 	Mode          string `json:"mode"`
 	Backend       string `json:"backend,omitempty"`
+	UUID          string `json:"uuid,omitempty"`
 	Endpoint      string `json:"endpoint,omitempty"`
 	Resource      string `json:"resource,omitempty"`
 	PayloadSHA256 string `json:"payload_sha256,omitempty"`

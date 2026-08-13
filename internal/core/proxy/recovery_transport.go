@@ -281,7 +281,7 @@ func (t *RecoveryTransport) recoverRoundTrip(ctx context.Context, policy *recove
 	cycle, err := exchange.NewRecoveryCycle(roundTrip, policy, exchange.RecoveryInput{
 		Trigger: trigger,
 		Directive: recovery.DirectiveInfo{
-			Mode: source.Mode, Backend: source.Backend, Endpoint: source.Endpoint,
+			Mode: source.Mode, Backend: source.Backend, UUID: source.UUID, Endpoint: source.Endpoint,
 			Resource: source.Resource, PayloadSHA256: source.PayloadSHA256,
 		},
 		Metadata: info.Metadata, Response: response,

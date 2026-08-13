@@ -89,6 +89,7 @@ func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
 
 func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	input := RemoteSpec{
+		UUID: "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2",
 		HTTP: &HTTPRemoteSpec{
 			URL: "https://policy.example.com/v1/team-a/service-a",
 			Headers: &HeaderPolicy{
@@ -110,7 +111,7 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode remote failed: %v", err)
 	}
-	if token.Kind != KindRemote || token.Remote.HTTP == nil || token.Remote.Redis != nil || token.Remote.File != nil ||
+	if token.Kind != KindRemote || token.Remote.UUID != input.UUID || token.Remote.HTTP == nil || token.Remote.Redis != nil || token.Remote.File != nil ||
 		token.Remote.HTTP.URL != input.HTTP.URL || token.Remote.HTTP.Headers == nil ||
 		!token.Remote.HTTP.Headers.PreserveProxyDisclosure || len(token.Remote.HTTP.Headers.Mutations) != 1 || token.Remote.HTTP.Headers.Mutations[0].Values[0] != "Bearer policy-token" {
 		t.Fatalf("unexpected decoded token: %#v", token)

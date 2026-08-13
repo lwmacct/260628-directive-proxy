@@ -45,6 +45,7 @@ type FileRemoteReader interface {
 
 type compiledRemote struct {
 	backend  string
+	uuid     string
 	endpoint string
 	resource string
 	http     *HTTPReference
@@ -61,13 +62,13 @@ func compileRemoteSpec(spec RemoteSpec) (compiledRemote, error) {
 	switch {
 	case spec.HTTP != nil:
 		reference, err := compileHTTPReference(*spec.HTTP)
-		return compiledRemote{backend: RemoteTypeHTTP, endpoint: spec.HTTP.URL, http: &reference}, err
+		return compiledRemote{backend: RemoteTypeHTTP, uuid: spec.UUID, endpoint: spec.HTTP.URL, http: &reference}, err
 	case spec.Redis != nil:
 		reference, err := compileRedisReference(*spec.Redis)
-		return compiledRemote{backend: RemoteTypeRedis, endpoint: spec.Redis.URL, resource: spec.Redis.Key, redis: &reference}, err
+		return compiledRemote{backend: RemoteTypeRedis, uuid: spec.UUID, endpoint: spec.Redis.URL, resource: spec.Redis.Key, redis: &reference}, err
 	case spec.File != nil:
 		reference, err := compileFileReference(*spec.File)
-		return compiledRemote{backend: RemoteTypeFile, resource: spec.File.Path, file: &reference}, err
+		return compiledRemote{backend: RemoteTypeFile, uuid: spec.UUID, resource: spec.File.Path, file: &reference}, err
 	}
 	return compiledRemote{}, ErrInvalidPayload
 }

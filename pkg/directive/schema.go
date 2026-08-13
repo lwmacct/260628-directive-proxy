@@ -34,6 +34,7 @@ const (
 )
 
 type RemoteSpec struct {
+	UUID  string           `json:"uuid,omitempty"`
 	HTTP  *HTTPRemoteSpec  `json:"http,omitempty"`
 	Redis *RedisRemoteSpec `json:"redis,omitempty"`
 	File  *FileRemoteSpec  `json:"file,omitempty"`

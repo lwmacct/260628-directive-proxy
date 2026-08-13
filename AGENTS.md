@@ -13,14 +13,14 @@
 ### Remote Adapter Boundary
 
 - Remote 只负责取得完整 `Payload`，不拥有独立执行字段。
-- RemoteSpec 使用严格 backend one-of：顶层必须且只能包含 `http`、`redis`、`file` 之一；HTTP URL 自身标识资源，Redis 保留标准连接 URL 与独立 key，File 保留配置根目录内的相对 path。
+- RemoteSpec 使用严格 backend one-of：顶层必须且只能包含 `http`、`redis`、`file` 一个 backend 分支，并可携带可选 `uuid` 资源身份；HTTP URL 自身标识资源，Redis 保留标准连接 URL 与独立 key，File 保留配置根目录内的相对 path。
 - HTTP/Redis/File adapter 负责执行具体读取协议并返回原始 Payload 字节，不解释 Payload、不组装 proxy plan、不做字段 merge、不提供默认回退，也不缓存 Payload value。
 - core 负责 RemoteSpec/Payload 的严格解码、校验、编译和错误语义；adapter 依赖 core 定义的端口，core 不依赖具体 adapter。
 - RemoteSpec 每个请求只解引用一次；Recovery attempt 复用已编译的同一份 Payload。
 
 ### Observability
 
-- RemoteSpec、完整 endpoint、URL query、Redis URL、File path/root、认证信息和底层 adapter 错误属于正常观测信息，不要求脱敏。
+- RemoteSpec UUID、完整 endpoint、URL query、Redis URL、File path/root、认证信息和底层 adapter 错误属于正常观测信息，不要求脱敏。
 - 日志和事件可以记录上述完整信息；不得仅以“可能包含凭据”为由删除、截断、散列或隐藏观测字段。
 - 可观测性应保留足够上下文，使远端解析、连接、认证、协议和 Payload 获取问题能够直接定位。
 

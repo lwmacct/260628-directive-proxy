@@ -45,7 +45,7 @@ RemoteSpec 只允许描述如何读取 Payload：
 }
 ```
 
-RemoteSpec 是严格 backend one-of，顶层必须且只能包含 `http`、`redis` 或 `file` 之一，不使用共享 `type` 字段。Redis 使用标准连接 URL 与独立 key：
+RemoteSpec 是严格 backend one-of，顶层必须且只能包含 `http`、`redis` 或 `file` 一个 backend 分支，不使用共享 `type` 字段；顶层可额外携带可选 `uuid`，作为资源的稳定身份进入签名和观测，但不改变读取分派。Redis 使用标准连接 URL 与独立 key：
 
 ```json
 {
@@ -234,7 +234,7 @@ RemoteSpec、完整 endpoint、URL query、Redis URL/key、File path/root、认�
 - inline body 是否仍直接等于 Payload？
 - remote body 是否仍直接等于 RemoteSpec？
 - RemoteSpec 是否只包含读取信息？
-- RemoteSpec 是否严格且只包含一个 `http`、`redis` 或 `file` 分支？
+- RemoteSpec 是否严格且只包含一个 `http`、`redis` 或 `file` 分支，并且可选 `uuid` 合法？
 - HTTP、Redis 与 File 是否返回完全相同的 Payload schema？
 - Header mutation 是否始终显式声明 side 并使用 `add|set|del`，且 HTTP RemoteSpec 是否只包含 request mutation？
 - modules 和 recovery 是否只存在于 Payload？

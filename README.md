@@ -61,6 +61,7 @@ remote token 的解码内容是：
 
 ```json
 {
+  "uuid": "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2",
   "http": {
     "url": "https://resolver.example.com/v1/team-a/service-a",
     "headers": {
@@ -72,7 +73,9 @@ remote token 的解码内容是：
 }
 ```
 
-RemoteSpec 顶层必须且只能包含 `http`、`redis` 或 `file` 之一。Redis 使用标准连接 URL 与独立 key：
+RemoteSpec 顶层必须且只能包含 `http`、`redis` 或 `file` 一个 backend 分支，并可携带可选
+`uuid` 作为远端资源的稳定身份。`uuid` 会被签名、严格校验并进入来源观测，但不参与 adapter
+读取逻辑。Redis 使用标准连接 URL 与独立 key：
 
 ```json
 {"redis":{"url":"redis://user:password@redis.example.com:6379/1","key":"team-a/service-a"}}

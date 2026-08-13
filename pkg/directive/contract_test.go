@@ -83,6 +83,24 @@ func TestHTTPRemoteSpecNormalizesAndRejectsInvalidPolicies(t *testing.T) {
 	}
 }
 
+func TestRemoteSpecUUIDIsNormalizedAndValidated(t *testing.T) {
+	id := "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2"
+	spec, err := directive.DecodeRemoteSpec([]byte(`{"uuid":" 01990F4A-9E4C-7C42-A7EC-5C3F37A6F6B2 ","http":{"url":"https://resolver.example"}}`))
+	if err != nil {
+		t.Fatalf("decode RemoteSpec with uuid: %v", err)
+	}
+	if spec.UUID != id {
+		t.Fatalf("uuid = %q, want %q", spec.UUID, id)
+	}
+	for _, raw := range []string{
+		`{"uuid":"not-a-uuid","http":{"url":"https://resolver.example"}}`,
+	} {
+		if _, err := directive.DecodeRemoteSpec([]byte(raw)); !errors.Is(err, directive.ErrInvalidPayload) {
+			t.Fatalf("DecodeRemoteSpec(%s) error = %v", raw, err)
+		}
+	}
+}
+
 func TestDecodeRemoteSpecIsStrictOneOf(t *testing.T) {
 	t.Parallel()
 	valid := []byte(`{"http":{"url":"https://resolver.example/api/resolver"}}`)

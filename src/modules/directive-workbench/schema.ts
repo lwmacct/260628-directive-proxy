@@ -377,20 +377,21 @@ function parseRecovery(value: unknown, text: Text["directiveConsole"]): Recovery
 
 function parseRemoteSpec(value: unknown, text: Text["directiveConsole"]): RemoteSpec {
   const input = record(value, "remote", text);
-  knownKeys(input, ["http", "redis", "file"], "remote", text);
+  knownKeys(input, ["uuid", "http", "redis", "file"], "remote", text);
+  const uuid = input.uuid === undefined ? undefined : parseRemoteUUID(input.uuid, text);
   const backends = ["http", "redis", "file"].filter((name) => input[name] !== undefined);
   if (backends.length !== 1) throw new Error(text.mustBe("remote", "object with exactly one of http, redis, file"));
   if (input.file !== undefined) {
     const file = record(input.file, "remote.file", text);
     knownKeys(file, ["path"], "remote.file", text);
     if (typeof file.path !== "string" || !isRemoteFilePathValid(file.path)) throw new Error(text.invalidFilePath);
-    return { file: { path: file.path } };
+    return { ...(uuid ? { uuid } : {}), file: { path: file.path } };
   }
   if (input.redis !== undefined) {
     const redis = record(input.redis, "remote.redis", text);
     knownKeys(redis, ["url", "key"], "remote.redis", text);
     if (typeof redis.key !== "string" || !isRemoteKeyValid(redis.key)) throw new Error(text.invalidRedisKey);
-    return { redis: { url: parseURL(redis.url, "remote.redis.url", ["redis", "rediss"], text, true, false), key: redis.key } };
+    return { ...(uuid ? { uuid } : {}), redis: { url: parseURL(redis.url, "remote.redis.url", ["redis", "rediss"], text, true, false), key: redis.key } };
   }
   const http = record(input.http, "remote.http", text);
   knownKeys(http, ["url", "headers"], "remote.http", text);
@@ -404,11 +405,19 @@ function parseRemoteSpec(value: unknown, text: Text["directiveConsole"]): Remote
     };
   }
   return {
+    ...(uuid ? { uuid } : {}),
     http: {
       url: parseURL(http.url, "remote.http.url", ["http", "https"], text, false, false),
       ...(headers ? { headers } : {}),
     },
   };
+}
+
+function parseRemoteUUID(value: unknown, text: Text["directiveConsole"]) {
+  if (typeof value !== "string") throw new Error(text.invalidRemoteUUID);
+  const normalized = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) throw new Error(text.invalidRemoteUUID);
+  return normalized;
 }
 
 export function isRemoteFilePathValid(value: string) {

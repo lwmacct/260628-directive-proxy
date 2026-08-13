@@ -54,7 +54,16 @@ func CanonicalTemplate(raw []byte) ([]byte, error) {
 
 func DecodeRemoteSpec(raw []byte) (RemoteSpec, error) {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || len(fields) != 1 {
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	backends := 0
+	for _, name := range []string{"http", "redis", "file"} {
+		if _, exists := fields[name]; exists {
+			backends++
+		}
+	}
+	if backends != 1 {
 		return RemoteSpec{}, ErrInvalidPayload
 	}
 	spec, err := decodeStrict[RemoteSpec](raw)

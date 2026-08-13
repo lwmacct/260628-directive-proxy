@@ -160,7 +160,7 @@ func (capture *instance) onDirectivePrepared(ctx module.Context, value lifecycle
 		target = redactURL(value.Target.String(), capture.spec.RedactQuery)
 	}
 	ctx.Emitter.Emit("capture.directive.prepared", map[string]any{
-		"mode": value.Mode, "backend": value.Backend, "endpoint": value.Endpoint, "resource": value.Resource,
+		"mode": value.Mode, "backend": value.Backend, "uuid": value.UUID, "endpoint": value.Endpoint, "resource": value.Resource,
 		"duration_millis": value.Duration.Milliseconds(), "payload_sha256": value.PayloadSHA256,
 		"target_url": target,
 	})
@@ -176,7 +176,7 @@ func (capture *instance) onRoundTripStarted(ctx module.Context, value lifecycle.
 		target = redactURL(value.Target.String(), capture.spec.RedactQuery)
 	}
 	ctx.Emitter.Emit("capture.round_trip.started", map[string]any{
-		"round_trip": ctx.RoundTrip, "mode": value.Mode, "backend": value.Backend,
+		"round_trip": ctx.RoundTrip, "mode": value.Mode, "backend": value.Backend, "uuid": value.UUID,
 		"endpoint": value.Endpoint, "resource": value.Resource, "payload_sha256": value.PayloadSHA256,
 		"target_url": target,
 	})
@@ -212,7 +212,7 @@ func (capture *instance) onRecoveryStarted(ctx module.Context, value lifecycle.R
 		"remaining_ms": value.RoundTrip.RemainingMS, "next_round_trip": value.RoundTrip.NextRoundTrip,
 		"retry_allowed": value.RoundTrip.RetryAllowed,
 		"directive": map[string]any{
-			"mode": value.Directive.Mode, "backend": value.Directive.Backend,
+			"mode": value.Directive.Mode, "backend": value.Directive.Backend, "uuid": value.Directive.UUID,
 			"endpoint": value.Directive.Endpoint, "resource": value.Directive.Resource,
 			"payload_sha256": value.Directive.PayloadSHA256,
 		},

@@ -47,6 +47,7 @@ export type RecoveryEditorState = {
 };
 
 export type EditorState = {
+  remoteUUID: string;
   remoteKey: string;
   httpURL: string;
   redisURL: string;
@@ -100,9 +101,9 @@ export type DirectiveHeaderPolicy = {
 };
 
 export type RemoteSpec =
-  | { http: { url: string; headers?: DirectiveHeaderPolicy } }
-  | { redis: { url: string; key: string } }
-  | { file: { path: string } };
+  | { uuid?: string; http: { url: string; headers?: DirectiveHeaderPolicy } }
+  | { uuid?: string; redis: { url: string; key: string } }
+  | { uuid?: string; file: { path: string } };
 
 export type RecoverySpec = {
   controller: {

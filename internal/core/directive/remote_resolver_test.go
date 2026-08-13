@@ -87,6 +87,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		LookupTimeout: time.Second,
 	})
 	spec := RemoteSpec{
+		UUID: "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2",
 		HTTP: &HTTPRemoteSpec{
 			URL: "https://policy.example.com/v1/team-a/service-a?secret=hidden",
 			Headers: &HeaderPolicy{Mutations: []HeaderMutation{{
@@ -112,7 +113,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 		t.Fatalf("unexpected resolved directive: spec=%#v plan=%#v", requested, plan)
 	}
 	source := resolution.Source()
-	if source.Mode != "remote" || source.Backend != "http" ||
+	if source.Mode != "remote" || source.Backend != "http" || source.UUID != spec.UUID ||
 		source.Endpoint != spec.HTTP.URL || source.Resource != "" {
 		t.Fatalf("unexpected directive metadata: %#v", source)
 	}

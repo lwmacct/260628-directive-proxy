@@ -100,7 +100,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 		StripHeaders: []string{"Authorization"}, InboundURL: req.URL, RecoveryCompiler: r.recoveryCompiler,
 	})
 	if err != nil {
-		slog.Error("compile directive payload", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+		slog.Error("compile directive payload", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		if document.Kind == KindRemote {
 			return nil, proxy.ErrRemoteDirectiveInvalid
 		}
@@ -110,7 +110,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 	if len(payload.Modules) > 0 {
 		if r == nil || r.compiler == nil {
 			err = errors.New("program compiler is unavailable")
-			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 			if document.Kind == KindRemote {
 				return nil, proxy.ErrRemoteDirectiveInvalid
 			}
@@ -118,7 +118,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 		}
 		executable, err = r.compiler.Compile(payload.Modules)
 		if err != nil {
-			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+			slog.Error("compile directive program", "directive_mode", document.Kind, "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 			if document.Kind == KindRemote {
 				return nil, proxy.ErrRemoteDirectiveInvalid
 			}
@@ -138,7 +138,7 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Payload, proxy.DirectiveSource, error) {
 	reference, err := compileRemoteSpec(spec)
 	source := proxy.DirectiveSource{
-		Mode: KindRemote, Backend: reference.backend, Endpoint: reference.endpoint, Resource: reference.resource,
+		Mode: KindRemote, Backend: reference.backend, UUID: reference.uuid, Endpoint: reference.endpoint, Resource: reference.resource,
 	}
 	if err != nil {
 		return Payload{}, source, proxy.ErrInvalidDirective
@@ -177,18 +177,18 @@ func (r *Resolver) resolveRemotePayload(req *http.Request, spec RemoteSpec) (Pay
 	source.Duration = time.Since(startedAt)
 	switch {
 	case errors.Is(err, ErrRemoteNotFound):
-		slog.Warn("remote directive not found", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+		slog.Warn("remote directive not found", "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrDirectiveNotFound
 	case errors.Is(err, ErrRemoteInvalid):
-		slog.Warn("remote directive response invalid", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+		slog.Warn("remote directive response invalid", "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrRemoteDirectiveInvalid
 	case err != nil:
-		slog.Warn("resolve remote directive", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
+		slog.Warn("resolve remote directive", "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", err)
 		return Payload{}, source, proxy.ErrRemoteDirectiveUnavailable
 	}
 	payload, decodeErr := DecodePayload(payloadRaw)
 	if decodeErr != nil {
-		slog.Error("decode remote directive", "directive_backend", source.Backend, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", decodeErr)
+		slog.Error("decode remote directive", "directive_backend", source.Backend, "directive_uuid", source.UUID, "directive_endpoint", source.Endpoint, "directive_resource", source.Resource, "error", decodeErr)
 		return Payload{}, source, proxy.ErrRemoteDirectiveInvalid
 	}
 	digest := sha256.Sum256(payloadRaw)
