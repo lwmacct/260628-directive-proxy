@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"net/http"
 	"time"
+
+	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
 )
 
 const Protocol = "dp.recovery.v3"
@@ -30,11 +32,7 @@ type StatusRange struct {
 	To   int
 }
 
-type ControllerSpec struct {
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Timeout string            `json:"timeout,omitempty"`
-}
+type ControllerSpec = directivecontract.RecoveryControllerSpec
 
 type ControllerBinding interface {
 	Decide(context.Context, Event) (Decision, error)

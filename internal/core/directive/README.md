@@ -2,6 +2,9 @@
 
 `directive` 负责解析 `Authorization: Bearer dp.22.<inline|remote>.<base64url-json>.<hmac>`，先校验 TokenSecret 的 HMAC，再按需通过 HTTP、Redis 或 File 读取完整 directive，并编译成唯一的 `proxy.PreparedDirective`。
 
+Payload、RemoteSpec、模板规范化和严格 JSON 校验的公共线协议位于
+[`pkg/directive`](../../../pkg/directive)。本包只保留 token HMAC、remote reader 编排和数据面编译，不复制公共 schema。
+
 面向使用者的 payload 示例和字段说明放在根目录 [README.md](../../../README.md)；这里只保留包内部维护说明，避免两处文档重复。
 
 远程来源的信任前提、适配器边界和禁止方向见 [Directive 远程适配器设计约束](../../../docs/directive-remote-adapter-design.md)。修改 remote token、HTTP、Redis 或 File adapter 前应先核对该文档。

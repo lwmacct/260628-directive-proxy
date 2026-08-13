@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/url"
 
+	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
+
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 )
 
@@ -51,9 +53,11 @@ type compiledRemote struct {
 }
 
 func compileRemoteSpec(spec RemoteSpec) (compiledRemote, error) {
-	if countRemoteBackends(spec) != 1 {
+	normalized, err := directivecontract.NormalizeRemoteSpec(spec)
+	if err != nil {
 		return compiledRemote{}, ErrInvalidPayload
 	}
+	spec = normalized
 	switch {
 	case spec.HTTP != nil:
 		reference, err := compileHTTPReference(*spec.HTTP)
@@ -91,18 +95,11 @@ func compileRedisReference(spec RedisRemoteSpec) (RedisReference, error) {
 	if endpoint.Scheme != "redis" && endpoint.Scheme != "rediss" {
 		return RedisReference{}, ErrInvalidPayload
 	}
-	if _, err := normalizeRemoteKey(spec.Key); err != nil {
-		return RedisReference{}, err
-	}
 	return RedisReference{Endpoint: *endpoint, Key: spec.Key}, nil
 }
 
 func compileFileReference(spec FileRemoteSpec) (FileReference, error) {
-	path, err := normalizeRemoteFilePath(spec.Path)
-	if err != nil {
-		return FileReference{}, err
-	}
-	return FileReference{Path: path}, nil
+	return FileReference{Path: spec.Path}, nil
 }
 
 func snapshotRequest(req *http.Request) RequestSnapshot {

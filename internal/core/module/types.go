@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
+
 	"github.com/lwmacct/260628-directive-proxy/internal/core/event"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 )
@@ -20,12 +22,8 @@ type Definition interface {
 	Name() string
 }
 
-type Spec struct {
-	Module string          `json:"module"`
-	Config json.RawMessage `json:"config,omitempty"`
-}
-
-type Specs []Spec
+type Spec = directivecontract.ModuleSpec
+type Specs = directivecontract.ModuleSpecs
 
 type ProgramDefinition interface {
 	Definition

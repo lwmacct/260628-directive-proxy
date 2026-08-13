@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
+
 	"github.com/lwmacct/260628-directive-proxy/internal/core/httpheader"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
@@ -32,6 +34,10 @@ type CompiledPayload struct {
 }
 
 func CompilePayload(payload Payload, opts AssembleOptions) (CompiledPayload, error) {
+	payload, err := directivecontract.NormalizePayload(payload)
+	if err != nil {
+		return CompiledPayload{}, ErrInvalidPayload
+	}
 	compiledMetadata, err := metadata.Compile(payload.Metadata)
 	if err != nil {
 		return CompiledPayload{}, ErrInvalidPayload

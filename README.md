@@ -108,6 +108,17 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 RoundTrip 重读。Recovery retry 使用同一份已解析 Payload。
 
+## Go 公共协议包
+
+[`pkg/directive`](./pkg/directive) 是 Directive 生产方与数据面共享的 Go 线协议包，公开：
+
+- `Payload`、`RemoteSpec` 及其所有嵌套 schema；
+- 完整 Payload 与 RemoteSpec 的严格解码、校验和规范化；
+- 不含 target 的 Payload 模板解码与 canonicalization；
+- 当前 token family/version/kind 协议常量。
+
+该包不依赖本项目的 `internal` 包，也不提供 HMAC 签名、token 编解码、remote reader 或代理运行时。签名方自行管理 token secret；配置生产方只需要构造和校验 wire document。
+
 Payload 可以声明可选 metadata：最多 16 项、总计最多 8 KiB 的 `map<string,string>`，key 使用小写 snake_case。core 不要求任何业务身份字段，也不设置系统保留 key；`metadata` 包仅预设常用的 `user_id`、`user_key` key API。Exchange 生成的 UUIDv7 trace ID 是独立系统字段，不会在运行时注入 metadata；若 directive 自行声明 `trace_id`，它只是普通 metadata，与系统 trace 没有绑定关系。
 
 Prepare 的唯一产物是不可变 `PreparedDirective`，固定包含 Source、HTTP Plan、Program、Recovery 和 Metadata。HTTP Plan 只拥有 HTTP 执行字段，不拥有 metadata。Exchange 在读取正文前一次性配置 directive facts、Program 和 Metadata，并打开 exchange-lifetime Module；RecoveryTransport 在第一个 RoundTrip 前从同一 PreparedDirective 安装已收紧的 Recovery budget。每次 RoundTrip 只打开新的 round-trip-lifetime Module，Module Context 自动携带同一份 metadata。

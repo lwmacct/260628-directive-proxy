@@ -5,17 +5,18 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
 )
 
 var (
-	ErrInvalidPayload     = errors.New("invalid proxy payload")
+	ErrInvalidPayload     = directivecontract.ErrInvalidPayload
 	ErrInvalidTokenSecret = errors.New("invalid directive token secret")
 	ErrTokenUnauthorized  = errors.New("directive token authentication failed")
 )
 
 func Validate(payload Payload) error {
-	_, err := normalizePayload(payload)
-	return err
+	return directivecontract.ValidatePayload(payload)
 }
 
 func ParseProxy(raw string) (*url.URL, error) {
