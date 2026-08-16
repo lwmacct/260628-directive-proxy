@@ -22,6 +22,9 @@ dp.22.remote.<base64url(RemoteSpec JSON)>.<base64url(HMAC-SHA256)>
 
 HMAC 输入仅为 token 第四段的原始 `base64url-json` 字符串；服务端使用 `server.proxy.directive.token-secret` 计算并以 constant-time compare 校验。secret 不进入 token。Token 的版本和 kind 仍用于结构解析，但不属于签名输入。
 
+HMAC 只提供完整性与签发者认证，不提供保密性。第四段内容可以直接解码；只要 RemoteSpec 或
+Payload 含认证 header、连接密码或上游密钥，完整 `dp.22.*` Token 就必须按明文凭据保护。
+
 统一处理流程：
 
 ```text
@@ -45,7 +48,7 @@ RemoteSpec 只允许描述如何读取 Payload：
 }
 ```
 
-RemoteSpec 是严格 backend one-of，顶层必须且只能包含 `http`、`redis` 或 `file` 一个 backend 分支，不使用共享 `type` 字段；顶层可额外携带可选 `uuid`，作为资源的稳定身份进入签名和观测，但不改变读取分派。Redis 使用标准连接 URL 与独立 key：
+RemoteSpec 是严格 backend one-of，顶层必须且只能包含 `http`、`redis` 或 `file` 一个 backend 分支，不使用共享 `type` 字段；顶层可额外携带可选 `uuid`，作为资源的稳定身份进入签名和观测，但不改变读取分派，也不能作为 resolver 鉴权凭据。Redis 使用标准连接 URL 与独立 key：
 
 ```json
 {

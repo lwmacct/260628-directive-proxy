@@ -18,6 +18,10 @@ Directive Proxy 是由 `Authorization: Bearer dp.22.<inline|remote>.<base64url-j
 
 TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校验 token HMAC；它不会写入 token。secret 错误或 MAC 篡改返回 `401 directive_unauthorized`。
 
+`dp.22.*` 是签名 Token，不是加密 Token。第四段 JSON 可以直接 Base64URL 解码；如果 Payload 或
+RemoteSpec 包含上游密钥、resolver Bearer 或其他认证 mutation，完整 Token 本身就是明文凭据，
+必须限制配置、日志和前端中的可见范围。
+
 上游 HTTPS 连接显式启用并优先协商 HTTP/2，服务端不支持时回退 HTTP/1.1；连接池由 `server.proxy.transport` 配置。明文 HTTP 保持 HTTP/1.1，不自动尝试 h2c。
 
 前端只保留 directive workbench 和本地界面设置。`/console/exchanges`、活动 Exchange API、人工重试 API、OpenAPI/Docs 控制面均不存在。可观测事件由 Module 经 Fluent 输出到项目外部系统。
@@ -110,6 +114,20 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 ```
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 RoundTrip 重读。Recovery retry 使用同一份已解析 Payload。
+
+## LLM Relay 集成
+
+`260628-llm-relay-entry` 使用一条固定 `dp.22.remote` Token 调用本服务。该 RemoteSpec 只携带
+Vendor 内部 resolver 地址和 S2S Bearer；每次请求的 Vendor `RouteCredential.id` 由 Entry 放在
+`X-Relay-Credential-ID` 中，不编码进固定 Token。
+
+本服务验证固定 Token 的 HMAC 后，HTTP remote adapter 才向 Vendor 内部 listener 发起
+`dp.resolve.v1` 请求。Vendor 验证 S2S Bearer 和 Credential UUID，返回完整 Payload；本服务再按
+Payload 删除 Relay 内部头、写入 Vendor 认证并转发原请求。`dpr_*` 不参与这条内部链路。
+
+公共 Vendor RemoteSpec 则直接携带 `dpr_*` 并访问 `/api/resolver`，这是与 Entry 链路并列的另一种用法。
+两者的完整信任边界见
+[LLM Relay 系统拓扑](https://github.com/lwmacct/260628-llm-relay-console/blob/main/docs/system-topology.md)。
 
 ## Go 公共协议包
 
