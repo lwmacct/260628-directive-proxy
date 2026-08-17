@@ -61,7 +61,7 @@ func TestProxySSECapturesEachEventAfterResponseHeaders(t *testing.T) {
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
-	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
+	token, err := directive.Encode(testHMACSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_capture", "request_id": "capture-request"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Modules: module.Specs{{
@@ -155,7 +155,7 @@ func TestDisabledFluentKeepsModuleRuntimeActiveAndProxiesNormally(t *testing.T) 
 	}
 	cfg := newTestServerConfig()
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime}
-	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
+	token, err := directive.Encode(testHMACSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_disabled"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Modules:  module.Specs{{Module: capture.Name, Config: []byte(`{}`)}},
@@ -223,7 +223,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	rt := &runtime{exchangeFactory: manager, bodyStore: newTestBodyStore(cfg.Proxy.BodyStore), proxyTransport: transport, programRuntime: programRuntime, eventOutput: dispatcher}
 	proxyServer := httptest.NewServer(newHTTPServer(&cfg, rt).Handler)
 	defer proxyServer.Close()
-	token, err := directive.Encode(testDirectiveSecret, directive.Payload{
+	token, err := directive.Encode(testHMACSecret, directive.Payload{
 		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a", "provider": "test"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Modules: module.Specs{{

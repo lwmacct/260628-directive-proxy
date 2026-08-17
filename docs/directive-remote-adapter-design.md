@@ -20,7 +20,7 @@ remote token 的第四段解码后直接是 `RemoteSpec`：
 dp.22.remote.<base64url(RemoteSpec JSON)>.<base64url(HMAC-SHA256)>
 ```
 
-HMAC 输入仅为 token 第四段的原始 `base64url-json` 字符串；服务端使用 `server.proxy.directive.token-secret` 计算并以 constant-time compare 校验。secret 不进入 token。Token 的版本和 kind 仍用于结构解析，但不属于签名输入。
+HMAC 输入仅为 token 第四段的原始 `base64url-json` 字符串；服务端使用 `server.proxy.directive.hmac-secret` 计算并以 constant-time compare 校验。secret 不进入 token。Token 的版本和 kind 仍用于结构解析，但不属于签名输入。
 
 HMAC 只提供完整性与签发者认证，不提供保密性。第四段内容可以直接解码；只要 RemoteSpec 或
 Payload 含认证 header、连接密码或上游密钥，完整 `dp.22.*` Token 就必须按明文凭据保护。

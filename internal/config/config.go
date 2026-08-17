@@ -67,7 +67,7 @@ type ProxyBodyStore struct {
 }
 
 type ProxyDirective struct {
-	TokenSecret   string                `json:"token-secret"   desc:"directive token HMAC PSK"`
+	HMACSecret    string                `json:"hmac-secret"    desc:"directive HMAC secret"`
 	MaxTokenBytes int64                 `json:"max-token-bytes" desc:"完整 directive token 最大字节数"`
 	SourceAccess  DirectiveSourceAccess `json:"source-access"  desc:"Directive 入口来源白名单"`
 	Remote        RemoteDirective       `json:"remote"         desc:"远程指令解析资源限制"`
@@ -141,7 +141,7 @@ func DefaultConfig() Config {
 					ReadTimeout:      30 * time.Second,
 				},
 				Directive: ProxyDirective{
-					TokenSecret:   "${DIRECTIVE_TOKEN_SECRET:?directive token HMAC secret is required}",
+					HMACSecret:    "${DIRECTIVE_HMAC_SECRET:?directive HMAC secret is required}",
 					MaxTokenBytes: 64 << 10,
 					SourceAccess: func() DirectiveSourceAccess {
 						access := ipallow.DefaultConfig()

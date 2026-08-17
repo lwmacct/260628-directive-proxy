@@ -16,7 +16,7 @@ Directive Proxy 是由 `Authorization: Bearer dp.22.<inline|remote>.<base64url-j
 
 除 `/health` 和 `/metrics` 外没有静态保留业务前缀；任意路径携带 dp token 都可以进入 data plane。
 
-TokenSecret 位于 `server.proxy.directive.token-secret`，仅用于生成和校验 token HMAC；它不会写入 token。secret 错误或 MAC 篡改返回 `401 directive_unauthorized`。
+HMAC secret 位于 `server.proxy.directive.hmac-secret`，仅用于生成和校验 token HMAC；它不会写入 token。secret 错误或 MAC 篡改返回 `401 directive_unauthorized`。
 
 `dp.22.*` 是签名 Token，不是加密 Token。第四段 JSON 可以直接 Base64URL 解码；如果 Payload 或
 RemoteSpec 包含上游密钥、resolver Bearer 或其他认证 mutation，完整 Token 本身就是明文凭据，
@@ -28,14 +28,14 @@ RemoteSpec 包含上游密钥、resolver Bearer 或其他认证 mutation，完�
 
 ## Directive v22
 
-当前 token 版本是 `22`，旧版本不兼容。Payload 使用服务端配置的 TokenSecret 计算 HMAC-SHA256：
+当前 token 版本是 `22`，旧版本不兼容。Payload 使用服务端配置的 HMAC secret 计算 HMAC-SHA256：
 
 ```http
 Authorization: Bearer dp.22.inline.<base64url-json>.<hmac>
 Authorization: Bearer dp.22.remote.<base64url-json>.<hmac>
 ```
 
-`hmac` 是 `HMAC-SHA256(TokenSecret, base64url-json)` 的 Base64URL 编码，其中 `base64url-json` 是 token 第四段的原始字符串。TokenSecret 只保存在服务端和生成 token 的工作台中，不写入 token。
+`hmac` 是 `HMAC-SHA256(HMACSecret, base64url-json)` 的 Base64URL 编码，其中 `base64url-json` 是 token 第四段的原始字符串。HMAC secret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
 inline token 的解码内容是：
 
@@ -283,7 +283,7 @@ server:
 
 ## 指令工作台
 
-工作台是不带登录、Session 或应用 Cookie 状态的静态前端。directive JSON 与 token 的编解码完全在浏览器本地完成，不调用服务端 encode API；TokenSecret 只保存在当前页面内存中。请求调试器显式使用 `credentials: "omit"`，不会携带或接受浏览器凭据。
+工作台是不带登录、Session 或应用 Cookie 状态的静态前端。directive JSON 与 token 的编解码完全在浏览器本地完成，不调用服务端 encode API；HMAC secret 只保存在当前页面内存中。请求调试器显式使用 `credentials: "omit"`，不会携带或接受浏览器凭据。
 
 主题和语言偏好保存在浏览器 localStorage 中，不参与访问控制、directive 或代理请求。
 

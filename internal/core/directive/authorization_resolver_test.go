@@ -10,7 +10,7 @@ import (
 )
 
 func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
-	raw, err := Encode(testTokenSecret, Payload{
+	raw, err := Encode(testHMACSecret, Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
 		Headers: requestHeaders(
@@ -42,7 +42,7 @@ func TestResolverUsesDirectiveAuthorizationPayload(t *testing.T) {
 }
 
 func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
-	raw, err := Encode(testTokenSecret, Payload{
+	raw, err := Encode(testHMACSecret, Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{ExactURL: "https://api.example.com/action?signature=fixed"},
 	})
@@ -61,7 +61,7 @@ func TestResolverCompilesExactTargetWithoutInboundURL(t *testing.T) {
 }
 
 func TestInlinePreparedPlanIsImmutableAcrossRoundTrips(t *testing.T) {
-	raw, err := Encode(testTokenSecret, Payload{
+	raw, err := Encode(testHMACSecret, Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com"},
 		Headers: &HeaderPolicy{Mutations: []HeaderMutation{
@@ -157,14 +157,14 @@ func TestResolverReturnsInvalidDirectiveForMalformedDirectiveToken(t *testing.T)
 	}
 }
 
-func TestResolverRejectsWrongTokenSecret(t *testing.T) {
-	raw, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
+func TestResolverRejectsWrongHMACSecret(t *testing.T) {
+	raw, err := Encode(testHMACSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest("POST", "http://proxy.local/v1/resources", nil)
 	req.Header.Set("Authorization", "Bearer "+raw)
-	_, err = resolveRequest(NewResolver(ResolverOptions{TokenSecret: "wrong-secret"}), req)
+	_, err = resolveRequest(NewResolver(ResolverOptions{HMACSecret: "wrong-secret"}), req)
 	if !errors.Is(err, proxy.ErrDirectiveUnauthorized) {
 		t.Fatalf("unexpected authorization error: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestResolverRejectsWrongTokenSecret(t *testing.T) {
 func TestAuthorizationResolverErrorDoesNotExposeRawOrDecodedPayload(t *testing.T) {
 	const decodedSecret = "decoded-auth-secret"
 
-	raw, err := encodeToken(testTokenSecret, TokenInline, []byte(`{"target":{"base_url":"`+decodedSecret+`"}}`))
+	raw, err := encodeToken(testHMACSecret, TokenInline, []byte(`{"target":{"base_url":"`+decodedSecret+`"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

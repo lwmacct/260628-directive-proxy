@@ -175,7 +175,7 @@ func newProxyHandler(cfg *config.Server, remotes *directiveRemotes, compiler pro
 	resolverOptions := directive.ResolverOptions{
 		LookupTimeout:    remoteConfig.Timeout,
 		MaxTokenBytes:    cfg.Proxy.Directive.MaxTokenBytes,
-		TokenSecret:      cfg.Proxy.Directive.TokenSecret,
+		HMACSecret:       cfg.Proxy.Directive.HMACSecret,
 		Compiler:         compiler,
 		RecoveryCompiler: recoveryCompiler,
 	}

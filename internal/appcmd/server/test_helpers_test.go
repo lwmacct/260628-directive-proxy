@@ -5,11 +5,11 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/bodystore"
 )
 
-const testDirectiveSecret = "test-directive-token-secret"
+const testHMACSecret = "test-directive-hmac-secret"
 
 func newTestServerConfig() config.Server {
 	cfg := config.DefaultConfig().Server
-	cfg.Proxy.Directive.TokenSecret = testDirectiveSecret
+	cfg.Proxy.Directive.HMACSecret = testHMACSecret
 	return cfg
 }
 

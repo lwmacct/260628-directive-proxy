@@ -10,17 +10,17 @@ import (
 	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
 )
 
-func Encode(secret string, payload Payload) (string, error) {
-	return EncodeDocument(secret, Document{Kind: KindInline, Payload: &payload})
+func Encode(hmacSecret string, payload Payload) (string, error) {
+	return EncodeDocument(hmacSecret, Document{Kind: KindInline, Payload: &payload})
 }
 
-func EncodeRemote(secret string, spec RemoteSpec) (string, error) {
-	return EncodeDocument(secret, Document{Kind: KindRemote, Remote: &spec})
+func EncodeRemote(hmacSecret string, spec RemoteSpec) (string, error) {
+	return EncodeDocument(hmacSecret, Document{Kind: KindRemote, Remote: &spec})
 }
 
-func EncodeDocument(secret string, document Document) (string, error) {
-	if strings.TrimSpace(secret) == "" {
-		return "", ErrInvalidTokenSecret
+func EncodeDocument(hmacSecret string, document Document) (string, error) {
+	if strings.TrimSpace(hmacSecret) == "" {
+		return "", ErrInvalidHMACSecret
 	}
 	document, err := ValidateDocument(document)
 	if err != nil {
@@ -40,23 +40,23 @@ func EncodeDocument(secret string, document Document) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return encodeToken(secret, kind, raw)
+	return encodeToken(hmacSecret, kind, raw)
 }
 
-func Decode(secret, encoded string) (Document, error) {
+func Decode(hmacSecret, encoded string) (Document, error) {
 	parts := strings.Split(strings.TrimSpace(encoded), ".")
 	if len(parts) != 5 || parts[0] != TokenFamily || parts[1] != TokenVersion ||
 		(parts[2] != TokenInline && parts[2] != TokenRemote) || parts[3] == "" || parts[4] == "" {
 		return Document{}, ErrInvalidPayload
 	}
-	if strings.TrimSpace(secret) == "" {
+	if strings.TrimSpace(hmacSecret) == "" {
 		return Document{}, ErrTokenUnauthorized
 	}
 	signature, err := base64.RawURLEncoding.DecodeString(parts[4])
 	if err != nil || len(signature) != sha256.Size {
 		return Document{}, ErrTokenUnauthorized
 	}
-	expected := tokenMAC(secret, parts[3])
+	expected := tokenMAC(hmacSecret, parts[3])
 	if !hmac.Equal(signature, expected) {
 		return Document{}, ErrTokenUnauthorized
 	}
@@ -111,7 +111,7 @@ func ValidateDocument(document Document) (Document, error) {
 
 func DecodePayload(raw []byte) (Payload, error) { return directivecontract.DecodePayload(raw) }
 
-func encodeToken(secret, kind string, raw []byte) (string, error) {
+func encodeToken(hmacSecret, kind string, raw []byte) (string, error) {
 	payload := base64.RawURLEncoding.EncodeToString(raw)
 	signingInput := strings.Join([]string{
 		TokenFamily,
@@ -119,14 +119,14 @@ func encodeToken(secret, kind string, raw []byte) (string, error) {
 		kind,
 		payload,
 	}, ".")
-	if strings.TrimSpace(secret) == "" {
-		return "", ErrInvalidTokenSecret
+	if strings.TrimSpace(hmacSecret) == "" {
+		return "", ErrInvalidHMACSecret
 	}
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(secret, payload)), nil
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(tokenMAC(hmacSecret, payload)), nil
 }
 
-func tokenMAC(secret, payload string) []byte {
-	mac := hmac.New(sha256.New, []byte(secret))
+func tokenMAC(hmacSecret, payload string) []byte {
+	mac := hmac.New(sha256.New, []byte(hmacSecret))
 	_, _ = mac.Write([]byte(payload))
 	return mac.Sum(nil)
 }

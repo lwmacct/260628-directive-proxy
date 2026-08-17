@@ -26,7 +26,7 @@ func (binding recoveryBindingFunc) Decide(ctx context.Context, event recovery.Ev
 	return binding(ctx, event)
 }
 
-const testTokenSecret = "test-directive-token-secret"
+const testHMACSecret = "test-directive-token-secret"
 
 func newTestResolver(opts ...ResolverOptions) *Resolver {
 	var configured ResolverOptions
@@ -45,6 +45,6 @@ func newTestResolver(opts ...ResolverOptions) *Resolver {
 			}), nil
 		})
 	}
-	configured.TokenSecret = testTokenSecret
+	configured.HMACSecret = testHMACSecret
 	return NewResolver(configured).(*Resolver)
 }

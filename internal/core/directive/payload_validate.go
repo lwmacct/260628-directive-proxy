@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	ErrInvalidPayload     = directivecontract.ErrInvalidPayload
-	ErrInvalidTokenSecret = errors.New("invalid directive token secret")
-	ErrTokenUnauthorized  = errors.New("directive token authentication failed")
+	ErrInvalidPayload    = directivecontract.ErrInvalidPayload
+	ErrInvalidHMACSecret = errors.New("invalid directive HMAC secret")
+	ErrTokenUnauthorized = errors.New("directive token authentication failed")
 )
 
 func Validate(payload Payload) error {

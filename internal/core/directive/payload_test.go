@@ -22,7 +22,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		},
 	}
 
-	encoded, err := Encode(testTokenSecret, input)
+	encoded, err := Encode(testHMACSecret, input)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		t.Fatalf("expected token prefix: %q", encoded)
 	}
 
-	token, err := Decode(testTokenSecret, encoded)
+	token, err := Decode(testHMACSecret, encoded)
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestPayloadOnlyHMACVector(t *testing.T) {
 	const signature = "6F9DAB7BdyojoAKEZSW8SMTBPZ5s_TaD2JnB_-kW8Xc"
 	encoded := TokenFamily + "." + TokenVersion + "." + TokenInline + "." + payload + "." + signature
 
-	decoded, err := Decode(testTokenSecret, encoded)
+	decoded, err := Decode(testHMACSecret, encoded)
 	if err != nil {
 		t.Fatalf("payload-only HMAC vector was rejected: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestPayloadOnlyHMACVector(t *testing.T) {
 }
 
 func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
-	encoded, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
+	encoded, err := Encode(testHMACSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestDecodeRejectsWrongSecretAndTamperedPayload(t *testing.T) {
 		last = "B"
 	}
 	parts[3] = parts[3][:len(parts[3])-1] + last
-	if _, err := Decode(testTokenSecret, strings.Join(parts, ".")); !errors.Is(err, ErrTokenUnauthorized) {
+	if _, err := Decode(testHMACSecret, strings.Join(parts, ".")); !errors.Is(err, ErrTokenUnauthorized) {
 		t.Fatalf("unexpected tampered token error: %v", err)
 	}
 }
@@ -100,14 +100,14 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 			},
 		},
 	}
-	encoded, err := EncodeRemote(testTokenSecret, input)
+	encoded, err := EncodeRemote(testHMACSecret, input)
 	if err != nil {
 		t.Fatalf("encode remote failed: %v", err)
 	}
 	if !strings.HasPrefix(encoded, TokenFamily+"."+TokenVersion+"."+TokenRemote+".") {
 		t.Fatalf("unexpected token: %q", encoded)
 	}
-	token, err := Decode(testTokenSecret, encoded)
+	token, err := Decode(testHMACSecret, encoded)
 	if err != nil {
 		t.Fatalf("decode remote failed: %v", err)
 	}
@@ -120,11 +120,11 @@ func TestEncodeDecodeRemoteRoundTrip(t *testing.T) {
 
 func TestEncodeDecodeFileRemoteRoundTrip(t *testing.T) {
 	input := RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}}
-	encoded, err := EncodeRemote(testTokenSecret, input)
+	encoded, err := EncodeRemote(testHMACSecret, input)
 	if err != nil {
 		t.Fatalf("encode file remote failed: %v", err)
 	}
-	decoded, err := Decode(testTokenSecret, encoded)
+	decoded, err := Decode(testHMACSecret, encoded)
 	if err != nil {
 		t.Fatalf("decode file remote failed: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestDecodeRemoteRejectsInvalidBackendUnion(t *testing.T) {
 		`{"redis":{"url":"redis://redis.example","key":"directive","headers":null}}`,
 		`{"file":{"path":"directive.json","url":"file:///tmp"}}`,
 	} {
-		if _, err := Decode(testTokenSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
+		if _, err := Decode(testHMACSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
 			t.Fatalf("invalid remote backend field combination was accepted: %s", raw)
 		}
 	}
@@ -152,18 +152,18 @@ func TestDecodeRemoteRejectsInvalidBackendUnion(t *testing.T) {
 func TestRemoteSpecValidation(t *testing.T) {
 	valid := []string{"team-a/service-a", "region:cn/service:primary", "客户甲/服务一", strings.Repeat("a", maxRemoteKeyBytes)}
 	for _, key := range valid {
-		if _, err := EncodeRemote(testTokenSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "rediss://user:pass@redis.example.com:6380/1", Key: key}}); err != nil {
+		if _, err := EncodeRemote(testHMACSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "rediss://user:pass@redis.example.com:6380/1", Key: key}}); err != nil {
 			t.Fatalf("expected key %q to be valid: %v", key, err)
 		}
 	}
 	invalid := []string{"", " leading", "trailing ", "line\nbreak", strings.Repeat("a", maxRemoteKeyBytes+1)}
 	for _, key := range invalid {
-		if _, err := EncodeRemote(testTokenSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: key}}); err == nil {
+		if _, err := EncodeRemote(testHMACSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: key}}); err == nil {
 			t.Fatalf("expected key %q to be invalid", key)
 		}
 	}
 	for _, path := range []string{"directive.json", "team-a/services/primary.json", "客户甲/服务一.json"} {
-		if _, err := EncodeRemote(testTokenSecret, RemoteSpec{File: &FileRemoteSpec{Path: path}}); err != nil {
+		if _, err := EncodeRemote(testHMACSecret, RemoteSpec{File: &FileRemoteSpec{Path: path}}); err != nil {
 			t.Fatalf("expected file path %q to be valid: %v", path, err)
 		}
 	}
@@ -183,7 +183,7 @@ func TestRemoteSpecValidation(t *testing.T) {
 		{File: &FileRemoteSpec{Path: "team-a\\directive.json"}},
 	}
 	for _, spec := range invalidSpecs {
-		if _, err := EncodeRemote(testTokenSecret, spec); err == nil {
+		if _, err := EncodeRemote(testHMACSecret, spec); err == nil {
 			t.Fatalf("expected spec to be invalid: %#v", spec)
 		}
 	}
@@ -192,7 +192,7 @@ func TestRemoteSpecValidation(t *testing.T) {
 func TestDecodeRequiresDirectiveTokenPrefix(t *testing.T) {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(`{"target":{"base_url":"https://api.example.com/v1"}}`))
 
-	if _, err := Decode(testTokenSecret, encoded); err == nil {
+	if _, err := Decode(testHMACSecret, encoded); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
@@ -223,7 +223,7 @@ func TestDecodePayloadRequiresStrictTargetUnion(t *testing.T) {
 
 func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
 	valid := encodeRawRemoteToken([]byte(`{"http":{"url":"https://resolver.example/resolve"}}`))
-	if _, err := Decode(testTokenSecret, valid); err != nil {
+	if _, err := Decode(testHMACSecret, valid); err != nil {
 		t.Fatalf("direct remote spec was rejected: %v", err)
 	}
 	invalid := []string{
@@ -232,7 +232,7 @@ func TestRemoteTokenBodyIsRemoteSpecOnly(t *testing.T) {
 		`{"http":{"url":"https://resolver.example/resolve"},"recovery":{}}`,
 	}
 	for _, raw := range invalid {
-		if _, err := Decode(testTokenSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
+		if _, err := Decode(testHMACSecret, encodeRawRemoteToken([]byte(raw))); err == nil {
 			t.Fatalf("invalid remote token body was accepted: %s", raw)
 		}
 	}
@@ -319,7 +319,7 @@ func TestDecodeRejectsMissingOrInvalidHeaderSide(t *testing.T) {
 
 func TestRemoteHeadersRejectResponseSide(t *testing.T) {
 	raw := []byte(`{"http":{"url":"https://resolver.example/resolve","headers":{"mutations":[{"side":"response","action":"del","name":"Server"}]}}}`)
-	if _, err := Decode(testTokenSecret, encodeRawRemoteToken(raw)); err == nil {
+	if _, err := Decode(testHMACSecret, encodeRawRemoteToken(raw)); err == nil {
 		t.Fatal("expected remote response header side to be rejected")
 	}
 }
@@ -420,17 +420,17 @@ func TestParseProxy(t *testing.T) {
 }
 
 func encodeRawToken(raw []byte) string {
-	token, _ := encodeToken(testTokenSecret, TokenInline, raw)
+	token, _ := encodeToken(testHMACSecret, TokenInline, raw)
 	return token
 }
 
 func encodeRawRemoteToken(raw []byte) string {
-	token, _ := encodeToken(testTokenSecret, TokenRemote, raw)
+	token, _ := encodeToken(testHMACSecret, TokenRemote, raw)
 	return token
 }
 
 func decodeInlinePayload(encoded string) (Payload, error) {
-	token, err := Decode(testTokenSecret, encoded)
+	token, err := Decode(testHMACSecret, encoded)
 	if err != nil {
 		return Payload{}, err
 	}

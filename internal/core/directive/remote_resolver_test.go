@@ -48,7 +48,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 		}
 		return []byte(`{"metadata":{"user_key":"uk_remote"},"target":{"base_url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"modules":[{"module":"builtin.capture","config":{}},{"module":"builtin.llmusage","config":{"protocol":"openai.responses"}}],"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_round_trips":3}}}`), nil
 	})})
-	token, err := EncodeRemote(testTokenSecret, RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
+	token, err := EncodeRemote(testHMACSecret, RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestResolverLoadsCompleteRemoteDirective(t *testing.T) {
 			},
 		},
 	}
-	token, err := EncodeRemote(testTokenSecret, spec)
+	token, err := EncodeRemote(testHMACSecret, spec)
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestResolverLoadsCompleteFileDirective(t *testing.T) {
 		requested = reference
 		return []byte(`{"metadata":{"user_key":"uk_file"},"target":{"base_url":"https://file.example.com/v1"}}`), nil
 	})})
-	token, err := EncodeRemote(testTokenSecret, RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}})
+	token, err := EncodeRemote(testHMACSecret, RemoteSpec{File: &FileRemoteSpec{Path: "team-a/services/primary.json"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestResolverLoadsCompleteFileDirective(t *testing.T) {
 }
 
 func TestResolverRemoteFailures(t *testing.T) {
-	token, err := EncodeRemote(testTokenSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"}})
+	token, err := EncodeRemote(testHMACSecret, RemoteSpec{Redis: &RedisRemoteSpec{URL: "redis://redis.example.com:6379/0", Key: "team-a/service-a"}})
 	if err != nil {
 		t.Fatalf("encode token failed: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestResolverRemoteFailures(t *testing.T) {
 }
 
 func TestResolverRejectsOversizedTokenAndInlinePayload(t *testing.T) {
-	token, err := Encode(testTokenSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
+	token, err := Encode(testHMACSecret, Payload{Metadata: testDirectiveMetadata(), Target: TargetSection{BaseURL: "https://api.example.com"}})
 	if err != nil {
 		t.Fatalf("encode token: %v", err)
 	}

@@ -27,7 +27,7 @@ type ResolverOptions struct {
 	FileReader       FileRemoteReader
 	LookupTimeout    time.Duration
 	MaxTokenBytes    int64
-	TokenSecret      string
+	HMACSecret       string
 	Compiler         program.Compiler
 	RecoveryCompiler recovery.Compiler
 }
@@ -38,7 +38,7 @@ type Resolver struct {
 	fileReader       FileRemoteReader
 	lookupTimeout    time.Duration
 	maxTokenBytes    int64
-	tokenSecret      string
+	hmacSecret       string
 	compiler         program.Compiler
 	recoveryCompiler recovery.Compiler
 }
@@ -54,7 +54,7 @@ func NewResolver(opts ...ResolverOptions) proxy.Resolver {
 		fileReader:       configured.FileReader,
 		lookupTimeout:    configured.LookupTimeout,
 		maxTokenBytes:    configured.MaxTokenBytes,
-		tokenSecret:      configured.TokenSecret,
+		hmacSecret:       configured.HMACSecret,
 		compiler:         configured.Compiler,
 		recoveryCompiler: configured.RecoveryCompiler,
 	}
@@ -71,11 +71,11 @@ func (r *Resolver) Prepare(req *http.Request) (*proxy.PreparedDirective, error) 
 	if r != nil && r.maxTokenBytes > 0 && int64(len(raw)) > r.maxTokenBytes {
 		return nil, proxy.ErrDirectiveTokenTooLarge
 	}
-	var tokenSecret string
+	var hmacSecret string
 	if r != nil {
-		tokenSecret = r.tokenSecret
+		hmacSecret = r.hmacSecret
 	}
-	document, err := Decode(tokenSecret, raw)
+	document, err := Decode(hmacSecret, raw)
 	if errors.Is(err, ErrTokenUnauthorized) {
 		return nil, proxy.ErrDirectiveUnauthorized
 	}

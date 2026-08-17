@@ -7,7 +7,7 @@ import (
 )
 
 func TestPayloadRoundTripsOrderedModules(t *testing.T) {
-	token, err := Encode(testTokenSecret, Payload{
+	token, err := Encode(testHMACSecret, Payload{
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1/responses"},
 		Modules: module.Specs{
@@ -18,7 +18,7 @@ func TestPayloadRoundTripsOrderedModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := Decode(testTokenSecret, token)
+	document, err := Decode(testHMACSecret, token)
 	if err != nil {
 		t.Fatal(err)
 	}
