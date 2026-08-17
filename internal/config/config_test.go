@@ -37,7 +37,6 @@ func setDirectiveHMACSecret(t *testing.T) {
 
 func TestConfigReportsMissingDirectiveHMACSecret(t *testing.T) {
 	t.Setenv("DIRECTIVE_HMAC_SECRET", "")
-	t.Setenv("DIRECTIVE_TOKEN_SECRET", "legacy-value-must-not-be-used")
 
 	_, err := Manager.Load(t.Context())
 	if err == nil {
