@@ -37,6 +37,14 @@ Authorization: Bearer dp.22.remote.<base64url-json>.<hmac>
 
 `hmac` 是 `HMAC-SHA256(HMACSecret, base64url-json)` 的 Base64URL 编码，其中 `base64url-json` 是 token 第四段的原始字符串。HMAC secret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
+Relay 固定 Remote Token 可通过一次性 CLI 生成。该命令只读取环境变量，不启动 HTTP 服务：
+
+```bash
+app remote-token --resolver-url 'http://127.0.0.1:23188/api/resolver'
+```
+
+命令需要 `DIRECTIVE_HMAC_SECRET` 和 `RELAY_ENTRY_S2S_TOKEN`；输出是完整的 `dp.22.remote.*` Token。
+
 inline token 的解码内容是：
 
 ```json
