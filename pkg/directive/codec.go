@@ -2,9 +2,57 @@ package directive
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"io"
+	"strings"
 )
+
+// EncodeRemote signs a normalized RemoteSpec using the public dp.22.remote
+// token format. It is intentionally exposed so control-plane components can
+// sign at runtime without depending on the proxy's internal packages.
+func EncodeRemote(hmacSecret string, spec RemoteSpec) (string, error) {
+	if strings.TrimSpace(hmacSecret) == "" {
+		return "", ErrInvalidPayload
+	}
+	normalized, err := NormalizeRemoteSpec(spec)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return "", ErrInvalidPayload
+	}
+	body := base64.RawURLEncoding.EncodeToString(raw)
+	mac := hmac.New(sha256.New, []byte(hmacSecret))
+	_, _ = mac.Write([]byte(body))
+	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return TokenFamily + "." + TokenVersion + "." + TokenRemote + "." + body + "." + signature, nil
+}
+
+// DecodeRemote verifies and decodes a dp.22.remote token.
+func DecodeRemote(hmacSecret, encoded string) (RemoteSpec, error) {
+	parts := strings.Split(strings.TrimSpace(encoded), ".")
+	if len(parts) != 5 || parts[0] != TokenFamily || parts[1] != TokenVersion || parts[2] != TokenRemote || parts[3] == "" || parts[4] == "" || strings.TrimSpace(hmacSecret) == "" {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(parts[4])
+	if err != nil || len(signature) != sha256.Size {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	mac := hmac.New(sha256.New, []byte(hmacSecret))
+	_, _ = mac.Write([]byte(parts[3]))
+	if !hmac.Equal(signature, mac.Sum(nil)) {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[3])
+	if err != nil {
+		return RemoteSpec{}, ErrInvalidPayload
+	}
+	return DecodeRemoteSpec(raw)
+}
 
 func DecodePayload(raw []byte) (Payload, error) {
 	payload, err := decodeStrict[Payload](raw)

@@ -10,7 +10,6 @@ import (
 	"github.com/lwmacct/251207-go-pkg-version/pkg/version"
 	"github.com/lwmacct/251219-go-pkg-logm/pkg/logm"
 
-	"github.com/lwmacct/260628-directive-proxy/internal/appcmd/remotetoken"
 	"github.com/lwmacct/260628-directive-proxy/internal/appcmd/server"
 	"github.com/lwmacct/260628-directive-proxy/internal/config"
 )
@@ -23,7 +22,7 @@ func main() {
 		Name:            "app",
 		Usage:           "directive-driven HTTP reverse proxy",
 		Version:         version.AppVersion,
-		Commands:        []*cli.Command{server.Command, remotetoken.Command, version.Command},
+		Commands:        []*cli.Command{server.Command, version.Command},
 		HideHelpCommand: true,
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return cli.ShowSubcommandHelp(c)

@@ -37,16 +37,9 @@ Authorization: Bearer dp.22.remote.<base64url-json>.<hmac>
 
 `hmac` 是 `HMAC-SHA256(HMACSecret, base64url-json)` 的 Base64URL 编码，其中 `base64url-json` 是 token 第四段的原始字符串。HMAC secret 只保存在服务端和生成 token 的工作台中，不写入 token。
 
-HTTP Resolver Remote Token 可通过一次性 CLI 生成。该命令只从环境变量读取 HMAC Secret，不启动 HTTP 服务：
-
-```bash
-app remote-token \
-  --resolver-url 'http://127.0.0.1:23188/api/resolver' \
-  --resolver-token 'dpr_...' \
-  --uuid '01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2'
-```
-
-命令需要 `DIRECTIVE_HMAC_SECRET`；`--resolver-token` 可以传入公共 `dpr_*` 或 Relay S2S Token，`--uuid` 可选。输出是完整的 `dp.22.remote.*` Token。
+HTTP RemoteSpec 由控制面保存为可编辑 JSON。调用方在运行时使用共享 HMAC secret
+签发 `dp.22.remote`；本服务只负责验证签名、读取 RemoteSpec 并执行，不提供 Vendor 专用的
+token 生成 CLI。
 
 inline token 的解码内容是：
 
@@ -128,16 +121,10 @@ RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline
 
 ## LLM Relay 集成
 
-`260628-llm-relay-entry` 使用一条固定 `dp.22.remote` Token 调用本服务。该 RemoteSpec 只携带
-Vendor resolver 地址和 S2S Bearer；每次请求的 Vendor Relay Target UUID 由 Entry 放在
-`X-Relay-Target-ID` 中，不编码进固定 Token。
-
-本服务验证固定 Token 的 HMAC 后，HTTP remote adapter 才向 Vendor 的统一 `/api/resolver` 发起
-`dp.resolve.v1` 请求。传输可使用同机 loopback HTTP 或跨主机/公网 HTTPS；Vendor 用 Bearer 选择
-Relay 认证模式，并验证 S2S Token 和 Relay Target，返回完整 Payload；本服务再按
-Payload 删除 Relay 内部头、写入 Vendor 认证并转发原请求。`dpr_*` 不参与这条内部链路。
-
-公共 Vendor RemoteSpec 也访问 `/api/resolver`，但携带 Relay Target 自身的 `dpr_*`；两种认证模式最终都通过 Relay Target 定位当前 Directive Route。
+`260628-llm-relay-entry` 从共享数据库读取 Key Group 的 HTTP RemoteSpec，在每个请求运行时签发
+`dp.22.remote`。RemoteSpec 的 HTTP header 直接携带 Vendor 签发的 `dpr_*` resolver token；
+因此 Proxy 只需验证 RemoteSpec 并访问 Vendor `/api/resolver`，Vendor 再根据该 token 定位
+当前 Directive Route。没有固定 remote token、S2S 模式或 `X-Relay-Target-ID` 旁路。
 两者的完整信任边界见
 [LLM Relay 系统拓扑](https://github.com/lwmacct/260628-llm-relay-console/blob/main/docs/system-topology.md)。
 
@@ -148,9 +135,9 @@ Payload 删除 Relay 内部头、写入 Vendor 认证并转发原请求。`dpr_*
 - `Payload`、`RemoteSpec` 及其所有嵌套 schema；
 - 完整 Payload 与 RemoteSpec 的严格解码、校验和规范化；
 - 不含 target 的 Payload 模板解码与 canonicalization；
-- 当前 token family/version/kind 协议常量。
+- 当前 token family/version/kind 协议常量，以及 RemoteSpec 的 HMAC token 编码辅助函数。
 
-该包不依赖本项目的 `internal` 包，也不提供 HMAC 签名、token 编解码、remote reader 或代理运行时。签名方自行管理 token secret；配置生产方只需要构造和校验 wire document。
+该包不依赖本项目的 `internal` 包，也不提供 remote reader 或代理运行时。签名方自行管理 token secret；配置生产方只需要构造和校验 wire document。
 
 Payload 可以声明可选 metadata：最多 16 项、总计最多 8 KiB 的 `map<string,string>`，key 使用小写 snake_case。core 不要求任何业务身份字段，也不设置系统保留 key；`metadata` 包仅预设常用的 `user_id`、`user_key` key API。Exchange 生成的 UUIDv7 trace ID 是独立系统字段，不会在运行时注入 metadata；若 directive 自行声明 `trace_id`，它只是普通 metadata，与系统 trace 没有绑定关系。
 

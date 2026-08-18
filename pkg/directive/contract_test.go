@@ -119,6 +119,25 @@ func TestDecodeRemoteSpecIsStrictOneOf(t *testing.T) {
 	}
 }
 
+func TestRemoteTokenCodecSignsAndVerifiesSpec(t *testing.T) {
+	t.Parallel()
+	spec := directive.RemoteSpec{UUID: "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2", HTTP: &directive.HTTPRemoteSpec{URL: "https://resolver.example/api/resolver"}}
+	token, err := directive.EncodeRemote("shared-secret", spec)
+	if err != nil {
+		t.Fatalf("encode remote: %v", err)
+	}
+	decoded, err := directive.DecodeRemote("shared-secret", token)
+	if err != nil {
+		t.Fatalf("decode remote: %v", err)
+	}
+	if decoded.UUID != spec.UUID || decoded.HTTP == nil || decoded.HTTP.URL != spec.HTTP.URL {
+		t.Fatalf("decoded spec = %#v", decoded)
+	}
+	if _, err = directive.DecodeRemote("wrong-secret", token); !errors.Is(err, directive.ErrInvalidPayload) {
+		t.Fatalf("wrong secret error = %v", err)
+	}
+}
+
 func TestDecodePayloadRejectsInvalidTargetAndHeaderContract(t *testing.T) {
 	t.Parallel()
 	for _, raw := range []string{
