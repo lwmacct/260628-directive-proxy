@@ -127,7 +127,7 @@ RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline
 
 `260628-llm-relay-entry` 使用一条固定 `dp.22.remote` Token 调用本服务。该 RemoteSpec 只携带
 Vendor resolver 地址和 S2S Bearer；每次请求的 Vendor `DirectiveRoute.id` 由 Entry 放在
-`X-Relay-Route-ID` 中，不编码进固定 Token。
+`X-Relay-Target-Ref` 中，不编码进固定 Token。
 
 本服务验证固定 Token 的 HMAC 后，HTTP remote adapter 才向 Vendor 的统一 `/api/resolver` 发起
 `dp.resolve.v1` 请求。传输可使用同机 loopback HTTP 或跨主机/公网 HTTPS；Vendor 用 Bearer 选择
