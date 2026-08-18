@@ -126,17 +126,17 @@ RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline
 ## LLM Relay 集成
 
 `260628-llm-relay-entry` 使用一条固定 `dp.22.remote` Token 调用本服务。该 RemoteSpec 只携带
-Vendor resolver 地址和 S2S Bearer；每次请求的 Vendor `RouteCredential.id` 由 Entry 放在
-`X-Relay-Credential-ID` 中，不编码进固定 Token。
+Vendor resolver 地址和 S2S Bearer；每次请求的 Vendor `DirectiveRoute.id` 由 Entry 放在
+`X-Relay-Route-ID` 中，不编码进固定 Token。
 
 本服务验证固定 Token 的 HMAC 后，HTTP remote adapter 才向 Vendor 的统一 `/api/resolver` 发起
 `dp.resolve.v1` 请求。传输可使用同机 loopback HTTP 或跨主机/公网 HTTPS；Vendor 用 Bearer 选择
 Relay 认证模式，并验证 S2S Token 和
-Credential UUID，返回完整 Payload；本服务再按
+Directive Route UUID，返回完整 Payload；本服务再按
 Payload 删除 Relay 内部头、写入 Vendor 认证并转发原请求。`dpr_*` 不参与这条内部链路。
 
 公共 Vendor RemoteSpec 也访问 `/api/resolver`，但携带 `dpr_*`；同一路径根据认证主体执行不同的
-Credential 定位方式。
+Directive Route 定位方式。
 两者的完整信任边界见
 [LLM Relay 系统拓扑](https://github.com/lwmacct/260628-llm-relay-console/blob/main/docs/system-topology.md)。
 
