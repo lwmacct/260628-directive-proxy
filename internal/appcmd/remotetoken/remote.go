@@ -8,7 +8,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 )
 
-func Generate(hmacSecret, resolverURL, resolverToken string) (string, error) {
+func Generate(hmacSecret, resolverURL, resolverToken, remoteUUID string) (string, error) {
 	hmacSecret = strings.TrimSpace(hmacSecret)
 	resolverToken = strings.TrimSpace(resolverToken)
 	if hmacSecret == "" || resolverToken == "" {
@@ -33,5 +33,6 @@ func Generate(hmacSecret, resolverURL, resolverToken string) (string, error) {
 			},
 		},
 	}
+	spec.UUID = strings.TrimSpace(remoteUUID)
 	return directive.EncodeRemote(hmacSecret, spec)
 }

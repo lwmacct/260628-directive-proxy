@@ -12,20 +12,21 @@ import (
 
 var Command = &cli.Command{
 	Name:  "remote-token",
-	Usage: "generate the fixed Relay dp.22.remote token",
+	Usage: "generate a dp.22.remote token for an HTTP resolver",
 	Flags: []cli.Flag{
 		&cli.StringFlag{Name: "resolver-url", Usage: "Vendor resolver URL", Required: true},
+		&cli.StringFlag{Name: "resolver-token", Usage: "Vendor resolver Bearer token", Required: true},
+		&cli.StringFlag{Name: "uuid", Usage: "optional stable RemoteSpec UUID"},
 	},
 	Action: action,
 }
 
 func action(_ context.Context, command *cli.Command) error {
 	hmacSecret := strings.TrimSpace(os.Getenv("DIRECTIVE_HMAC_SECRET"))
-	resolverToken := strings.TrimSpace(os.Getenv("RELAY_ENTRY_S2S_TOKEN"))
-	if hmacSecret == "" || resolverToken == "" {
-		return errors.New("DIRECTIVE_HMAC_SECRET and RELAY_ENTRY_S2S_TOKEN are required")
+	if hmacSecret == "" {
+		return errors.New("DIRECTIVE_HMAC_SECRET is required")
 	}
-	token, err := Generate(hmacSecret, command.String("resolver-url"), resolverToken)
+	token, err := Generate(hmacSecret, command.String("resolver-url"), command.String("resolver-token"), command.String("uuid"))
 	if err != nil {
 		return err
 	}

@@ -7,8 +7,8 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/directive"
 )
 
-func TestGenerateBuildsRelayHTTPRemoteToken(t *testing.T) {
-	token, err := Generate("hmac-secret", "https://vendor.example/api/resolver", "entry-s2s-token")
+func TestGenerateBuildsHTTPRemoteToken(t *testing.T) {
+	token, err := Generate("hmac-secret", "https://vendor.example/api/resolver", "dpr_public", "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestGenerateBuildsRelayHTTPRemoteToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generated token failed proxy decode: %v", err)
 	}
-	if document.Kind != directive.KindRemote || document.Remote == nil || document.Remote.HTTP == nil {
+	if document.Kind != directive.KindRemote || document.Remote == nil || document.Remote.HTTP == nil || document.Remote.UUID != "01990f4a-9e4c-7c42-a7ec-5c3f37a6f6b2" {
 		t.Fatalf("unexpected decoded document: %#v", document)
 	}
 	spec := document.Remote.HTTP
@@ -28,7 +28,7 @@ func TestGenerateBuildsRelayHTTPRemoteToken(t *testing.T) {
 	}
 	mutation := spec.Headers.Mutations[0]
 	if mutation.Side != directive.HeaderSideRequest || mutation.Action != directive.HeaderActionSet ||
-		mutation.Name != "Authorization" || len(mutation.Values) != 1 || mutation.Values[0] != "Bearer entry-s2s-token" {
+		mutation.Name != "Authorization" || len(mutation.Values) != 1 || mutation.Values[0] != "Bearer dpr_public" {
 		t.Fatalf("unexpected authorization mutation: %#v", mutation)
 	}
 }
@@ -41,7 +41,7 @@ func TestGenerateRejectsInvalidResolverURL(t *testing.T) {
 		"https://user:pass@vendor.example/resolver",
 		"https://vendor.example/resolver#fragment",
 	} {
-		if _, err := Generate("hmac-secret", resolverURL, "entry-s2s-token"); err == nil {
+		if _, err := Generate("hmac-secret", resolverURL, "entry-s2s-token", ""); err == nil {
 			t.Fatalf("expected invalid resolver URL to fail: %q", resolverURL)
 		}
 	}
