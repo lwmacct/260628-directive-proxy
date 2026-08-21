@@ -1,0 +1,43 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # golangci-lint 的标准核心检查集，关注明确的正确性问题。
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    staticcheck:
+      checks:
+        - all
+        # golangci-lint v2.13.0 仍内置 Staticcheck v0.8.0-rc.1，其
+        # SA4023 存在已修复的二次复杂度问题。升级到包含 v0.8.0 的
+        # golangci-lint 后删除此项。
+        - -SA4023
+        # 保持 Staticcheck 的默认风格检查策略，不强制所有包和导出符号写文档。
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+
+  exclusions:
+    paths:
+      - node_modules
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - node_modules
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

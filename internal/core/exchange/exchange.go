@@ -2,7 +2,6 @@ package exchange
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/lifecycle"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/metadata"
@@ -312,11 +311,7 @@ func (current *Exchange) isCurrent(roundTrip *RoundTrip) bool {
 }
 
 func newTraceID() string {
-	id, err := uuid.NewV7()
-	if err != nil {
-		panic(fmt.Sprintf("generate trace UUIDv7: %v", err))
-	}
-	return id.String()
+	return uuid.NewV7().String()
 }
 
 func requestURL(req *http.Request) string {

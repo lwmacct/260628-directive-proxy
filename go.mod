@@ -1,12 +1,13 @@
 module github.com/lwmacct/260628-directive-proxy
 
-go 1.26.4
+go 1.27.0
+
+ignore node_modules
 
 require (
 	github.com/VictoriaMetrics/metrics v1.44.0
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/google/uuid v1.6.0
-	github.com/lwmacct/251207-go-pkg-cfgm v0.35.260718
+	github.com/lwmacct/251207-go-pkg-cfgm v0.36.260821
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
 	github.com/lwmacct/260614-go-pkg-tlsreload v0.15.260716
@@ -18,22 +19,20 @@ require (
 	github.com/lwmacct/260718-go-pkg-ipallow v0.3.260718
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/tinylib/msgp v1.6.4
-	github.com/urfave/cli/v3 v3.10.1
+	github.com/urfave/cli/v3 v3.11.0
 )
-
-require github.com/coder/websocket v1.8.15 // indirect
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/valyala/fastrand v1.1.0 // indirect
 	github.com/valyala/histogram v1.2.0 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/mod v0.39.0 // indirect
+	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )

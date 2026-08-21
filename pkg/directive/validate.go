@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
+	"uuid"
 )
 
 var ErrInvalidPayload = errors.New("invalid directive payload")
