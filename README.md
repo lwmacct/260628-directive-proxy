@@ -249,7 +249,7 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 内置 Module 由 directive 的单一有序 `modules` 数组启用；每项只声明唯一的 `module` 和可选 `config`，生命周期由 Module Definition 静态声明：
 
 - [`capture`](docs/module-capture.md)：请求、响应和生命周期审计；
-- [`llmobserve`](docs/module-llm.md)：单次增量解析 LLM usage 与响应性能。
+- [`llmobserve`](docs/module-llmobserve.md)：单次增量解析 LLM usage 与响应性能。
 
 Module 经内部有界队列向 Fluent 输出统一 `dp.event.v6` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 使用 `(trace_id, sequence)` 作为事件身份，并在顶层携带完整 directive `metadata`；各 topic 的 `data` 不重复这些公共字段。Capture、LLM 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
