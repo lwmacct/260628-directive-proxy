@@ -186,7 +186,7 @@ func DefaultConfig() Config {
 	}
 }
 
-var Manager = cfgm.New(
+var Manager = cfgm.MustNew(
 	DefaultConfig(),
 	cfgm.AppName("app"),
 )

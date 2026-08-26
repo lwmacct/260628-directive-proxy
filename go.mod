@@ -7,12 +7,11 @@ ignore node_modules
 require (
 	github.com/VictoriaMetrics/metrics v1.44.0
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/lwmacct/251207-go-pkg-cfgm v0.36.260821
+	github.com/lwmacct/251207-go-pkg-cfgm v0.37.260826
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
 	github.com/lwmacct/260614-go-pkg-tlsreload v0.15.260716
-	github.com/lwmacct/260622-go-pkg-tddcheck v0.22.260711
-	github.com/lwmacct/260714-go-pkg-fluent v0.6.260716
+	github.com/lwmacct/260714-go-pkg-fluent v0.7.260825
 	github.com/lwmacct/260714-go-pkg-llmperf v0.2.260715
 	github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714
 	github.com/lwmacct/260718-go-pkg-clientip v0.2.260718
