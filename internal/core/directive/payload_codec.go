@@ -4,7 +4,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
 	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
@@ -36,7 +37,7 @@ func EncodeDocument(hmacSecret string, document Document) (string, error) {
 	default:
 		return "", ErrInvalidPayload
 	}
-	raw, err := json.Marshal(value)
+	raw, err := json.Marshal(value, json.Deterministic(true), jsontext.ReorderRawObjects(true))
 	if err != nil {
 		return "", err
 	}

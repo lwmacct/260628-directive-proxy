@@ -1,13 +1,12 @@
 package capture
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"hash"
-	"io"
 	"mime"
 	"net/http"
 	"net/url"
@@ -19,7 +18,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
 )
 
-const Name = "builtin.capture"
+const Name = "capture"
 
 const (
 	defaultBodyChunkBytes = 32 << 10
@@ -62,7 +61,7 @@ func (*Module) Name() string { return Name }
 
 func (*Module) Lifetime() module.Lifetime { return module.LifetimeExchange }
 
-func (*Module) CompileProgram(raw json.RawMessage) (module.Binding, error) {
+func (*Module) CompileProgram(raw jsontext.Value) (module.Binding, error) {
 	spec, err := decodeSpec(raw)
 	if err != nil {
 		return nil, err
@@ -363,14 +362,9 @@ func defaultSpec() Spec {
 }
 
 func decodeSpec(raw []byte) (Spec, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
 	var spec Spec
-	if err := decoder.Decode(&spec); err != nil {
+	if err := json.Unmarshal(raw, &spec, json.RejectUnknownMembers(true)); err != nil {
 		return Spec{}, err
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return Spec{}, fmt.Errorf("multiple JSON values")
 	}
 	if spec.BodyChunkBytes < 0 || spec.BodyChunkBytes > maxBodyChunkBytes {
 		return Spec{}, fmt.Errorf("body-chunk-bytes must be between 0 and %d", maxBodyChunkBytes)

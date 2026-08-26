@@ -111,8 +111,8 @@ remote resolver 返回示例：
   "metadata": {"user_id": "user-1", "user_key": "key-1"},
   "target": {"base_url": "https://api.example.com/v1"},
   "modules": [
-    {"module": "builtin.capture", "config": {}},
-    {"module": "builtin.llmusage", "config": {"protocol": "openai.responses"}}
+    {"module": "capture", "config": {}},
+    {"module": "llmobserve", "config": {"protocol": "openai.responses", "observe": ["usage", "performance"]}}
   ],
   "recovery": {
     "controller": {"url": "https://controller.example.com/recovery"},

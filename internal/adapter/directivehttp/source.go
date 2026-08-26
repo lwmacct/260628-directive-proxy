@@ -3,7 +3,7 @@ package directivehttp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,7 +88,7 @@ func (s *Source) Read(ctx context.Context, reference directive.HTTPReference, re
 			URL:    request.URL,
 			Host:   request.Host,
 		},
-	})
+	}, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}

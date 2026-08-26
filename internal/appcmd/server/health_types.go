@@ -42,7 +42,7 @@ type OutputHealth struct {
 	Type           string     `json:"type"`
 	Status         string     `json:"status"`
 	LastFailureAt  *time.Time `json:"last_failure_at,omitempty"`
-	QueuedRecords  int64      `json:"queued_records,omitempty"`
-	QueuedBytes    int64      `json:"queued_bytes,omitempty"`
-	DroppedRecords uint64     `json:"dropped_records,omitempty"`
+	QueuedRecords  int64      `json:"queued_records,omitzero"`
+	QueuedBytes    int64      `json:"queued_bytes,omitzero"`
+	DroppedRecords uint64     `json:"dropped_records,omitzero"`
 }

@@ -40,9 +40,6 @@ func (roundTrip *RoundTrip) ObserveUpstreamResponse(response *http.Response) {
 	}
 	current := roundTrip.exchange
 	current.lifecycleMu.Lock()
-	roundTrip.projection = program.NewUpstreamObserver(
-		response.Header.Get("Content-Type"), maxProjectedSSEEventBytes, current.activeProgram(roundTrip),
-	)
 	_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 		return active.UpstreamResponseStarted(current.ctx, lifecycle.ResponseStarted{
 			StatusCode: response.StatusCode, Header: response.Header.Clone(),
@@ -72,11 +69,6 @@ func (roundTrip *RoundTrip) processUpstreamBodyChunk(data []byte) ([]byte, error
 	}
 	if active := current.activeProgram(roundTrip); active != nil {
 		if err := active.MutateUpstreamBodyChunk(current.ctx, &draft); err != nil {
-			return nil, err
-		}
-	}
-	if roundTrip.projection != nil {
-		if err := roundTrip.projection.Observe(current.ctx, time.Now().UTC(), draft.Data); err != nil {
 			return nil, err
 		}
 	}

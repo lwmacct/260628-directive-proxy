@@ -68,7 +68,7 @@ func assertFluentMetadataOnWire(t *testing.T, fields map[string]string) {
 		t.Fatal(err)
 	}
 	record := event.Record{
-		SchemaVersion: event.SchemaVersion, Producer: "usage", Topic: "llm.usage.observed",
+		SchemaVersion: event.SchemaVersion, Producer: "llmobserve", Topic: "llm.response.usage",
 		TraceID: "trace-1", Sequence: 1,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Time: time.Now().UTC(),
 		Metadata: fields,

@@ -77,8 +77,8 @@ type SourceIPAllowConfig = ipallow.Config
 type SourceClientIPConfig = clientip.Config
 
 type DirectiveSourceAccess struct {
-	SourceIPAllowConfig  `cfgm:",inline"`
-	SourceClientIPConfig `cfgm:",inline"`
+	SourceIPAllowConfig  `json:",embed"`
+	SourceClientIPConfig `json:",embed"`
 }
 
 type RemoteDirective struct {

@@ -103,14 +103,14 @@ type RoundTripInfo struct {
 	Number        int   `json:"number"`
 	MaxRoundTrips int   `json:"max_round_trips"`
 	ElapsedMS     int64 `json:"elapsed_ms"`
-	RemainingMS   int64 `json:"remaining_ms,omitempty"`
-	NextRoundTrip int   `json:"next_round_trip,omitempty"`
+	RemainingMS   int64 `json:"remaining_ms,omitzero"`
+	NextRoundTrip int   `json:"next_round_trip,omitzero"`
 	RetryAllowed  bool  `json:"retry_allowed"`
 }
 
 type Trigger struct {
 	Type      TriggerType `json:"type"`
-	TimeoutMS int64       `json:"timeout_ms,omitempty"`
+	TimeoutMS int64       `json:"timeout_ms,omitzero"`
 	Code      string      `json:"code,omitempty"`
 }
 
@@ -159,5 +159,5 @@ type Event struct {
 
 type Decision struct {
 	Action  Action `json:"action"`
-	AfterMS int64  `json:"after_ms,omitempty"`
+	AfterMS int64  `json:"after_ms,omitzero"`
 }

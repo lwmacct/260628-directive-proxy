@@ -1,8 +1,7 @@
 package directive
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"strings"
 
 	"github.com/lwmacct/260628-directive-proxy/internal/core/module"
@@ -13,16 +12,16 @@ func normalizeModuleSpec(spec module.Spec) (module.Spec, error) {
 		return module.Spec{}, ErrInvalidPayload
 	}
 	if len(spec.Config) == 0 {
-		spec.Config = json.RawMessage(`{}`)
+		spec.Config = jsontext.Value(`{}`)
 	}
-	if len(spec.Config) > maxModuleSpecBytes || !json.Valid(spec.Config) {
+	if len(spec.Config) > maxModuleSpecBytes || !spec.Config.IsValid() {
 		return module.Spec{}, ErrInvalidPayload
 	}
-	compact := bytes.NewBuffer(make([]byte, 0, len(spec.Config)))
-	if err := json.Compact(compact, spec.Config); err != nil {
+	config := spec.Config.Clone()
+	if err := config.Compact(); err != nil {
 		return module.Spec{}, ErrInvalidPayload
 	}
-	spec.Config = append(json.RawMessage(nil), compact.Bytes()...)
+	spec.Config = config
 	return spec, nil
 }
 

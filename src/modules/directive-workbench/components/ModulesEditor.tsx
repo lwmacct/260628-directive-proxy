@@ -39,7 +39,7 @@ export function ModulesEditor(props: {
       title: props.text.moduleName,
       dataIndex: "module",
       width: 240,
-      render: (_, item) => <Input placeholder="builtin.capture" value={item.module} onChange={(event: ChangeEvent<HTMLInputElement>) => update(item.key, { module: event.target.value })} />,
+      render: (_, item) => <Input placeholder="capture" value={item.module} onChange={(event: ChangeEvent<HTMLInputElement>) => update(item.key, { module: event.target.value })} />,
     },
     {
       title: props.text.moduleConfig,

@@ -22,8 +22,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/recovery"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
-	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmperf"
-	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmusage"
+	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmobserve"
 )
 
 const httpTLSMinVersion = tls.VersionTLS12
@@ -67,7 +66,7 @@ func newRuntime(ctx context.Context, cfg *config.Server) (*runtime, error) {
 		MaxResponseBytes: cfg.Proxy.Recovery.MaxCallbackResponseBytes,
 		MaxTimeout:       cfg.Proxy.Recovery.MaxCallbackTimeout,
 	})
-	catalog, err := module.NewCatalog(capture.New(), llmusage.New(), llmperf.New())
+	catalog, err := module.NewCatalog(capture.New(), llmobserve.New())
 	if err != nil {
 		_ = recoveryCompiler.Close()
 		if eventOutput != nil {

@@ -65,17 +65,29 @@ func TestCompilerValidatesSpecAndClampsTimeout(t *testing.T) {
 }
 
 func TestControllerRejectsInvalidDecision(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"action":"unknown"}`))
-	}))
-	defer server.Close()
-	compiler := New(Options{MaxResponseBytes: 1024})
-	defer func() { _ = compiler.Close() }()
-	controller, err := compiler.Compile(recovery.ControllerSpec{URL: server.URL, Timeout: "1s"})
-	if err != nil {
-		t.Fatal(err)
+	responses := [][]byte{
+		[]byte(`{"action":"unknown"}`),
+		[]byte(`{"action":"retry","unknown":true}`),
+		[]byte(`{"action":"retry","action":"fail"}`),
+		[]byte(`{"Action":"retry"}`),
+		[]byte(`{"action":"retry"} {}`),
+		{'{', '"', 'a', 'c', 't', 'i', 'o', 'n', '"', ':', '"', 0xff, '"', '}'},
 	}
-	if _, err := controller.Decide(context.Background(), recovery.Event{}); err == nil {
-		t.Fatal("invalid recovery decision was accepted")
+	for _, response := range responses {
+		t.Run(string(response), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(response)
+			}))
+			defer server.Close()
+			compiler := New(Options{MaxResponseBytes: 1024})
+			defer func() { _ = compiler.Close() }()
+			controller, err := compiler.Compile(recovery.ControllerSpec{URL: server.URL, Timeout: "1s"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.Decide(context.Background(), recovery.Event{}); err == nil {
+				t.Fatalf("invalid recovery decision was accepted: %q", response)
+			}
+		})
 	}
 }

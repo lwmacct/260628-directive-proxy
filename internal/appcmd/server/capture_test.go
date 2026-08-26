@@ -18,7 +18,7 @@ import (
 	"github.com/lwmacct/260628-directive-proxy/internal/core/program"
 	"github.com/lwmacct/260628-directive-proxy/internal/core/proxy"
 	"github.com/lwmacct/260628-directive-proxy/internal/modules/capture"
-	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmusage"
+	"github.com/lwmacct/260628-directive-proxy/internal/modules/llmobserve"
 	recordoutput "github.com/lwmacct/260628-directive-proxy/internal/testutil/recordoutput"
 )
 
@@ -188,7 +188,7 @@ func TestDisabledFluentKeepsModuleRuntimeWithoutCreatingDispatcher(t *testing.T)
 	if err != nil {
 		t.Fatalf("disabled Fluent attempted startup: %v", err)
 	}
-	programRuntime, err := newProgramRuntime(module.MustCatalog(capture.New(), llmusage.New()), dispatcher)
+	programRuntime, err := newProgramRuntime(module.MustCatalog(capture.New(), llmobserve.New()), dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestDisabledFluentKeepsModuleRuntimeWithoutCreatingDispatcher(t *testing.T)
 	}
 }
 
-func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T) {
+func TestProxyLLMModuleEmitsNormalizedUsageFromRawJSONBody(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"resp_proxy","object":"response","model":"gpt-test","usage":{"input_tokens":8,"output_tokens":5,"total_tokens":13}}`)
@@ -209,7 +209,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	programRuntime, err := program.NewRuntime(module.MustCatalog(llmusage.New()), dispatcher)
+	programRuntime, err := program.NewRuntime(module.MustCatalog(llmobserve.New()), dispatcher)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 		Metadata: map[string]string{"user_key": "uk_usage", "tenant_id": "tenant-a", "provider": "test"},
 		Target:   directive.TargetSection{BaseURL: upstream.URL},
 		Modules: module.Specs{{
-			Module: llmusage.Name, Config: []byte(`{"protocol":"openai.responses"}`),
+			Module: llmobserve.Name, Config: []byte(`{"protocol":"openai.responses","observe":["usage"]}`),
 		}},
 	})
 	if err != nil {
@@ -247,7 +247,7 @@ func TestProxyLLMUsageModuleEmitsNormalizedUsageFromJSONProjection(t *testing.T)
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		for _, record := range output.Records() {
-			if record.Topic != "llm.usage.observed" {
+			if record.Topic != llmobserve.TopicUsage {
 				continue
 			}
 			usage := record.Data["usage"].(map[string]any)

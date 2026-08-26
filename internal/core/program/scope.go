@@ -216,16 +216,8 @@ func (s *ScopeSet) UpstreamResponseStarted(ctx context.Context, value lifecycle.
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.ResponseStarted] { return b.upstreamResponse }, cloneResponseStarted)
 }
 
-func (s *ScopeSet) UpstreamJSONChunk(ctx context.Context, value lifecycle.BodyChunk) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyChunk] { return b.upstreamJSONChunk }, cloneBodyChunk)
-}
-
 func (s *ScopeSet) UpstreamBodyChunk(ctx context.Context, value lifecycle.BodyChunk) error {
 	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.BodyChunk] { return b.upstreamBodyChunk }, cloneBodyChunk)
-}
-
-func (s *ScopeSet) UpstreamSSEData(ctx context.Context, value lifecycle.SSEData) error {
-	return dispatch(s, ctx, value, func(b *binder) []subscription[lifecycle.SSEData] { return b.upstreamSSEData }, cloneSSEData)
 }
 
 func (s *ScopeSet) UpstreamBodyEnded(ctx context.Context, value lifecycle.BodyEnded) error {
@@ -590,8 +582,6 @@ func (b *binder) allPolicies() []module.Policy {
 		policies(len(b.upstreamStarted), func(i int) module.Policy { return b.upstreamStarted[i].policy }),
 		policies(len(b.upstreamResponse), func(i int) module.Policy { return b.upstreamResponse[i].policy }),
 		policies(len(b.upstreamBodyChunk), func(i int) module.Policy { return b.upstreamBodyChunk[i].policy }),
-		policies(len(b.upstreamJSONChunk), func(i int) module.Policy { return b.upstreamJSONChunk[i].policy }),
-		policies(len(b.upstreamSSEData), func(i int) module.Policy { return b.upstreamSSEData[i].policy }),
 		policies(len(b.upstreamBodyEnded), func(i int) module.Policy { return b.upstreamBodyEnded[i].policy }),
 		policies(len(b.roundTripFinished), func(i int) module.Policy { return b.roundTripFinished[i].policy }),
 		policies(len(b.recoveryStarted), func(i int) module.Policy { return b.recoveryStarted[i].policy }),

@@ -37,7 +37,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 	var compileCalls int
 	resolver := newTestResolver(ResolverOptions{Compiler: compilerFunc(func(source module.Specs) (*program.Executable, error) {
 		compileCalls++
-		if len(source) != 2 || source[0].Module != "builtin.capture" || source[1].Module != "builtin.llmusage" {
+		if len(source) != 2 || source[0].Module != "capture" || source[1].Module != "llmobserve" {
 			t.Fatalf("compiler received incomplete modules: %#v", source)
 		}
 		return &program.Executable{}, nil
@@ -46,7 +46,7 @@ func TestRemotePreparedDereferencesPayloadOnceFromOriginalRequestMetadata(t *tes
 		if req.Method != http.MethodPost || req.Host != "proxy.local" || req.URL != "http://proxy.local/v1/chat" || req.Headers.Get("X-Tenant") != "original" {
 			t.Fatalf("remote resolver saw mutated request metadata: method=%s host=%s url=%s headers=%#v", req.Method, req.Host, req.URL, req.Headers)
 		}
-		return []byte(`{"metadata":{"user_key":"uk_remote"},"target":{"base_url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"modules":[{"module":"builtin.capture","config":{}},{"module":"builtin.llmusage","config":{"protocol":"openai.responses"}}],"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_round_trips":3}}}`), nil
+		return []byte(`{"metadata":{"user_key":"uk_remote"},"target":{"base_url":"https://one.example"},"headers":{"mutations":[{"side":"request","action":"set","name":"X-Route","values":["one"]}]},"modules":[{"module":"capture","config":{}},{"module":"llmobserve","config":{"protocol":"openai.responses","observe":["usage"]}}],"recovery":{"controller":{"url":"https://controller.example/recovery"},"triggers":{"transport_error":true},"budget":{"max_round_trips":3}}}`), nil
 	})})
 	token, err := EncodeRemote(testHMACSecret, RemoteSpec{HTTP: &HTTPRemoteSpec{URL: "https://resolver.example/routing"}})
 	if err != nil {

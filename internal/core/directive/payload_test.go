@@ -2,10 +2,37 @@ package directive
 
 import (
 	"encoding/base64"
+	"encoding/json/jsontext"
 	"errors"
 	"strings"
 	"testing"
+
+	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
 )
+
+func TestEncodeCanonicalizesMapAndRawConfigOrder(t *testing.T) {
+	first := Payload{
+		Metadata: map[string]string{"z": "last", "a": "first"},
+		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
+		Modules:  directivecontract.ModuleSpecs{{Module: "test", Config: jsontext.Value(`{"z":1,"a":2}`)}},
+	}
+	second := Payload{
+		Metadata: map[string]string{"a": "first", "z": "last"},
+		Target:   TargetSection{BaseURL: "https://api.example.com/v1"},
+		Modules:  directivecontract.ModuleSpecs{{Module: "test", Config: jsontext.Value(`{"a":2,"z":1}`)}},
+	}
+	firstToken, err := Encode(testHMACSecret, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondToken, err := Encode(testHMACSecret, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstToken != secondToken {
+		t.Fatalf("equivalent payloads produced different tokens:\n%s\n%s", firstToken, secondToken)
+	}
+}
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	input := Payload{

@@ -1,6 +1,6 @@
 package directive
 
-import "encoding/json"
+import "encoding/json/jsontext"
 
 const (
 	TokenFamily  = "dp"
@@ -70,7 +70,7 @@ type TargetSection struct {
 }
 
 type HeaderPolicy struct {
-	PreserveProxyDisclosure bool             `json:"preserve_proxy_disclosure,omitempty"`
+	PreserveProxyDisclosure bool             `json:"preserve_proxy_disclosure,omitzero"`
 	Mutations               []HeaderMutation `json:"mutations,omitempty"`
 }
 
@@ -83,8 +83,8 @@ type HeaderMutation struct {
 }
 
 type ModuleSpec struct {
-	Module string          `json:"module"`
-	Config json.RawMessage `json:"config,omitempty"`
+	Module string         `json:"module"`
+	Config jsontext.Value `json:"config,omitempty"`
 }
 
 type ModuleSpecs []ModuleSpec
@@ -104,12 +104,12 @@ type RecoveryControllerSpec struct {
 type RecoveryTriggerSpec struct {
 	ResponseHeaderTimeout string                        `json:"response_header_timeout,omitempty"`
 	UnexpectedStatus      *RecoveryUnexpectedStatusSpec `json:"unexpected_status,omitempty"`
-	TransportError        bool                          `json:"transport_error,omitempty"`
+	TransportError        bool                          `json:"transport_error,omitzero"`
 }
 
 type RecoveryUnexpectedStatusSpec struct {
 	Expected         []RecoveryStatusRangeSpec `json:"expected"`
-	CaptureBodyBytes int64                     `json:"capture_body_bytes,omitempty"`
+	CaptureBodyBytes int64                     `json:"capture_body_bytes,omitzero"`
 }
 
 type RecoveryStatusRangeSpec struct {

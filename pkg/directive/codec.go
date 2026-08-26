@@ -1,12 +1,11 @@
 package directive
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
-	"io"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 )
 
@@ -21,7 +20,7 @@ func EncodeRemote(hmacSecret string, spec RemoteSpec) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	raw, err := json.Marshal(normalized)
+	raw, err := json.Marshal(normalized, json.Deterministic(true), jsontext.ReorderRawObjects(true))
 	if err != nil {
 		return "", ErrInvalidPayload
 	}
@@ -74,7 +73,7 @@ func DecodeTemplate(raw []byte) (Payload, error) {
 }
 
 func CanonicalTemplate(raw []byte) ([]byte, error) {
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return nil, ErrInvalidPayload
 	}
@@ -89,7 +88,7 @@ func CanonicalTemplate(raw []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := json.Marshal(payload)
+	canonical, err := json.Marshal(payload, json.Deterministic(true), jsontext.ReorderRawObjects(true))
 	if err != nil {
 		return nil, ErrInvalidPayload
 	}
@@ -97,11 +96,11 @@ func CanonicalTemplate(raw []byte) ([]byte, error) {
 		return nil, ErrInvalidPayload
 	}
 	delete(fields, "target")
-	return json.Marshal(fields)
+	return json.Marshal(fields, json.Deterministic(true), jsontext.ReorderRawObjects(true))
 }
 
 func DecodeRemoteSpec(raw []byte) (RemoteSpec, error) {
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return RemoteSpec{}, ErrInvalidPayload
 	}
@@ -127,7 +126,7 @@ func (target *TargetSection) UnmarshalJSON(raw []byte) error {
 	if err != nil {
 		return ErrInvalidPayload
 	}
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	if err = json.Unmarshal(raw, &fields); err != nil || len(fields) != 1 {
 		return ErrInvalidPayload
 	}
@@ -140,12 +139,7 @@ func decodeStrict[T any](raw []byte) (T, error) {
 	if len(raw) == 0 {
 		return value, ErrInvalidPayload
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&value); err != nil {
-		return value, ErrInvalidPayload
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+	if err := json.Unmarshal(raw, &value, json.RejectUnknownMembers(true)); err != nil {
 		return value, ErrInvalidPayload
 	}
 	return value, nil

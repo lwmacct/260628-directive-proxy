@@ -11,11 +11,10 @@ require (
 	github.com/lwmacct/251207-go-pkg-version v0.4.260630
 	github.com/lwmacct/251219-go-pkg-logm v0.9.260413
 	github.com/lwmacct/260614-go-pkg-tlsreload v0.15.260716
-	github.com/lwmacct/260714-go-pkg-fluent v0.7.260825
-	github.com/lwmacct/260714-go-pkg-llmperf v0.2.260715
-	github.com/lwmacct/260714-go-pkg-llmusage v0.2.260714
+	github.com/lwmacct/260714-go-pkg-fluent v0.8.260826
 	github.com/lwmacct/260718-go-pkg-clientip v0.2.260718
-	github.com/lwmacct/260718-go-pkg-ipallow v0.3.260718
+	github.com/lwmacct/260718-go-pkg-ipallow v0.5.260826
+	github.com/lwmacct/260826-go-pkg-llmobserve v0.2.260826
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/tinylib/msgp v1.6.4
 	github.com/urfave/cli/v3 v3.11.0

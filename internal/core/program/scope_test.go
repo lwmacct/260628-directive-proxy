@@ -110,7 +110,7 @@ func TestMutatorsPreserveGlobalOrderAcrossScopes(t *testing.T) {
 	_ = active.Finish(context.Background(), module.FinishCompleted)
 }
 
-func TestStreamObserverCreatesOnlySubscribedSSEView(t *testing.T) {
+func TestDownstreamObserverCreatesOnlySubscribedSSEView(t *testing.T) {
 	var rawChunks int
 	var events []lifecycle.SSEData
 	instance := testInstance{bind: func(registrar module.Registrar) {
@@ -118,13 +118,13 @@ func TestStreamObserverCreatesOnlySubscribedSSEView(t *testing.T) {
 			rawChunks++
 			return nil
 		})
-		registrar.OnUpstreamSSEData(module.SyncPolicy(), func(_ module.Context, event lifecycle.SSEData) error {
+		registrar.OnDownstreamSSEData(module.SyncPolicy(), func(_ module.Context, event lifecycle.SSEData) error {
 			events = append(events, event)
 			return nil
 		})
 	}}
 	scope := openTestScope(t, []compiled{{moduleName: "test.projection", binding: testBinding{open: func() module.Instance { return instance }}}})
-	observer := NewUpstreamObserver("text/event-stream; charset=utf-8", 1024, scope)
+	observer := NewDownstreamObserver("text/event-stream; charset=utf-8", 1024, scope)
 	if err := observer.Observe(t.Context(), time.Now(), []byte("event: delta\ndata: hello\n\n")); err != nil {
 		t.Fatal(err)
 	}

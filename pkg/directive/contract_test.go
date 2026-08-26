@@ -14,7 +14,7 @@ func TestCanonicalTemplateAndCompletePayloadShareContract(t *testing.T) {
 	raw := []byte(`{
 		"metadata":{"user_key":"tenant-a"},
 		"headers":{"mutations":[{"side":"request","action":"set","name":"X-Tenant","values":["a"]}]},
-		"modules":[{"module":"builtin.capture","config":{"enabled":true}}]
+		"modules":[{"module":"capture","config":{"enabled":true}}]
 	}`)
 	canonical, err := directive.CanonicalTemplate(raw)
 	if err != nil {
@@ -150,5 +150,30 @@ func TestDecodePayloadRejectsInvalidTargetAndHeaderContract(t *testing.T) {
 		if _, err := directive.DecodePayload([]byte(raw)); !errors.Is(err, directive.ErrInvalidPayload) {
 			t.Fatalf("DecodePayload(%s) error = %v", raw, err)
 		}
+	}
+}
+
+func TestStrictJSONRejectsAmbiguousPayloads(t *testing.T) {
+	t.Parallel()
+	for _, raw := range [][]byte{
+		[]byte(`{"target":{"base_url":"https://vendor.example"},"target":{"base_url":"https://other.example"}}`),
+		[]byte(`{"Target":{"base_url":"https://vendor.example"}}`),
+		[]byte(`{"target":{"base_url":"https://vendor.example"}} {}`),
+		{'{', '"', 't', 'a', 'r', 'g', 'e', 't', '"', ':', '{', '"', 'b', 'a', 's', 'e', '_', 'u', 'r', 'l', '"', ':', '"', 0xff, '"', '}', '}'},
+	} {
+		if _, err := directive.DecodePayload(raw); !errors.Is(err, directive.ErrInvalidPayload) {
+			t.Fatalf("DecodePayload(%q) error = %v", raw, err)
+		}
+	}
+}
+
+func TestCanonicalTemplateSortsMapMembersDeterministically(t *testing.T) {
+	t.Parallel()
+	canonical, err := directive.CanonicalTemplate([]byte(`{"metadata":{"z":"last","a":"first"},"modules":[{"module":"test","config":{"z":1,"a":2}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(canonical), `{"metadata":{"a":"first","z":"last"},"modules":[{"config":{"a":2,"z":1},"module":"test"}]}`; got != want {
+		t.Fatalf("canonical template = %s, want %s", got, want)
 	}
 }

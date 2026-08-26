@@ -19,7 +19,7 @@ func (current *Exchange) Configure(configuration Configuration) error {
 	info := configuration.Directive
 	value := lifecycle.DirectivePrepared{
 		Mode: info.Mode, Backend: info.Backend, UUID: info.UUID, Endpoint: info.Endpoint, Resource: info.Resource,
-		Duration: info.Duration, PayloadSHA256: info.PayloadSHA256, Target: cloneURL(info.Target),
+		Duration: info.Duration, PayloadSHA256: info.PayloadSHA256, Target: info.Target.Clone(),
 	}
 	current.stateMu.Lock()
 	if current.configured {
@@ -304,10 +304,6 @@ func (roundTrip *RoundTrip) finishLifecycle(outcome lifecycle.Outcome, cause mod
 	}
 	current.lifecycleMu.Lock()
 	defer current.lifecycleMu.Unlock()
-	if roundTrip.projection != nil {
-		_ = roundTrip.projection.Finish(current.ctx, time.Now().UTC())
-		roundTrip.projection = nil
-	}
 	if emitBodyEnd {
 		_ = current.dispatchLocked(roundTrip, func(active *program.ScopeSet) error {
 			return active.UpstreamBodyEnded(current.ctx, lifecycle.BodyEnded{Cause: bodyCause})

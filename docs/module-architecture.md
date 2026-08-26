@@ -18,8 +18,8 @@ directive 使用有序数组声明程序：
 ```json
 {
   "modules": [
-    {"module":"builtin.capture","config":{}},
-    {"module":"builtin.llmusage","config":{"protocol":"openai.responses"}}
+    {"module":"capture","config":{}},
+    {"module":"llmobserve","config":{"protocol":"openai.responses","observe":["usage","performance"]}}
   ]
 }
 ```
@@ -63,7 +63,7 @@ directive 使用有序数组声明程序：
 - Fact：不可变生命周期事实，例如 request started、directive prepared、round trip started、Recovery transaction、body ended；
 - Command：预留给异步影响未来状态的控制消息，不允许异步任务反向修改已经提交的数据。
 
-Module 通过 `module.Registrar` 明确声明端口，端口值来自 `core/lifecycle`。未订阅的投影不会创建。例如 `builtin.llmusage` 只订阅 response headers、`UpstreamSSEData`、`UpstreamJSONChunk` 和 upstream end，不接收通用 raw Signal。
+Module 通过 `module.Registrar` 明确声明端口，端口值来自 `core/lifecycle`。未订阅的投影不会创建。例如 `llmobserve` 订阅 upstream start、response headers、raw body chunk 和 body end，在 Module 内用单个 decoder 同时产生 usage 与 performance 结果；`capture` 订阅 downstream SSE data/comment 时，core 才创建对应的下游 SSE 投影。
 
 Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarted` 在调用 Controller 前投递，`OnRecoveryDecided` 在收到合法决策后投递，`OnRecoveryFinished` 在决策实际应用或失败后且在 `RoundTripFinished` 前投递。三个事件共享同一 `EventID`。`module.Context.Sequence` 是同一 Exchange Run 内单调递增的生命周期序号；Recovery 事件的 `module.Context.EventID` 与 payload 的 `EventID` 相同。Module 可以完整观察 trigger、Controller 请求上下文、决策和最终 outcome，但不能覆盖 directive 或 Controller 决策。
 
@@ -82,14 +82,15 @@ Recovery callback 是一等、只读的三阶段事务端口：`OnRecoveryStarte
 
 ## 投影、Emitter 与 Event Dispatcher
 
-每个方向只构造一次共享投影：
+上游原始观测、正文 mutation 和下游投影的边界为：
 
 ```text
 upstream raw
 ├─ raw subscribers
-├─ ordered body transforms
-├─ SSE / JSON projection（按订阅按需创建）
-└─ downstream committed bytes
+└─ ordered body transforms
+     └─ downstream committed bytes
+          ├─ downstream raw subscribers
+          └─ SSE data/comment projection（按订阅创建）
 ```
 
 `core/program.Runtime` 负责 Program 编译、Run、Scope 和 Program Module 健康；Definition 的注册和全局名称唯一性属于 `core/module.Catalog`。Module 通过 `module.Context.Emitter` 产生可选外部 Record；Runtime 只依赖 `core/event.Provider`。

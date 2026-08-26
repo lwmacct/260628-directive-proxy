@@ -1,7 +1,7 @@
 package server
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
@@ -31,7 +31,7 @@ func (handler *healthHandler) ServeHTTP(writer http.ResponseWriter, request *htt
 	}
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(writer).Encode(handler.snapshot())
+	_ = json.MarshalWrite(writer, handler.snapshot(), json.Deterministic(true))
 }
 
 func (handler *healthHandler) snapshot() HealthResponse {

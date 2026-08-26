@@ -1,12 +1,12 @@
 # Capture Module
 
-`builtin.capture` 是 exchange-lifetime Module，跨越全部 Recovery RoundTrip，记录请求、响应和生命周期审计事件。
+`capture` 是 exchange-lifetime Module，跨越全部 Recovery RoundTrip，记录请求、响应和生命周期审计事件。
 
 ```json
 {
   "modules": [
     {
-      "module": "builtin.capture",
+      "module": "capture",
       "config": {
         "body-chunk-bytes": 32768,
         "redact-headers": ["authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"],

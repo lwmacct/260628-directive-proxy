@@ -3,7 +3,7 @@ package recoveryhttp
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -84,7 +84,7 @@ func (controller *binding) Decide(ctx context.Context, event recovery.Event) (re
 	if event.Protocol == "" {
 		event.Protocol = recovery.Protocol
 	}
-	body, err := json.Marshal(event)
+	body, err := json.Marshal(event, json.Deterministic(true))
 	if err != nil {
 		return recovery.Decision{}, err
 	}
@@ -128,14 +128,9 @@ func (controller *binding) Decide(ctx context.Context, event recovery.Event) (re
 	if controller.maxResponseBytes > 0 && int64(len(data)) > controller.maxResponseBytes {
 		return recovery.Decision{}, errors.New("recovery callback response exceeds limit")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
 	var decision recovery.Decision
-	if err := decoder.Decode(&decision); err != nil {
+	if err := json.Unmarshal(data, &decision, json.RejectUnknownMembers(true)); err != nil {
 		return recovery.Decision{}, errors.New("recovery callback returned an invalid decision")
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return recovery.Decision{}, errors.New("recovery callback returned trailing data")
 	}
 	switch decision.Action {
 	case recovery.ActionRetry, recovery.ActionForward, recovery.ActionFail:

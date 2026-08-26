@@ -3,7 +3,6 @@ package exchange
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,7 +62,6 @@ type RoundTrip struct {
 
 	scope       *program.Scope
 	program     *program.ScopeSet
-	projection  program.StreamObserver
 	scopeOpened atomic.Bool
 	closed      atomic.Bool
 }
@@ -328,17 +326,9 @@ func requestURL(req *http.Request) string {
 	return value.String()
 }
 
-func cloneURL(in *url.URL) *url.URL {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	return &out
-}
-
 func roundTripStartedFromDirective(value lifecycle.DirectivePrepared) lifecycle.RoundTripStarted {
 	return lifecycle.RoundTripStarted{
 		Mode: value.Mode, Backend: value.Backend, UUID: value.UUID, Endpoint: value.Endpoint, Resource: value.Resource,
-		PayloadSHA256: value.PayloadSHA256, Target: cloneURL(value.Target),
+		PayloadSHA256: value.PayloadSHA256, Target: value.Target.Clone(),
 	}
 }

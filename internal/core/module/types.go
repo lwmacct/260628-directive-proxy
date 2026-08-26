@@ -2,7 +2,7 @@ package module
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	directivecontract "github.com/lwmacct/260628-directive-proxy/pkg/directive"
@@ -28,7 +28,7 @@ type Specs = directivecontract.ModuleSpecs
 type ProgramDefinition interface {
 	Definition
 	Lifetime() Lifetime
-	CompileProgram(json.RawMessage) (Binding, error)
+	CompileProgram(jsontext.Value) (Binding, error)
 }
 
 // Binding is immutable and safe for concurrent Open calls after Compile returns.

@@ -26,7 +26,7 @@ func TestHealthReportsModuleAndEventOutputDegradation(t *testing.T) {
 	failureAt := time.Now().UTC().Add(-time.Second)
 	handler := &healthHandler{
 		modules: moduleHealthStub{snapshot: program.HealthSnapshot{
-			Status: "ok", Modules: map[string]program.HealthStatus{"builtin.llmusage": {Status: "ok"}},
+			Status: "ok", Modules: map[string]program.HealthStatus{"llmobserve": {Status: "ok"}},
 		}},
 		eventOutput: eventHealthStub{snapshot: event.HealthSnapshot{
 			Enabled: true,
@@ -42,7 +42,7 @@ func TestHealthReportsModuleAndEventOutputDegradation(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Status != "degraded" || response.Modules.Items["builtin.llmusage"].Status != "ok" {
+	if response.Status != "degraded" || response.Modules.Items["llmobserve"].Status != "ok" {
 		t.Fatalf("unexpected health response: %#v", response)
 	}
 	output := response.EventOutput.Sink

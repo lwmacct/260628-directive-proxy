@@ -31,7 +31,7 @@ func NewRequestTemplate(req *http.Request) *RequestTemplate {
 	}
 	return &RequestTemplate{
 		Method:           req.Method,
-		URL:              cloneURL(req.URL),
+		URL:              req.URL.Clone(),
 		Host:             req.Host,
 		Header:           req.Header.Clone(),
 		Trailer:          req.Trailer.Clone(),
@@ -54,7 +54,7 @@ func BuildRoundTripRequest(template *RequestTemplate, plan *Plan, ctx context.Co
 	}
 	req := &http.Request{
 		Method:           template.Method,
-		URL:              cloneURL(plan.Target),
+		URL:              plan.Target.Clone(),
 		Proto:            template.Proto,
 		ProtoMajor:       template.ProtoMajor,
 		ProtoMinor:       template.ProtoMinor,

@@ -1,8 +1,7 @@
 package directive
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"io/fs"
 	"net"
@@ -285,16 +284,16 @@ func normalizeModules(specs ModuleSpecs) (ModuleSpecs, error) {
 		}
 		seen[spec.Module] = struct{}{}
 		if len(spec.Config) == 0 {
-			spec.Config = json.RawMessage(`{}`)
+			spec.Config = jsontext.Value(`{}`)
 		}
-		if len(spec.Config) > maxModuleConfigBytes || !json.Valid(spec.Config) {
+		if len(spec.Config) > maxModuleConfigBytes || !spec.Config.IsValid() {
 			return nil, ErrInvalidPayload
 		}
-		buffer := bytes.NewBuffer(make([]byte, 0, len(spec.Config)))
-		if err := json.Compact(buffer, spec.Config); err != nil {
+		config := spec.Config.Clone()
+		if err := config.Compact(); err != nil {
 			return nil, ErrInvalidPayload
 		}
-		spec.Config = append(json.RawMessage(nil), buffer.Bytes()...)
+		spec.Config = config
 		out[index] = spec
 	}
 	return out, nil

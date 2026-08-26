@@ -26,8 +26,6 @@ type binder struct {
 	upstreamStarted      []subscription[lifecycle.UpstreamStarted]
 	upstreamResponse     []subscription[lifecycle.ResponseStarted]
 	upstreamBodyChunk    []subscription[lifecycle.BodyChunk]
-	upstreamJSONChunk    []subscription[lifecycle.BodyChunk]
-	upstreamSSEData      []subscription[lifecycle.SSEData]
 	upstreamBodyEnded    []subscription[lifecycle.BodyEnded]
 	roundTripFinished    []subscription[lifecycle.RoundTripFinished]
 	recoveryStarted      []subscription[lifecycle.RecoveryStarted]
@@ -80,14 +78,8 @@ func (b *binder) OnUpstreamStarted(policy module.Policy, handle module.Handler[l
 func (b *binder) OnUpstreamResponseStarted(policy module.Policy, handle module.Handler[lifecycle.ResponseStarted]) {
 	appendSubscription(&b.upstreamResponse, policy, handle)
 }
-func (b *binder) OnUpstreamJSONChunk(policy module.Policy, handle module.Handler[lifecycle.BodyChunk]) {
-	appendSubscription(&b.upstreamJSONChunk, policy, handle)
-}
 func (b *binder) OnUpstreamBodyChunk(policy module.Policy, handle module.Handler[lifecycle.BodyChunk]) {
 	appendSubscription(&b.upstreamBodyChunk, policy, handle)
-}
-func (b *binder) OnUpstreamSSEData(policy module.Policy, handle module.Handler[lifecycle.SSEData]) {
-	appendSubscription(&b.upstreamSSEData, policy, handle)
 }
 func (b *binder) OnUpstreamBodyEnded(policy module.Policy, handle module.Handler[lifecycle.BodyEnded]) {
 	appendSubscription(&b.upstreamBodyEnded, policy, handle)

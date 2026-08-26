@@ -77,13 +77,13 @@ decode token and resolve canonical Payload
             -> Controller callback -> RecoveryDecided
             -> apply decision -> RecoveryFinished
        -> upstream response mutation barrier
-       -> raw chunks -> transforms -> SSE/JSON projection
+       -> raw chunks -> transforms -> downstream commit
        -> upstream body end -> RoundTripFinished -> close round-trip-lifetime scope
   -> downstream facts/projection
   -> RequestFinished -> close exchange-lifetime scope
 ```
 
-Module 通过 `module.Registrar` 声明自己接收的事件和 mutation port；端口值由 `core/lifecycle` 定义。未声明的事件不会投递，未订阅的 SSE/JSON 投影不会创建。例如 `builtin.llmusage` 只接收 upstream response headers、SSE data、JSON chunk 和 body end；`builtin.llmperf` 接收 upstream start、response headers、raw body chunk 和 body end。
+Module 通过 `module.Registrar` 声明自己接收的事件和 mutation port；端口值由 `core/lifecycle` 定义。未声明的事件不会投递，未订阅的 downstream SSE 投影不会创建。`llmobserve` 接收 upstream start、response headers、raw body chunk 和 body end，并在同一个增量 decoder 中完成 SSE framing、usage 与 performance 观测。
 
 exchange-lifetime Module 在正文读取前收到一次 `DirectivePrepared`。每次 Recovery RoundTrip 开始时，exchange-lifetime Module 与新打开的 round-trip-lifetime Module 都收到 `RoundTripStarted`；两类实例按原始 Program 数组位置统一排序。其中 source、target 和 payload digest 来自同一个 prepared directive，不会在 RoundTrip 之间重绑定或报告虚假的变化。metadata 不在各 lifecycle fact 中重复，而是由每次回调的 `module.Context.Metadata` 自动提供。
 
@@ -101,7 +101,6 @@ Store 只使用进程内分段内存，不创建任何持久化或临时文件�
 
 - `UpstreamBodyChunk`：上游 raw 切片；
 - `MutateUpstreamBodyChunk`：有序、提交前 transform；
-- `UpstreamSSEData` / `UpstreamJSONChunk`：transform 后的共享派生投影；
 - `DownstreamBodyChunk`：已经写给客户端的字节；
 - `DownstreamSSEData` / `DownstreamSSEComment`：下游共享投影。
 

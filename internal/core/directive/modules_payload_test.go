@@ -11,8 +11,8 @@ func TestPayloadRoundTripsOrderedModules(t *testing.T) {
 		Metadata: testDirectiveMetadata(),
 		Target:   TargetSection{BaseURL: "https://api.example.com/v1/responses"},
 		Modules: module.Specs{
-			{Module: "builtin.capture", Config: []byte(`{}`)},
-			{Module: "builtin.llmusage", Config: []byte(`{"protocol":"openai.responses"}`)},
+			{Module: "capture", Config: []byte(`{}`)},
+			{Module: "llmobserve", Config: []byte(`{"protocol":"openai.responses","observe":["usage"]}`)},
 		},
 	})
 	if err != nil {
@@ -23,7 +23,7 @@ func TestPayloadRoundTripsOrderedModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	if document.Payload == nil || len(document.Payload.Modules) != 2 ||
-		document.Payload.Modules[0].Module != "builtin.capture" || document.Payload.Modules[1].Module != "builtin.llmusage" {
+		document.Payload.Modules[0].Module != "capture" || document.Payload.Modules[1].Module != "llmobserve" {
 		t.Fatalf("unexpected modules: %#v", document)
 	}
 	compiled, err := CompilePayload(*document.Payload, AssembleOptions{})
@@ -33,7 +33,7 @@ func TestPayloadRoundTripsOrderedModules(t *testing.T) {
 }
 
 func TestPayloadRejectsDuplicateModule(t *testing.T) {
-	_, err := DecodePayload([]byte(`{"target":{"base_url":"https://api.example.com"},"modules":[{"module":"builtin.capture"},{"module":"builtin.capture"}]}`))
+	_, err := DecodePayload([]byte(`{"target":{"base_url":"https://api.example.com"},"modules":[{"module":"capture"},{"module":"capture"}]}`))
 	if err == nil {
 		t.Fatal("duplicate module was accepted")
 	}

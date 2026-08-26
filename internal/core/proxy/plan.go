@@ -35,8 +35,8 @@ func ClonePlan(in *Plan) *Plan {
 		return nil
 	}
 	out := *in
-	out.Target = cloneURL(in.Target)
-	out.Proxy = cloneURL(in.Proxy)
+	out.Target = in.Target.Clone()
+	out.Proxy = in.Proxy.Clone()
 	out.Headers = httpheader.ClonePlan(in.Headers)
 	return &out
 }

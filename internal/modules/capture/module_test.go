@@ -105,9 +105,17 @@ func TestResponseCaptureReportsOutputQueueDropsWithoutBlocking(t *testing.T) {
 	}
 }
 
-func TestModuleRejectsUnknownConfigFields(t *testing.T) {
-	if _, err := New().CompileProgram([]byte(`{"unknown":true}`)); err == nil {
-		t.Fatal("unknown config field was accepted")
+func TestModuleRejectsAmbiguousConfig(t *testing.T) {
+	for _, raw := range [][]byte{
+		[]byte(`{"unknown":true}`),
+		[]byte(`{"body-chunk-bytes":4,"body-chunk-bytes":8}`),
+		[]byte(`{"Body-Chunk-Bytes":4}`),
+		[]byte(`{} {}`),
+		{'{', '"', 'r', 'e', 'd', 'a', 'c', 't', '-', 'q', 'u', 'e', 'r', 'y', '"', ':', '[', '"', 0xff, '"', ']', '}'},
+	} {
+		if _, err := New().CompileProgram(raw); err == nil {
+			t.Fatalf("ambiguous config was accepted: %q", raw)
+		}
 	}
 }
 

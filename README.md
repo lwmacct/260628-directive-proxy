@@ -106,8 +106,8 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
   "metadata": {"user_id": "user-1", "user_key": "key-1", "tenant_id": "tenant-a"},
   "target": {"base_url": "https://api.example.com/v2"},
   "modules": [
-    {"module": "builtin.capture", "config": {}},
-    {"module": "builtin.llmusage", "config": {"protocol": "openai.responses"}}
+    {"module": "capture", "config": {}},
+    {"module": "llmobserve", "config": {"protocol": "openai.responses", "observe": ["usage", "performance"]}}
   ],
   "recovery": {
     "controller": {"url": "https://control.example.com/recovery"},
@@ -118,15 +118,6 @@ HTTP/Redis/File source 提供完整 `Payload`，例如：
 ```
 
 RemoteSpec 在请求 Prepare 阶段解引用一次。取得 Payload 后，inline 与 remote 进入完全相同的校验、编译和执行流程；不存在字段 merge、优先级、旧 plan 回退或每 RoundTrip 重读。Recovery retry 使用同一份已解析 Payload。
-
-## LLM Relay 集成
-
-`260628-llm-relay-entry` 从共享数据库读取 Key Group 的 HTTP RemoteSpec，在每个请求运行时签发
-`dp.22.remote`。RemoteSpec 的 HTTP header 直接携带 Vendor 签发的 `dpr_*` resolver token；
-因此 Proxy 只需验证 RemoteSpec 并访问 Vendor `/api/resolver`，Vendor 再根据该 token 定位
-当前 Directive Route。没有固定 remote token、S2S 模式或 `X-Relay-Target-ID` 旁路。
-两者的完整信任边界见
-[LLM Relay 系统拓扑](https://github.com/lwmacct/260628-llm-relay-console/blob/main/docs/system-topology.md)。
 
 ## Go 公共协议包
 
@@ -257,11 +248,10 @@ Controller 回调失败、超时或返回非法决策时，代理保留原始结
 
 内置 Module 由 directive 的单一有序 `modules` 数组启用；每项只声明唯一的 `module` 和可选 `config`，生命周期由 Module Definition 静态声明：
 
-- [`builtin.capture`](docs/module-capture.md)：请求、响应和生命周期审计；
-- [`builtin.llmusage`](docs/module-llmusage.md)：LLM token usage 提取；
-- [`builtin.llmperf`](docs/module-llmperf.md)：LLM 响应性能测量。
+- [`capture`](docs/module-capture.md)：请求、响应和生命周期审计；
+- [`llmobserve`](docs/module-llm.md)：单次增量解析 LLM usage 与响应性能。
 
-Module 经内部有界队列向 Fluent 输出统一 `dp.event.v6` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 使用 `(trace_id, sequence)` 作为事件身份，并在顶层携带完整 directive `metadata`；各 topic 的 `data` 不重复这些公共字段。Capture、LLM usage 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
+Module 经内部有界队列向 Fluent 输出统一 `dp.event.v6` Record，默认 Fluent tag 前缀为 `dp`。每条 Record 使用 `(trace_id, sequence)` 作为事件身份，并在顶层携带完整 directive `metadata`；各 topic 的 `data` 不重复这些公共字段。Capture、LLM 等所有 producer 使用相同语义。`server.fluent.enabled=false` 时不创建 Sink、Queue 或连接，但 Module 仍注册、校验和执行。观测查询和展示应部署在 Fluent 下游，不放回本项目控制面。
 
 服务在公开的 `GET /metrics` 暴露 Prometheus 兼容指标。应用指标名的完整前缀通过 `server.metrics.prefix` 配置，默认是 `m_260628_`；标准 `go_*` 和 `process_*` 指标不受影响。
 

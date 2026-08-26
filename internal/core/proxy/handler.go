@@ -2,7 +2,7 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -328,7 +328,7 @@ func proxyErrorJSONBody(code, message string) []byte {
 	}{}
 	body.Error.Code = code
 	body.Error.Message = message
-	data, err := json.Marshal(body)
+	data, err := json.Marshal(body, json.Deterministic(true))
 	if err != nil {
 		return []byte("{}\n")
 	}
